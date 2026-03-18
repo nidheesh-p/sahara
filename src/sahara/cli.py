@@ -1397,6 +1397,153 @@ def history(ctx: click.Context, path: Optional[str], limit: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# index
+# ---------------------------------------------------------------------------
+
+
+@main.command("index")
+@click.option("--folder", "-f", default=None, help="Index only this folder (local path).")
+@click.option("--force", is_flag=True, help="Re-index all files even if unchanged.")
+@click.pass_context
+def index_cmd(ctx: click.Context, folder: Optional[str], force: bool) -> None:
+    """Index file contents for semantic search."""
+    config: SaharaConfig = ctx.obj["config"]
+    _require_config(config)
+
+    from sahara.state_db import StateDB
+    from sahara.search_engine import SearchEngine
+    from pathlib import Path as _Path
+
+    db = StateDB().connect()
+    engine = SearchEngine(db)
+
+    try:
+        # Build list of (local_folder, s3_prefix) to index
+        all_targets: list[tuple[_Path, str]] = [(config.get_sync_folder_path(), "")]
+        for row in db.list_sync_targets():
+            all_targets.append((_Path(row["local_path"]), row["s3_prefix"]))
+
+        if folder:
+            resolved = str(_Path(folder).expanduser().resolve())
+            targets = [(f, p) for f, p in all_targets if str(f) == resolved]
+            if not targets:
+                _abort(f"'{folder}' is not a registered sync folder.")
+        else:
+            targets = all_targets
+
+        total_indexed = 0
+        total_skipped = 0
+        total_failed = 0
+
+        for sync_folder, s3_prefix in targets:
+            label = s3_prefix or "(primary)"
+            files = db.list_files(s3_prefix=s3_prefix)
+            if not files:
+                continue
+
+            _section(f"Indexing {label} — {len(files)} file(s)")
+
+            for i, record in enumerate(files, 1):
+                file_path = sync_folder / record.relative_path
+                click.echo(
+                    f"  [{i:>4}/{len(files)}] {record.relative_path[:60]}",
+                    nl=False,
+                )
+                if not file_path.exists():
+                    click.echo(click.style("  [missing]", fg="yellow"))
+                    total_skipped += 1
+                    continue
+                try:
+                    reindexed = engine.index_file(
+                        file_path, s3_prefix, record.relative_path, force=force
+                    )
+                    if reindexed:
+                        click.echo(click.style("  ✓", fg="green"))
+                        total_indexed += 1
+                    else:
+                        click.echo(click.style("  –", fg="white"))  # unchanged
+                        total_skipped += 1
+                except Exception as exc:
+                    click.echo(click.style(f"  ✗ {exc}", fg="red"))
+                    total_failed += 1
+
+        db.conn.commit()
+        click.echo()
+        _ok(
+            f"Done — {total_indexed} indexed, {total_skipped} unchanged, {total_failed} failed."
+        )
+        _info(f"Total in index: {db.count_embeddings()} file(s).")
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# search
+# ---------------------------------------------------------------------------
+
+
+@main.command("search")
+@click.argument("query")
+@click.option("--top", "-n", default=5, show_default=True, help="Number of results to return.")
+@click.option("--folder", "-f", default=None, help="Search only this folder (local path).")
+@click.option("--snippet", is_flag=True, help="Show matching text snippet.")
+@click.pass_context
+def search_cmd(
+    ctx: click.Context, query: str, top: int, folder: Optional[str], snippet: bool
+) -> None:
+    """Search files by content using natural language."""
+    config: SaharaConfig = ctx.obj["config"]
+    _require_config(config)
+
+    from sahara.state_db import StateDB
+    from sahara.search_engine import SearchEngine
+    from pathlib import Path as _Path
+
+    db = StateDB().connect()
+    engine = SearchEngine(db)
+
+    try:
+        # Resolve optional folder filter to s3_prefix
+        s3_prefix_filter: Optional[str] = None
+        if folder:
+            resolved = str(_Path(folder).expanduser().resolve())
+            all_targets: list[tuple[_Path, str]] = [(config.get_sync_folder_path(), "")]
+            for row in db.list_sync_targets():
+                all_targets.append((_Path(row["local_path"]), row["s3_prefix"]))
+            match = [(f, p) for f, p in all_targets if str(f) == resolved]
+            if not match:
+                _abort(f"'{folder}' is not a registered sync folder.")
+            s3_prefix_filter = match[0][1]
+
+        total = db.count_embeddings(s3_prefix=s3_prefix_filter)
+        if total == 0:
+            _warn("No files indexed yet. Run `sahara index` first.")
+            return
+
+        _info(f"Searching {total} indexed file(s)…")
+        results = engine.search(query, top_k=top, s3_prefix=s3_prefix_filter)
+
+        if not results:
+            _info("No results found.")
+            return
+
+        _section(f"Results for: \"{query}\"")
+        for i, r in enumerate(results, 1):
+            prefix = r["s3_prefix"]
+            display = f"{prefix}/{r['relative_path']}" if prefix else r["relative_path"]
+            score_pct = int(r["score"] * 100)
+            score_color = "green" if score_pct >= 70 else "yellow" if score_pct >= 50 else "white"
+            score_str = click.style(f"{score_pct}%", fg=score_color)
+            click.echo(f"  {i}. [{score_str}] {display}")
+            if snippet and r["snippet"]:
+                # Print first 150 chars of snippet, indented
+                snip = r["snippet"].replace("\n", " ")[:150].strip()
+                click.echo(click.style(f"       {snip}…", fg="bright_black"))
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # daemon group
 # ---------------------------------------------------------------------------
 
