@@ -5,6 +5,6 @@ Canonical import paths:
     from sahara.search.search_engine import SearchEngine
 """
 
-from sahara.search_engine import SearchEngine, TextExtractor  # noqa: F401
+from sahara.search.search_engine import SearchEngine, TextExtractor  # noqa: F401
 
 __all__ = ["SearchEngine", "TextExtractor"]

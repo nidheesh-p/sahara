@@ -76,10 +76,10 @@ def _build_engine(
     sync_folder: Optional[Path] = None,
     s3_prefix: str = "",
 ):
-    from sahara.state_db import StateDB
-    from sahara.s3_client import S3Client
-    from sahara.sync_engine import SyncEngine
-    from sahara.ignore_rules import IgnoreRules
+    from sahara.storage.state_db import StateDB
+    from sahara.storage.s3_client import S3Client
+    from sahara.sync.sync_engine import SyncEngine
+    from sahara.sync.ignore_rules import IgnoreRules
 
     folder = sync_folder or config.get_sync_folder_path()
     db = StateDB().connect()
@@ -180,7 +180,7 @@ def init(ctx: click.Context) -> None:
             hide_input=True,
             confirmation_prompt=True,
         )
-        from sahara.encryption import set_passphrase
+        from sahara.utils.encryption import set_passphrase
 
         set_passphrase(passphrase)
         _ok("Passphrase stored in system keyring.")
@@ -210,7 +210,7 @@ def init(ctx: click.Context) -> None:
     # Validate S3 access
     click.echo("\n  Validating AWS access…")
     try:
-        from sahara.s3_client import S3Client
+        from sahara.storage.s3_client import S3Client
 
         s3 = S3Client(config)
         s3.validate_bucket_access()
@@ -285,7 +285,7 @@ def doctor(ctx: click.Context, repair: bool) -> None:
     if config.bucket:
         click.echo(f"  Checking S3 access to s3://{config.bucket}…")
         try:
-            from sahara.s3_client import S3Client
+            from sahara.storage.s3_client import S3Client
 
             s3 = S3Client(config)
             s3.validate_bucket_access()
@@ -310,7 +310,7 @@ def doctor(ctx: click.Context, repair: bool) -> None:
 
     # Encryption
     if config.encryption_enabled:
-        from sahara.encryption import get_passphrase
+        from sahara.utils.encryption import get_passphrase
 
         pp = get_passphrase()
         if pp:
@@ -323,7 +323,7 @@ def doctor(ctx: click.Context, repair: bool) -> None:
                     hide_input=True,
                     confirmation_prompt=True,
                 )
-                from sahara.encryption import set_passphrase
+                from sahara.utils.encryption import set_passphrase
 
                 set_passphrase(pp)
                 _ok("Passphrase stored.")
@@ -332,7 +332,7 @@ def doctor(ctx: click.Context, repair: bool) -> None:
         _info("Encryption: disabled.")
 
     # DB
-    from sahara.state_db import StateDB, DB_PATH
+    from sahara.storage.state_db import StateDB, DB_PATH
 
     db_path = DB_PATH
     if db_path.exists():
@@ -349,7 +349,7 @@ def doctor(ctx: click.Context, repair: bool) -> None:
     # Stale multipart uploads
     if config.bucket:
         try:
-            from sahara.s3_client import S3Client
+            from sahara.storage.s3_client import S3Client
 
             s3 = S3Client(config)
             uploads = s3.list_multipart_uploads()
@@ -398,7 +398,7 @@ def encryption_setup(ctx: click.Context) -> None:
         hide_input=True,
         confirmation_prompt=True,
     )
-    from sahara.encryption import set_passphrase
+    from sahara.utils.encryption import set_passphrase
 
     set_passphrase(passphrase)
 
@@ -418,8 +418,8 @@ def encryption_rotate(ctx: click.Context) -> None:
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.encryption import get_passphrase, set_passphrase, derive_key
-    from sahara.encryption import generate_salt, encrypt_file, decrypt_file
+    from sahara.utils.encryption import get_passphrase, set_passphrase, derive_key
+    from sahara.utils.encryption import generate_salt, encrypt_file, decrypt_file
 
     old_pp = get_passphrase()
     if not old_pp:
@@ -434,8 +434,8 @@ def encryption_rotate(ctx: click.Context) -> None:
     )
 
     _section("Re-encrypting files")
-    from sahara.state_db import StateDB
-    from sahara.s3_client import S3Client
+    from sahara.storage.state_db import StateDB
+    from sahara.storage.s3_client import S3Client
     import tempfile
 
     db = StateDB().connect()
@@ -457,7 +457,7 @@ def encryption_rotate(ctx: click.Context) -> None:
                     s3.download_file(s3_key, enc_dl)
 
                     # Decrypt with old key
-                    from sahara.encryption import _HEADER_LEN, _MAGIC, _SALT_LEN
+                    from sahara.utils.encryption import _HEADER_LEN, _MAGIC, _SALT_LEN
 
                     with open(enc_dl, "rb") as fh:
                         hdr = fh.read(_HEADER_LEN)
@@ -569,7 +569,7 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
 @click.pass_context
 def add_folder(ctx: click.Context, path: Path, name: Optional[str]) -> None:
     """Register an additional folder for sync."""
-    from sahara.state_db import StateDB
+    from sahara.storage.state_db import StateDB
 
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
@@ -608,7 +608,7 @@ def add_folder(ctx: click.Context, path: Path, name: Optional[str]) -> None:
 @click.pass_context
 def remove_folder(ctx: click.Context, path: Path, force: bool) -> None:
     """Unregister an additional sync folder (does not delete S3 data)."""
-    from sahara.state_db import StateDB
+    from sahara.storage.state_db import StateDB
 
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
@@ -643,7 +643,7 @@ def remove_folder(ctx: click.Context, path: Path, force: bool) -> None:
 @click.pass_context
 def folders_cmd(ctx: click.Context) -> None:
     """List all folders registered for sync."""
-    from sahara.state_db import StateDB
+    from sahara.storage.state_db import StateDB
 
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
@@ -686,7 +686,7 @@ def _run_sync(
     wait: bool = False,
     folder: Optional[str] = None,
 ) -> None:
-    from sahara.state_db import StateDB
+    from sahara.storage.state_db import StateDB
     from sahara.models import SyncResult
 
     config: SaharaConfig = ctx.obj["config"]
@@ -917,7 +917,7 @@ def ls_cmd(
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.state_db import StateDB
+    from sahara.storage.state_db import StateDB
 
     db = StateDB()
     db.connect()
@@ -1006,8 +1006,8 @@ def rm_cmd(ctx: click.Context, path: str, force: bool, local_only: bool) -> None
         if not click.confirm(f"  Delete {target}?"):
             return
 
-    from sahara.state_db import StateDB
-    from sahara.s3_client import S3Client
+    from sahara.storage.state_db import StateDB
+    from sahara.storage.s3_client import S3Client
 
     db = StateDB()
     db.connect()
@@ -1046,8 +1046,8 @@ def mv_cmd(ctx: click.Context, src: str, dst: str) -> None:
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.state_db import StateDB
-    from sahara.s3_client import S3Client
+    from sahara.storage.state_db import StateDB
+    from sahara.storage.s3_client import S3Client
     import shutil
 
     db = StateDB()
@@ -1128,7 +1128,7 @@ def archive(
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.state_db import StateDB
+    from sahara.storage.state_db import StateDB
     from pathlib import Path as _Path
 
     db = StateDB()
@@ -1234,8 +1234,8 @@ def restore_status_cmd(ctx: click.Context, path: Optional[str]) -> None:
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.state_db import StateDB
-    from sahara.s3_client import S3Client
+    from sahara.storage.state_db import StateDB
+    from sahara.storage.s3_client import S3Client
 
     db = StateDB()
     db.connect()
@@ -1317,9 +1317,9 @@ def usage(
     """Show storage usage and cost estimates."""
     config: SaharaConfig = ctx.obj["config"]
 
-    from sahara.cost_estimator import CostEstimator
-    from sahara.state_db import StateDB
-    from sahara.s3_client import S3Client
+    from sahara.storage.cost_estimator import CostEstimator
+    from sahara.storage.state_db import StateDB
+    from sahara.storage.s3_client import S3Client
 
     estimator = CostEstimator()
 
@@ -1366,7 +1366,7 @@ def usage(
 @click.pass_context
 def history(ctx: click.Context, path: Optional[str], limit: int) -> None:
     """Show sync history (optionally for a specific file)."""
-    from sahara.state_db import StateDB
+    from sahara.storage.state_db import StateDB
 
     db = StateDB()
     db.connect()
@@ -1410,8 +1410,8 @@ def index_cmd(ctx: click.Context, folder: Optional[str], force: bool) -> None:
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.state_db import StateDB
-    from sahara.search_engine import SearchEngine
+    from sahara.storage.state_db import StateDB
+    from sahara.search.search_engine import SearchEngine
     from pathlib import Path as _Path
 
     db = StateDB().connect()
@@ -1495,8 +1495,8 @@ def search_cmd(
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.state_db import StateDB
-    from sahara.search_engine import SearchEngine
+    from sahara.storage.state_db import StateDB
+    from sahara.search.search_engine import SearchEngine
     from pathlib import Path as _Path
 
     db = StateDB().connect()
@@ -1558,7 +1558,7 @@ def daemon() -> None:
 @click.pass_context
 def daemon_start(ctx: click.Context, autostart: bool) -> None:
     """Start the background sync daemon."""
-    from sahara.daemon import start_daemon, is_daemon_running, install_autostart
+    from sahara.sync.daemon import start_daemon, is_daemon_running, install_autostart
 
     if is_daemon_running():
         _warn("Daemon is already running.")
@@ -1582,7 +1582,7 @@ def daemon_start(ctx: click.Context, autostart: bool) -> None:
 @daemon.command("stop")
 def daemon_stop() -> None:
     """Stop the background sync daemon."""
-    from sahara.daemon import stop_daemon
+    from sahara.sync.daemon import stop_daemon
 
     try:
         stop_daemon()
@@ -1594,7 +1594,7 @@ def daemon_stop() -> None:
 @daemon.command("status")
 def daemon_status() -> None:
     """Show daemon status."""
-    from sahara.daemon import get_daemon_status
+    from sahara.sync.daemon import get_daemon_status
 
     status = get_daemon_status()
     _section("Daemon Status")
@@ -1613,7 +1613,7 @@ def daemon_status() -> None:
 @daemon.command("pause")
 def daemon_pause() -> None:
     """Pause the daemon (stop syncing without killing the process)."""
-    from sahara.daemon import pause_daemon
+    from sahara.sync.daemon import pause_daemon
 
     pause_daemon()
     _ok("Daemon paused. Run `sahara daemon resume` to continue.")
@@ -1622,7 +1622,7 @@ def daemon_pause() -> None:
 @daemon.command("resume")
 def daemon_resume() -> None:
     """Resume a paused daemon."""
-    from sahara.daemon import resume_daemon
+    from sahara.sync.daemon import resume_daemon
 
     resume_daemon()
     _ok("Daemon resumed.")
@@ -1633,7 +1633,7 @@ def daemon_resume() -> None:
 @click.option("--follow", "-f", is_flag=True, help="Follow log output (like tail -f).")
 def daemon_logs(lines: int, follow: bool) -> None:
     """Show daemon log output."""
-    from sahara.daemon import _LOG_FILE
+    from sahara.sync.daemon import _LOG_FILE
 
     if not _LOG_FILE.exists():
         _info("No daemon log file found.")

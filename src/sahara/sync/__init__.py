@@ -8,10 +8,10 @@ Canonical import paths:
     from sahara.sync.daemon import start_daemon, stop_daemon
 """
 
-from sahara.sync_engine import SyncEngine, DiffResult  # noqa: F401
-from sahara.file_watcher import SaharaEventHandler, Debouncer, start_watching  # noqa: F401
-from sahara.ignore_rules import IgnoreRules  # noqa: F401
-from sahara.daemon import (  # noqa: F401
+from sahara.sync.sync_engine import SyncEngine, DiffResult  # noqa: F401
+from sahara.sync.file_watcher import SaharaEventHandler, Debouncer, start_watching  # noqa: F401
+from sahara.sync.ignore_rules import IgnoreRules  # noqa: F401
+from sahara.sync.daemon import (  # noqa: F401
     start_daemon, stop_daemon, get_daemon_status,
     pause_daemon, resume_daemon, is_daemon_running,
     poll_restores, poll_restore_expiries,
