@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+wheels/
+.venv/
+venv/
+env/
+
+# Testing / coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+
+# macOS
+.DS_Store
+.AppleDouble
+._*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Sahara runtime files (not source)
+*.db
+*.db-wal
+*.db-shm
