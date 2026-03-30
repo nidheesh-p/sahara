@@ -1102,7 +1102,9 @@ def mv_cmd(ctx: click.Context, src: str, dst: str) -> None:
         src_key = config.get_s3_key(src)
         dst_key = config.get_s3_key(dst)
         try:
-            s3.copy_object(src_key, dst_key)
+            rec_before = db.get_file(src)
+            storage_class = rec_before.tier if rec_before else config.default_storage_class
+            s3.copy_object(src_key, dst_key, storage_class=storage_class)
             s3.delete_object(src_key)
             _ok(f"Moved in S3: {src} → {dst}")
         except Exception as exc:
