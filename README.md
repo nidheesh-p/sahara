@@ -15,7 +15,7 @@ Sahara syncs a local folder to an S3 bucket with:
 
 - Python 3.11+
 - AWS account with an S3 bucket
-- IAM credentials with `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:GetBucketLocation`
+- IAM user or role with: `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:GetBucketLocation`
 
 ---
 
@@ -25,12 +25,58 @@ Sahara syncs a local folder to an S3 bucket with:
 pip install sahara
 ```
 
+For semantic search support (large download, ~200 MB):
+
+```bash
+pip install "sahara[search]"
+```
+
 Or from source:
 
 ```bash
-git clone https://github.com/example/sahara
+git clone https://github.com/nidheesh-p/sahara
 cd sahara
 pip install -e .
+```
+
+---
+
+## AWS Credentials
+
+Sahara uses the standard AWS credential chain. Choose one method:
+
+**Option 1 — Environment variables (recommended for simple setups)**
+```bash
+export AWS_ACCESS_KEY_ID=AKIAxxxxxxxxxxxxxxxx
+export AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+export AWS_DEFAULT_REGION=us-east-1
+```
+
+**Option 2 — AWS CLI profile**
+```bash
+aws configure          # creates ~/.aws/credentials
+# then choose "profile" during `sahara init`
+```
+
+**Option 3 — IAM role** (EC2, ECS, Lambda — no keys needed, works automatically)
+
+To create an IAM user with the minimum required permissions, attach this policy:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+      "s3:ListBucket", "s3:GetBucketLocation",
+      "s3:RestoreObject", "s3:GetObjectAttributes"
+    ],
+    "Resource": [
+      "arn:aws:s3:::YOUR-BUCKET-NAME",
+      "arn:aws:s3:::YOUR-BUCKET-NAME/*"
+    ]
+  }]
+}
 ```
 
 ---

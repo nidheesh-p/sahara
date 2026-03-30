@@ -161,13 +161,36 @@ def init(ctx: click.Context) -> None:
     )
     config.prefix = prefix.strip()
 
-    # AWS profile
-    use_profile = click.confirm(
-        "  Use a named AWS profile?", default=False
+    # AWS credentials
+    click.echo()
+    cred_method = click.prompt(
+        "  AWS credential method",
+        type=click.Choice(["env", "profile", "keys"], case_sensitive=False),
+        default="env",
+        show_default=True,
+        prompt_suffix="\n"
+        "    env     — use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars\n"
+        "    profile — use a named profile from ~/.aws/credentials\n"
+        "    keys    — enter access key and secret now (stored in config file)\n"
+        "  Choice",
     )
-    if use_profile:
+    if cred_method == "profile":
         profile = click.prompt("  AWS profile name")
         config.aws_profile = profile.strip()
+    elif cred_method == "keys":
+        access_key = click.prompt("  AWS access key ID")
+        secret_key = click.prompt("  AWS secret access key", hide_input=True)
+        config.aws_access_key_id = access_key.strip()
+        config.aws_secret_access_key = secret_key.strip()
+        _warn(
+            "Access keys saved to config file. "
+            "Using env vars or an AWS profile is more secure."
+        )
+    else:
+        _info(
+            "Make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set "
+            "before running sahara."
+        )
 
     # Encryption
     encrypt = click.confirm(
@@ -566,8 +589,15 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
     default=None,
     help="S3 prefix name (defaults to basename of the folder).",
 )
+@click.option(
+    "--dest",
+    "dest",
+    default=None,
+    help="Destination folder path under the bucket (e.g. 'archive/2024'). "
+         "The source folder is placed inside it. Ignored if --as is provided.",
+)
 @click.pass_context
-def add_folder(ctx: click.Context, path: Path, name: Optional[str]) -> None:
+def add_folder(ctx: click.Context, path: Path, name: Optional[str], dest: Optional[str]) -> None:
     """Register an additional folder for sync."""
     from sahara.storage.state_db import StateDB
 
@@ -575,7 +605,12 @@ def add_folder(ctx: click.Context, path: Path, name: Optional[str]) -> None:
     _require_config(config)
 
     resolved = path.expanduser().resolve()
-    s3_prefix = name or resolved.name
+    if name:
+        s3_prefix = name
+    elif dest:
+        s3_prefix = dest.strip("/") + "/" + resolved.name
+    else:
+        s3_prefix = resolved.name
 
     db = StateDB().connect()
     try:
