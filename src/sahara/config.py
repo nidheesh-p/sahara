@@ -75,6 +75,9 @@ class SaharaConfig:
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
 
+    # Self-hosted / MinIO endpoint (empty = use AWS)
+    endpoint_url: str = ""
+
     # Encryption
     encryption_enabled: bool = False
     encryption_key_id: str = ""  # keyring service identifier
@@ -119,6 +122,14 @@ class SaharaConfig:
     def __post_init__(self) -> None:
         if not self.pid_file:
             self.pid_file = str(Path.home() / ".sahara" / "daemon.pid")
+        # MinIO has no storage tiers; coerce Glacier classes to STANDARD.
+        if self.endpoint_url and self.default_storage_class not in ("STANDARD", ""):
+            self.default_storage_class = "STANDARD"
+
+    @property
+    def is_local_storage(self) -> bool:
+        """True when using a self-hosted backend (MinIO etc.) instead of AWS."""
+        return bool(self.endpoint_url)
 
     def get_sync_folder_path(self) -> Path:
         if not self.sync_folder:

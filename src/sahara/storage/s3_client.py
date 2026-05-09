@@ -138,15 +138,20 @@ class S3Client:
 
         session = boto3.Session(**session_kwargs)
 
+        # MinIO requires path-style addressing; AWS uses virtual-hosted-style by default.
+        addressing_style = "path" if config.is_local_storage else "auto"
         client_kwargs: dict[str, Any] = {
             "config": BotoConfig(
                 retries={"max_attempts": 1, "mode": "legacy"},
                 max_pool_connections=config.max_workers + 4,
+                s3={"addressing_style": addressing_style},
             )
         }
         if config.aws_access_key_id and config.aws_secret_access_key:
             client_kwargs["aws_access_key_id"] = config.aws_access_key_id
             client_kwargs["aws_secret_access_key"] = config.aws_secret_access_key
+        if config.endpoint_url:
+            client_kwargs["endpoint_url"] = config.endpoint_url
 
         self._s3 = session.client("s3", **client_kwargs)
         self._multipart_threshold = config.multipart_threshold_mb * 1024 * 1024

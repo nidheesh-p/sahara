@@ -95,6 +95,15 @@ def _require_config(config: SaharaConfig) -> None:
         )
 
 
+def _require_aws(config: SaharaConfig, feature: str) -> None:
+    """Abort with a clear message when an AWS-only feature is used with MinIO."""
+    if config.is_local_storage:
+        _abort(
+            f"{feature} is not supported in local storage mode (MinIO). "
+            "This feature requires AWS S3 Glacier tiered storage."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Root group
 # ---------------------------------------------------------------------------
@@ -147,50 +156,80 @@ def init(ctx: click.Context) -> None:
     config.sync_folder = str(Path(sync_folder).expanduser())
     Path(config.sync_folder).mkdir(parents=True, exist_ok=True)
 
-    # S3 bucket
-    bucket = click.prompt("  S3 bucket name")
+    # Storage backend
+    click.echo()
+    backend = click.prompt(
+        "  Storage backend",
+        type=click.Choice(["aws", "minio"], case_sensitive=False),
+        default="aws",
+        show_default=True,
+        prompt_suffix="\n"
+        "    aws   — Amazon S3 (pay-per-use cloud storage)\n"
+        "    minio — Self-hosted MinIO or other S3-compatible server\n"
+        "  Choice",
+    )
+    is_minio = backend == "minio"
+
+    if is_minio:
+        _info("MinIO mode: files will be stored on your self-hosted server.")
+        endpoint_url = click.prompt(
+            "  MinIO endpoint URL (e.g. http://100.x.x.1:9000)"
+        )
+        config.endpoint_url = endpoint_url.strip().rstrip("/")
+        config.default_storage_class = "STANDARD"
+
+    # Bucket name
+    bucket_label = "Bucket name" if is_minio else "S3 bucket name"
+    bucket = click.prompt(f"  {bucket_label}", default="sahara" if is_minio else "")
     config.bucket = bucket.strip()
 
-    # Region
-    region = click.prompt("  AWS region", default="us-east-1")
-    config.region = region.strip()
+    # Region (AWS only — MinIO accepts any value but it's not meaningful)
+    if not is_minio:
+        region = click.prompt("  AWS region", default="us-east-1")
+        config.region = region.strip()
 
     # Key prefix
     prefix = click.prompt(
-        "  S3 key prefix (leave blank for root)", default=""
+        "  Key prefix (leave blank for root)", default=""
     )
     config.prefix = prefix.strip()
 
-    # AWS credentials
+    # Credentials
     click.echo()
-    cred_method = click.prompt(
-        "  AWS credential method",
-        type=click.Choice(["env", "profile", "keys"], case_sensitive=False),
-        default="env",
-        show_default=True,
-        prompt_suffix="\n"
-        "    env     — use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars\n"
-        "    profile — use a named profile from ~/.aws/credentials\n"
-        "    keys    — enter access key and secret now (stored in config file)\n"
-        "  Choice",
-    )
-    if cred_method == "profile":
-        profile = click.prompt("  AWS profile name")
-        config.aws_profile = profile.strip()
-    elif cred_method == "keys":
-        access_key = click.prompt("  AWS access key ID")
-        secret_key = click.prompt("  AWS secret access key", hide_input=True)
+    if is_minio:
+        access_key = click.prompt("  MinIO access key (root user)")
+        secret_key = click.prompt("  MinIO secret key (root password)", hide_input=True)
         config.aws_access_key_id = access_key.strip()
         config.aws_secret_access_key = secret_key.strip()
-        _warn(
-            "Access keys saved to config file. "
-            "Using env vars or an AWS profile is more secure."
-        )
     else:
-        _info(
-            "Make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set "
-            "before running sahara."
+        cred_method = click.prompt(
+            "  AWS credential method",
+            type=click.Choice(["env", "profile", "keys"], case_sensitive=False),
+            default="env",
+            show_default=True,
+            prompt_suffix="\n"
+            "    env     — use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars\n"
+            "    profile — use a named profile from ~/.aws/credentials\n"
+            "    keys    — enter access key and secret now (stored in config file)\n"
+            "  Choice",
         )
+        if cred_method == "profile":
+            profile = click.prompt("  AWS profile name")
+            config.aws_profile = profile.strip()
+        elif cred_method == "keys":
+            access_key = click.prompt("  AWS access key ID")
+            secret_key = click.prompt("  AWS secret access key", hide_input=True)
+            config.aws_access_key_id = access_key.strip()
+            config.aws_secret_access_key = secret_key.strip()
+            _warn(
+                "Access keys saved to config file. "
+                "Using env vars or an AWS profile is more secure."
+            )
+        else:
+            _info(
+                "Make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set "
+                "before running sahara."
+            )
 
     # Encryption
     encrypt = click.confirm(
@@ -218,7 +257,7 @@ def init(ctx: click.Context) -> None:
     # Upload-only mode
     click.echo()
     upload_only = click.confirm(
-        "  Upload-only mode? (this machine only pushes files to S3,\n"
+        "  Upload-only mode? (this machine only pushes files,\n"
         "  never pulls files uploaded by other machines)",
         default=False,
     )
@@ -230,24 +269,24 @@ def init(ctx: click.Context) -> None:
     save_config(config, config_path)
     _ok(f"Configuration saved to {config_path}")
 
-    # Validate S3 access
-    click.echo("\n  Validating AWS access…")
+    # Validate storage access
+    backend_label = f"MinIO at {config.endpoint_url}" if is_minio else "AWS S3"
+    click.echo(f"\n  Validating connection to {backend_label}…")
     try:
         from sahara.storage.s3_client import S3Client
 
         s3 = S3Client(config)
         s3.validate_bucket_access()
-        _ok(f"Connected to s3://{config.bucket}")
+        _ok(f"Connected to bucket '{config.bucket}'")
 
-        # Check manifest / bootstrap
         manifest, _ = s3.get_manifest()
         if manifest is None:
             _info("No existing manifest found. A new one will be created on first sync.")
         else:
             _ok(f"Manifest found with {len(manifest)} file(s).")
     except Exception as exc:
-        _warn(f"AWS validation failed: {exc}")
-        _warn("You can re-run `sahara doctor` after fixing credentials.")
+        _warn(f"Connection validation failed: {exc}")
+        _warn("You can re-run `sahara doctor` after fixing the issue.")
 
     # Create .saharaignore if absent
     ignore_path = Path(config.sync_folder) / ".saharaignore"
@@ -304,15 +343,18 @@ def doctor(ctx: click.Context, repair: bool) -> None:
         _warn("sync_folder not configured.")
         issues += 1
 
-    # S3 bucket
+    # Storage bucket / endpoint
     if config.bucket:
-        click.echo(f"  Checking S3 access to s3://{config.bucket}…")
+        if config.is_local_storage:
+            click.echo(f"  Checking MinIO access at {config.endpoint_url}, bucket '{config.bucket}'…")
+        else:
+            click.echo(f"  Checking S3 access to s3://{config.bucket}…")
         try:
             from sahara.storage.s3_client import S3Client
 
             s3 = S3Client(config)
             s3.validate_bucket_access()
-            _ok("S3 bucket accessible.")
+            _ok("Bucket accessible.")
 
             # Conditional PUT support
             supports_cput = s3.check_conditional_put_support()
@@ -325,7 +367,8 @@ def doctor(ctx: click.Context, repair: bool) -> None:
                 )
 
         except Exception as exc:
-            _warn(f"S3 access failed: {exc}")
+            backend = "MinIO" if config.is_local_storage else "S3"
+            _warn(f"{backend} access failed: {exc}")
             issues += 1
     else:
         _warn("bucket not configured.")
@@ -369,8 +412,8 @@ def doctor(ctx: click.Context, repair: bool) -> None:
     else:
         _info("State DB not yet initialised (will be created on first sync).")
 
-    # Stale multipart uploads
-    if config.bucket:
+    # Stale multipart uploads (AWS only — MinIO does not support ListMultipartUploads the same way)
+    if config.bucket and not config.is_local_storage:
         try:
             from sahara.storage.s3_client import S3Client
 
@@ -1162,6 +1205,7 @@ def archive(
     """Archive files to Glacier / Deep Archive."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
+    _require_aws(config, "archive")
 
     from sahara.storage.state_db import StateDB
     from pathlib import Path as _Path
@@ -1249,6 +1293,7 @@ def restore_cmd(ctx: click.Context, path: str, days: int, tier: str) -> None:
     """Request a Glacier restore for a file."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
+    _require_aws(config, "restore")
 
     engine, db, s3 = _build_engine(config)
     try:
@@ -1268,6 +1313,7 @@ def restore_status_cmd(ctx: click.Context, path: Optional[str]) -> None:
     """Check the status of a Glacier restore."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
+    _require_aws(config, "restore-status")
 
     from sahara.storage.state_db import StateDB
     from sahara.storage.s3_client import S3Client
@@ -1311,6 +1357,7 @@ def restore_download_cmd(ctx: click.Context, path: str) -> None:
     """Download a file that has been restored from Glacier."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
+    _require_aws(config, "restore-download")
 
     engine, db, s3 = _build_engine(config)
     try:
