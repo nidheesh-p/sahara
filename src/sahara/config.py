@@ -78,6 +78,18 @@ class SaharaConfig:
     # Self-hosted / MinIO endpoint (empty = use AWS)
     endpoint_url: str = ""
 
+    # Storage mode: s3 | local | local+glacier
+    # s3           — AWS S3 or MinIO (via endpoint_url)
+    # local        — locally mounted drives (drive_paths); no cloud
+    # local+glacier— drives as primary + S3 Glacier Deep Archive as cold backup
+    storage_mode: str = "s3"
+
+    # Absolute paths to mounted drives for local / local+glacier modes
+    drive_paths: list[str] = field(default_factory=list)
+
+    # local+glacier: keep Glacier copies when files are deleted locally (recommended)
+    glacier_keep_deleted: bool = True
+
     # Encryption
     encryption_enabled: bool = False
     encryption_key_id: str = ""  # keyring service identifier
@@ -122,14 +134,19 @@ class SaharaConfig:
     def __post_init__(self) -> None:
         if not self.pid_file:
             self.pid_file = str(Path.home() / ".sahara" / "daemon.pid")
-        # MinIO has no storage tiers; coerce Glacier classes to STANDARD.
-        if self.endpoint_url and self.default_storage_class not in ("STANDARD", ""):
+        # Non-S3 modes have no storage tiers; coerce Glacier classes to STANDARD.
+        if self.is_local_drive_mode or (self.endpoint_url and self.default_storage_class not in ("STANDARD", "")):
             self.default_storage_class = "STANDARD"
 
     @property
-    def is_local_storage(self) -> bool:
-        """True when using a self-hosted backend (MinIO etc.) instead of AWS."""
+    def is_self_hosted(self) -> bool:
+        """True when using a self-hosted S3-compatible server (MinIO etc.) instead of AWS."""
         return bool(self.endpoint_url)
+
+    @property
+    def is_local_drive_mode(self) -> bool:
+        """True when syncing to locally mounted drives (local or local+glacier modes)."""
+        return self.storage_mode in ("local", "local+glacier")
 
     def get_sync_folder_path(self) -> Path:
         if not self.sync_folder:
@@ -187,9 +204,11 @@ def load_config(path: Optional[Path] = None) -> SaharaConfig:
         if key in known_fields:
             kwargs[key] = value
 
-    # Lists are not flattened
+    # Lists are not flattened by _flatten_toml
     if "exclude_patterns" in raw:
         kwargs["exclude_patterns"] = raw["exclude_patterns"]
+    if "drive_paths" in raw:
+        kwargs["drive_paths"] = raw["drive_paths"]
 
     return SaharaConfig(**kwargs)
 

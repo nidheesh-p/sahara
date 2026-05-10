@@ -139,7 +139,7 @@ class S3Client:
         session = boto3.Session(**session_kwargs)
 
         # MinIO requires path-style addressing; AWS uses virtual-hosted-style by default.
-        addressing_style = "path" if config.is_local_storage else "auto"
+        addressing_style = "path" if config.is_self_hosted else "auto"
         client_kwargs: dict[str, Any] = {
             "config": BotoConfig(
                 retries={"max_attempts": 1, "mode": "legacy"},

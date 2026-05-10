@@ -31,6 +31,7 @@ from sahara.models import (
     SyncResult,
     StorageTier,
 )
+from sahara.storage.backend import StorageBackend
 from sahara.storage.s3_client import (
     S3Client,
     ManifestConflictError,
@@ -127,7 +128,7 @@ class SyncEngine:
         self,
         config: SaharaConfig,
         db: StateDB,
-        s3: S3Client,
+        s3: StorageBackend,
         ignore_rules: Optional[IgnoreRules] = None,
         sync_folder: Optional[Path] = None,
         s3_prefix: str = "",
