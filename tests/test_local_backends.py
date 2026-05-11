@@ -318,10 +318,9 @@ def test_dual_upload_goes_to_both(dual_write, mock_primary, mock_secondary, tmp_
     mock_secondary.upload_file.assert_called_once()
     # Returns primary's etag
     assert etag == "primary-etag"
-    # Secondary gets DEEP_ARCHIVE storage class
-    _, kwargs = mock_secondary.upload_file.call_args
-    assert "DEEP_ARCHIVE" in mock_secondary.upload_file.call_args[0] or \
-           mock_secondary.upload_file.call_args[0][3] == "DEEP_ARCHIVE"
+    # Secondary gets DEEP_ARCHIVE storage class (4th positional arg)
+    args = mock_secondary.upload_file.call_args[0]
+    assert args[3] == "DEEP_ARCHIVE"
 
 
 def test_dual_upload_secondary_failure_is_noncritical(mock_primary, mock_secondary, tmp_path):

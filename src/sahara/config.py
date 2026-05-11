@@ -135,7 +135,8 @@ class SaharaConfig:
         if not self.pid_file:
             self.pid_file = str(Path.home() / ".sahara" / "daemon.pid")
         # Non-S3 modes have no storage tiers; coerce Glacier classes to STANDARD.
-        if self.is_local_drive_mode or (self.endpoint_url and self.default_storage_class not in ("STANDARD", "")):
+        minio_with_glacier = self.endpoint_url and self.default_storage_class not in ("STANDARD", "")
+        if self.is_local_drive_mode or minio_with_glacier:
             self.default_storage_class = "STANDARD"
 
     @property

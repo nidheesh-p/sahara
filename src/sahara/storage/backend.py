@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Optional, runtime_checkable
-
-from typing import Protocol
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 __all__ = ["StorageBackend"]
 

@@ -12,18 +12,11 @@ from typing import Any, Callable, Optional
 
 from sahara.config import SaharaConfig
 from sahara.storage.s3_client import ManifestConflictError, S3ClientError
+from sahara.utils.hash import compute_sha256
 
 __all__ = ["LocalDriveClient"]
 
 logger = logging.getLogger(__name__)
-
-
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 class LocalDriveClient:
@@ -59,27 +52,22 @@ class LocalDriveClient:
                 return p
         raise S3ClientError(f"Object not found on any drive: {key}")
 
-    def _atomic_write(self, dst: Path, data: bytes) -> None:
-        """Write *data* to *dst* atomically via a sibling temp file."""
+    def _atomic_op(self, dst: Path, writer: Callable[[Path], None]) -> None:
+        """Write to *dst* atomically: call *writer(tmp)*, then rename tmp → dst."""
         dst.parent.mkdir(parents=True, exist_ok=True)
         tmp = dst.with_suffix(dst.suffix + ".tmp~")
         try:
-            tmp.write_bytes(data)
+            writer(tmp)
             tmp.replace(dst)
         except Exception:
             tmp.unlink(missing_ok=True)
             raise
 
+    def _atomic_write(self, dst: Path, data: bytes) -> None:
+        self._atomic_op(dst, lambda tmp: tmp.write_bytes(data))
+
     def _atomic_copy(self, src: Path, dst: Path) -> None:
-        """Copy *src* to *dst* atomically."""
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dst.with_suffix(dst.suffix + ".tmp~")
-        try:
-            shutil.copy2(str(src), str(tmp))
-            tmp.replace(dst)
-        except Exception:
-            tmp.unlink(missing_ok=True)
-            raise
+        self._atomic_op(dst, lambda tmp: shutil.copy2(str(src), str(tmp)))
 
     # ------------------------------------------------------------------
     # Upload
@@ -104,14 +92,14 @@ class LocalDriveClient:
                 tmp_enc, sha256 = encrypt_fn(local_path)
                 upload_path = tmp_enc
 
-            sha256 = sha256 or _sha256(upload_path)
+            sha256 = sha256 or compute_sha256(upload_path)
+            file_size = upload_path.stat().st_size
 
             for drive in self._drives:
                 dst = self._resolve(drive, key)
                 self._atomic_copy(upload_path, dst)
-
-            if on_progress:
-                on_progress(upload_path.stat().st_size)
+                if on_progress:
+                    on_progress(file_size)
 
         finally:
             if tmp_enc is not None:
@@ -148,7 +136,7 @@ class LocalDriveClient:
                     dec_tmp.unlink(missing_ok=True)
                     raise
             else:
-                sha256 = _sha256(tmp)
+                sha256 = compute_sha256(tmp)
                 tmp.replace(local_path)
 
             if on_progress:
@@ -177,18 +165,28 @@ class LocalDriveClient:
         storage_class: str = "STANDARD",
         extra_metadata: Optional[dict[str, str]] = None,
     ) -> str:
-        """Copy *src_key* to *dst_key* on ALL drives. Returns SHA-256 of destination."""
-        etag: Optional[str] = None
+        """Copy *src_key* to *dst_key* on ALL drives. Returns SHA-256 of source."""
+        src_sha: Optional[str] = None
+        found = False
+
         for drive in self._drives:
             src = self._resolve(drive, src_key)
             dst = self._resolve(drive, dst_key)
-            if src.exists():
-                self._atomic_copy(src, dst)
-                if etag is None:
-                    etag = _sha256(dst)
-        if etag is None:
+            if not src.exists():
+                logger.warning(
+                    "copy_object: source '%s' missing on drive %s — skipping drive",
+                    src_key,
+                    drive,
+                )
+                continue
+            found = True
+            self._atomic_copy(src, dst)
+            if src_sha is None:
+                src_sha = compute_sha256(src)  # compute once from source
+
+        if not found:
             raise S3ClientError(f"Source object not found on any drive: {src_key}")
-        return etag
+        return src_sha  # type: ignore[return-value]
 
     def head_object(self, key: str) -> dict[str, Any]:
         """Return metadata for *key* from first available drive."""
@@ -197,7 +195,7 @@ class LocalDriveClient:
         return {
             "ContentLength": stat.st_size,
             "ContentType": "application/octet-stream",
-            "ETag": _sha256(src),
+            "ETag": compute_sha256(src),
             "StorageClass": "STANDARD",
             "Restore": None,
             "Metadata": {},
@@ -238,15 +236,18 @@ class LocalDriveClient:
         body = json.dumps(manifest_dict, separators=(",", ":")).encode("utf-8")
         new_etag = hashlib.sha256(body).hexdigest()
 
+        # Check conflicts on ALL drives BEFORE writing to any.
+        # This keeps all drives consistent even if one raises ManifestConflictError.
+        if if_match_etag is not None:
+            for drive in self._drives:
+                p = self._resolve(drive, manifest_key)
+                if p.exists():
+                    current_etag = hashlib.sha256(p.read_bytes()).hexdigest()
+                    if current_etag != if_match_etag:
+                        raise ManifestConflictError(current_etag)
+
         for drive in self._drives:
             p = self._resolve(drive, manifest_key)
-
-            if if_match_etag is not None and p.exists():
-                current = p.read_bytes()
-                current_etag = hashlib.sha256(current).hexdigest()
-                if current_etag != if_match_etag:
-                    raise ManifestConflictError(current_etag)
-
             self._atomic_write(p, body)
 
         return new_etag
@@ -276,7 +277,7 @@ class LocalDriveClient:
                 {
                     "Key": rel,
                     "Size": stat.st_size,
-                    "ETag": _sha256(fpath),
+                    "ETag": compute_sha256(fpath),
                     "StorageClass": "STANDARD",
                     "LastModified": datetime.datetime.fromtimestamp(
                         stat.st_mtime, tz=datetime.timezone.utc
