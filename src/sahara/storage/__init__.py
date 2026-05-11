@@ -1,14 +1,25 @@
-"""Storage layer — S3 client, local state DB, cost estimation.
+"""Storage layer — S3 client, local drive client, dual-write backend, state DB.
 
 Canonical import paths:
-    from sahara.storage import S3Client, StateDB, CostEstimator
-    from sahara.storage.s3_client import S3Client
-    from sahara.storage.state_db import StateDB
-    from sahara.storage.cost_estimator import CostEstimator
+    from sahara.storage import S3Client, LocalDriveClient, DualWriteBackend, StateDB
+    from sahara.storage.backend import StorageBackend
 """
 
 from sahara.storage.s3_client import S3Client, S3ClientError, ManifestConflictError  # noqa: F401
+from sahara.storage.local_drive_client import LocalDriveClient  # noqa: F401
+from sahara.storage.dual_write_backend import DualWriteBackend  # noqa: F401
+from sahara.storage.backend import StorageBackend  # noqa: F401
 from sahara.storage.state_db import StateDB, DB_PATH  # noqa: F401
 from sahara.storage.cost_estimator import CostEstimator  # noqa: F401
 
-__all__ = ["S3Client", "S3ClientError", "ManifestConflictError", "StateDB", "DB_PATH", "CostEstimator"]
+__all__ = [
+    "S3Client",
+    "S3ClientError",
+    "ManifestConflictError",
+    "LocalDriveClient",
+    "DualWriteBackend",
+    "StorageBackend",
+    "StateDB",
+    "DB_PATH",
+    "CostEstimator",
+]

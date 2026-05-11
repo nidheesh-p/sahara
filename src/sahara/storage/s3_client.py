@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import logging
@@ -18,6 +17,8 @@ from typing import Any, Callable, Optional, TypeVar
 import boto3
 import botocore.exceptions
 from botocore.config import Config as BotoConfig
+
+from sahara.utils.hash import compute_sha256 as _compute_sha256
 
 from sahara.config import SaharaConfig
 
@@ -138,15 +139,20 @@ class S3Client:
 
         session = boto3.Session(**session_kwargs)
 
+        # MinIO requires path-style addressing; AWS uses virtual-hosted-style by default.
+        addressing_style = "path" if config.is_self_hosted else "auto"
         client_kwargs: dict[str, Any] = {
             "config": BotoConfig(
                 retries={"max_attempts": 1, "mode": "legacy"},
                 max_pool_connections=config.max_workers + 4,
+                s3={"addressing_style": addressing_style},
             )
         }
         if config.aws_access_key_id and config.aws_secret_access_key:
             client_kwargs["aws_access_key_id"] = config.aws_access_key_id
             client_kwargs["aws_secret_access_key"] = config.aws_secret_access_key
+        if config.endpoint_url:
+            client_kwargs["endpoint_url"] = config.endpoint_url
 
         self._s3 = session.client("s3", **client_kwargs)
         self._multipart_threshold = config.multipart_threshold_mb * 1024 * 1024
@@ -698,14 +704,4 @@ class S3Client:
 
 
 # ---------------------------------------------------------------------------
-# Utility
-# ---------------------------------------------------------------------------
-
-
-def _compute_sha256(path: Path) -> str:
-    """Return hex SHA-256 of a file."""
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
+# _compute_sha256 is imported from sahara.utils.hash above.

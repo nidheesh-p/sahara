@@ -71,27 +71,58 @@ def _load_cfg(config_path: Optional[Path]) -> SaharaConfig:
     return load_config(config_path or DEFAULT_CONFIG_PATH)
 
 
+def _create_backend(config: SaharaConfig):
+    """Instantiate the appropriate StorageBackend for config.storage_mode."""
+    from sahara.storage.s3_client import S3Client
+    from sahara.storage.local_drive_client import LocalDriveClient
+    from sahara.storage.dual_write_backend import DualWriteBackend
+
+    if config.storage_mode == "local":
+        return LocalDriveClient(config)
+    elif config.storage_mode == "local+glacier":
+        primary = LocalDriveClient(config)
+        secondary = S3Client(config)
+        return DualWriteBackend(
+            primary, secondary, glacier_keep_deleted=config.glacier_keep_deleted
+        )
+    else:  # "s3" — AWS or MinIO via endpoint_url
+        return S3Client(config)
+
+
 def _build_engine(
     config: SaharaConfig,
     sync_folder: Optional[Path] = None,
     s3_prefix: str = "",
 ):
     from sahara.storage.state_db import StateDB
-    from sahara.storage.s3_client import S3Client
     from sahara.sync.sync_engine import SyncEngine
     from sahara.sync.ignore_rules import IgnoreRules
 
     folder = sync_folder or config.get_sync_folder_path()
     db = StateDB().connect()
-    s3 = S3Client(config)
+    backend = _create_backend(config)
     ignore = IgnoreRules(folder, extra_patterns=config.exclude_patterns)
-    return SyncEngine(config, db, s3, ignore, sync_folder=folder, s3_prefix=s3_prefix), db, s3
+    return SyncEngine(config, db, backend, ignore, sync_folder=folder, s3_prefix=s3_prefix), db, backend
 
 
 def _require_config(config: SaharaConfig) -> None:
     if not config.bucket or not config.sync_folder:
         _abort(
             "Sahara is not initialised. Run `sahara init` to set up."
+        )
+
+
+def _require_s3_tiers(config: SaharaConfig, feature: str) -> None:
+    """Abort when a Glacier-tiered feature is used in a mode that doesn't support it."""
+    if config.is_local_drive_mode:
+        _abort(
+            f"{feature} is not supported in local drive mode. "
+            "This feature requires AWS S3 Glacier tiered storage."
+        )
+    if config.is_self_hosted:
+        _abort(
+            f"{feature} is not supported with a self-hosted (MinIO) backend. "
+            "This feature requires AWS S3 Glacier tiered storage."
         )
 
 
@@ -140,85 +171,149 @@ def init(ctx: click.Context) -> None:
 
     # Sync folder
     default_folder = str(Path.home() / "Sahara")
-    sync_folder = click.prompt(
-        "  Sync folder",
-        default=default_folder,
-    )
+    sync_folder = click.prompt("  Sync folder", default=default_folder)
     config.sync_folder = str(Path(sync_folder).expanduser())
     Path(config.sync_folder).mkdir(parents=True, exist_ok=True)
 
-    # S3 bucket
-    bucket = click.prompt("  S3 bucket name")
-    config.bucket = bucket.strip()
-
-    # Region
-    region = click.prompt("  AWS region", default="us-east-1")
-    config.region = region.strip()
-
-    # Key prefix
-    prefix = click.prompt(
-        "  S3 key prefix (leave blank for root)", default=""
-    )
-    config.prefix = prefix.strip()
-
-    # AWS credentials
+    # Storage backend
     click.echo()
-    cred_method = click.prompt(
-        "  AWS credential method",
-        type=click.Choice(["env", "profile", "keys"], case_sensitive=False),
-        default="env",
+    backend_choice = click.prompt(
+        "  Storage backend",
+        type=click.Choice(["aws", "minio", "local", "local+glacier"], case_sensitive=False),
+        default="aws",
         show_default=True,
         prompt_suffix="\n"
-        "    env     — use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars\n"
-        "    profile — use a named profile from ~/.aws/credentials\n"
-        "    keys    — enter access key and secret now (stored in config file)\n"
+        "    aws           — Amazon S3 with Glacier tiering (pay-per-use cloud)\n"
+        "    minio         — Self-hosted MinIO / S3-compatible server\n"
+        "    local         — Locally mounted hard drives (no cloud)\n"
+        "    local+glacier — Drives as primary + S3 Glacier as cold backup\n"
         "  Choice",
     )
-    if cred_method == "profile":
-        profile = click.prompt("  AWS profile name")
-        config.aws_profile = profile.strip()
-    elif cred_method == "keys":
-        access_key = click.prompt("  AWS access key ID")
-        secret_key = click.prompt("  AWS secret access key", hide_input=True)
-        config.aws_access_key_id = access_key.strip()
-        config.aws_secret_access_key = secret_key.strip()
-        _warn(
-            "Access keys saved to config file. "
-            "Using env vars or an AWS profile is more secure."
-        )
-    else:
+
+    is_local = backend_choice in ("local", "local+glacier")
+    is_minio = backend_choice == "minio"
+    config.storage_mode = "s3" if backend_choice in ("aws", "minio") else backend_choice
+
+    # --- Local drive path(s) ---
+    if is_local:
         _info(
-            "Make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set "
-            "before running sahara."
+            "Enter the absolute path(s) to your mounted drives. "
+            "Files will be written to ALL drives independently."
+        )
+        drive_paths: list[str] = []
+        while True:
+            default_drive = "" if drive_paths else "/Volumes/Drive1/Sahara"
+            prompt_text = (
+                "  Drive path (press Enter to finish)"
+                if drive_paths
+                else f"  Drive path 1"
+            )
+            dp = click.prompt(prompt_text, default=default_drive if not drive_paths else "")
+            if not dp.strip():
+                if not drive_paths:
+                    _warn("At least one drive path is required.")
+                    continue
+                break
+            drive_paths.append(str(Path(dp.strip()).expanduser()))
+        config.drive_paths = drive_paths
+        # Drives are append-only by default — deletions from sync folder do NOT
+        # propagate to drives, keeping them as a complete historical copy.
+        config.delete_remote_on_local_delete = False
+        _info(
+            "Drives set to append-only mode. "
+            "Deleting a file from your sync folder will NOT remove it from drives. "
+            "(Change delete_remote_on_local_delete in config to override.)"
         )
 
-    # Encryption
-    encrypt = click.confirm(
-        "\n  Enable client-side encryption (AES-256-GCM)?", default=False
-    )
+    # --- MinIO endpoint ---
+    if is_minio:
+        _info("MinIO mode: files will be stored on your self-hosted server.")
+        endpoint_url = click.prompt("  MinIO endpoint URL (e.g. http://100.x.x.1:9000)")
+        config.endpoint_url = endpoint_url.strip().rstrip("/")
+        config.default_storage_class = "STANDARD"
+
+    # --- S3 / MinIO bucket ---
+    if not is_local or backend_choice == "local+glacier":
+        bucket_prompt = (
+            "  Glacier backup bucket name"
+            if backend_choice == "local+glacier"
+            else ("  Bucket name" if is_minio else "  S3 bucket name")
+        )
+        bucket = click.prompt(bucket_prompt, default="sahara" if is_minio else "")
+        config.bucket = bucket.strip()
+
+        if not is_minio and backend_choice != "local+glacier":
+            region = click.prompt("  AWS region", default="us-east-1")
+            config.region = region.strip()
+        elif backend_choice == "local+glacier":
+            region = click.prompt("  AWS region for Glacier bucket", default="us-east-1")
+            config.region = region.strip()
+
+        prefix = click.prompt("  Key prefix (leave blank for root)", default="")
+        config.prefix = prefix.strip()
+
+    # --- Credentials ---
+    click.echo()
+    if is_minio:
+        access_key = click.prompt("  MinIO access key (root user)")
+        secret_key = click.prompt("  MinIO secret key (root password)", hide_input=True)
+        config.aws_access_key_id = access_key.strip()
+        config.aws_secret_access_key = secret_key.strip()
+    elif not is_local or backend_choice == "local+glacier":
+        label = "Glacier AWS" if backend_choice == "local+glacier" else "AWS"
+        cred_method = click.prompt(
+            f"  {label} credential method",
+            type=click.Choice(["env", "profile", "keys"], case_sensitive=False),
+            default="env",
+            show_default=True,
+            prompt_suffix="\n"
+            "    env     — use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars\n"
+            "    profile — use a named profile from ~/.aws/credentials\n"
+            "    keys    — enter access key and secret now (stored in config file)\n"
+            "  Choice",
+        )
+        if cred_method == "profile":
+            profile = click.prompt("  AWS profile name")
+            config.aws_profile = profile.strip()
+        elif cred_method == "keys":
+            access_key = click.prompt("  AWS access key ID")
+            secret_key = click.prompt("  AWS secret access key", hide_input=True)
+            config.aws_access_key_id = access_key.strip()
+            config.aws_secret_access_key = secret_key.strip()
+            _warn("Access keys saved to config file. Using env vars or a profile is more secure.")
+        else:
+            _info("Make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set before running sahara.")
+
+    # --- local+glacier: Glacier keep-deleted ---
+    if backend_choice == "local+glacier":
+        click.echo()
+        keep = click.confirm(
+            "  Keep Glacier copies when files are deleted locally? (recommended)",
+            default=True,
+        )
+        config.glacier_keep_deleted = keep
+        if keep:
+            _info("Glacier archive is immutable — local deletions will NOT remove Glacier copies.")
+
+    # --- Encryption ---
+    encrypt = click.confirm("\n  Enable client-side encryption (AES-256-GCM)?", default=False)
     config.encryption_enabled = encrypt
     if encrypt:
         passphrase = click.prompt(
-            "  Encryption passphrase",
-            hide_input=True,
-            confirmation_prompt=True,
+            "  Encryption passphrase", hide_input=True, confirmation_prompt=True
         )
         from sahara.utils.encryption import set_passphrase
-
         set_passphrase(passphrase)
         _ok("Passphrase stored in system keyring.")
 
-    # Conflict strategy
-    strategy = click.prompt(
-        "  Conflict strategy [backup/local/remote]",
-        default="backup",
-    )
+    # --- Conflict strategy ---
+    strategy = click.prompt("  Conflict strategy [backup/local/remote]", default="backup")
     config.conflict_strategy = strategy.strip()
 
-    # Upload-only mode
+    # --- Upload-only ---
     click.echo()
     upload_only = click.confirm(
-        "  Upload-only mode? (this machine only pushes files to S3,\n"
+        "  Upload-only mode? (this machine only pushes files,\n"
         "  never pulls files uploaded by other machines)",
         default=False,
     )
@@ -230,24 +325,24 @@ def init(ctx: click.Context) -> None:
     save_config(config, config_path)
     _ok(f"Configuration saved to {config_path}")
 
-    # Validate S3 access
-    click.echo("\n  Validating AWS access…")
+    # --- Validate storage access ---
+    click.echo("\n  Validating storage access…")
     try:
-        from sahara.storage.s3_client import S3Client
+        backend = _create_backend(config)
+        backend.validate_bucket_access()
+        if is_local:
+            _ok(f"Drive(s) accessible: {', '.join(config.drive_paths)}")
+        else:
+            _ok(f"Connected to bucket '{config.bucket}'")
 
-        s3 = S3Client(config)
-        s3.validate_bucket_access()
-        _ok(f"Connected to s3://{config.bucket}")
-
-        # Check manifest / bootstrap
-        manifest, _ = s3.get_manifest()
+        manifest, _ = backend.get_manifest()
         if manifest is None:
             _info("No existing manifest found. A new one will be created on first sync.")
         else:
             _ok(f"Manifest found with {len(manifest)} file(s).")
     except Exception as exc:
-        _warn(f"AWS validation failed: {exc}")
-        _warn("You can re-run `sahara doctor` after fixing credentials.")
+        _warn(f"Storage validation failed: {exc}")
+        _warn("You can re-run `sahara doctor` after fixing the issue.")
 
     # Create .saharaignore if absent
     ignore_path = Path(config.sync_folder) / ".saharaignore"
@@ -304,28 +399,58 @@ def doctor(ctx: click.Context, repair: bool) -> None:
         _warn("sync_folder not configured.")
         issues += 1
 
-    # S3 bucket
-    if config.bucket:
-        click.echo(f"  Checking S3 access to s3://{config.bucket}…")
+    # Storage connectivity check
+    if config.is_local_drive_mode:
+        # Check drive paths
+        if config.drive_paths:
+            click.echo(f"  Checking {len(config.drive_paths)} drive path(s)…")
+            try:
+                from sahara.storage.local_drive_client import LocalDriveClient
+                ldc = LocalDriveClient(config)
+                ldc.validate_bucket_access()
+                _ok(f"All drives accessible: {', '.join(config.drive_paths)}")
+            except Exception as exc:
+                _warn(f"Drive access failed: {exc}")
+                issues += 1
+        else:
+            _warn("drive_paths not configured.")
+            issues += 1
+        # For local+glacier, also check S3
+        if config.storage_mode == "local+glacier":
+            if config.bucket:
+                click.echo(f"  Checking Glacier S3 access to s3://{config.bucket}…")
+                try:
+                    from sahara.storage.s3_client import S3Client
+                    s3 = S3Client(config)
+                    s3.validate_bucket_access()
+                    _ok("Glacier bucket accessible.")
+                except Exception as exc:
+                    _warn(f"Glacier S3 access failed: {exc}")
+                    issues += 1
+            else:
+                _warn("bucket not configured for Glacier backup.")
+                issues += 1
+    elif config.bucket:
+        if config.is_self_hosted:
+            click.echo(f"  Checking MinIO access at {config.endpoint_url}, bucket '{config.bucket}'…")
+        else:
+            click.echo(f"  Checking S3 access to s3://{config.bucket}…")
         try:
             from sahara.storage.s3_client import S3Client
 
             s3 = S3Client(config)
             s3.validate_bucket_access()
-            _ok("S3 bucket accessible.")
+            _ok("Bucket accessible.")
 
-            # Conditional PUT support
             supports_cput = s3.check_conditional_put_support()
             if supports_cput:
                 _ok("Conditional PUT (If-Match) supported.")
             else:
-                _warn(
-                    "Conditional PUT not supported. "
-                    "Concurrent sync safety reduced."
-                )
+                _warn("Conditional PUT not supported. Concurrent sync safety reduced.")
 
         except Exception as exc:
-            _warn(f"S3 access failed: {exc}")
+            backend = "MinIO" if config.is_self_hosted else "S3"
+            _warn(f"{backend} access failed: {exc}")
             issues += 1
     else:
         _warn("bucket not configured.")
@@ -369,8 +494,8 @@ def doctor(ctx: click.Context, repair: bool) -> None:
     else:
         _info("State DB not yet initialised (will be created on first sync).")
 
-    # Stale multipart uploads
-    if config.bucket:
+    # Stale multipart uploads (AWS only — not applicable for MinIO or local drive modes)
+    if config.bucket and not config.is_self_hosted and not config.is_local_drive_mode:
         try:
             from sahara.storage.s3_client import S3Client
 
@@ -1164,6 +1289,7 @@ def archive(
     """Archive files to Glacier / Deep Archive."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
+    _require_s3_tiers(config, "archive")
 
     from sahara.storage.state_db import StateDB
     from pathlib import Path as _Path
@@ -1251,6 +1377,7 @@ def restore_cmd(ctx: click.Context, path: str, days: int, tier: str) -> None:
     """Request a Glacier restore for a file."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
+    _require_s3_tiers(config, "restore")
 
     engine, db, s3 = _build_engine(config)
     try:
@@ -1270,6 +1397,7 @@ def restore_status_cmd(ctx: click.Context, path: Optional[str]) -> None:
     """Check the status of a Glacier restore."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
+    _require_s3_tiers(config, "restore-status")
 
     from sahara.storage.state_db import StateDB
     from sahara.storage.s3_client import S3Client
@@ -1313,6 +1441,7 @@ def restore_download_cmd(ctx: click.Context, path: str) -> None:
     """Download a file that has been restored from Glacier."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
+    _require_s3_tiers(config, "restore-download")
 
     engine, db, s3 = _build_engine(config)
     try:

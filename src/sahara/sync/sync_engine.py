@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import hashlib
 import json
 import logging
 import os
@@ -15,6 +14,7 @@ from typing import Callable, Optional
 import filelock
 
 from sahara.config import SaharaConfig
+from sahara.utils.hash import compute_sha256 as _compute_sha256
 from sahara.utils.encryption import (
     decrypt_file,
     encrypt_file,
@@ -31,6 +31,7 @@ from sahara.models import (
     SyncResult,
     StorageTier,
 )
+from sahara.storage.backend import StorageBackend
 from sahara.storage.s3_client import (
     S3Client,
     ManifestConflictError,
@@ -92,14 +93,6 @@ ConflictStrategy = str  # "backup" | "local" | "remote" | "ask"
 # ---------------------------------------------------------------------------
 
 
-def _compute_sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def _local_mtime_utc(path: Path) -> datetime.datetime:
     ts = path.stat().st_mtime
     return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
@@ -127,7 +120,7 @@ class SyncEngine:
         self,
         config: SaharaConfig,
         db: StateDB,
-        s3: S3Client,
+        s3: StorageBackend,
         ignore_rules: Optional[IgnoreRules] = None,
         sync_folder: Optional[Path] = None,
         s3_prefix: str = "",
