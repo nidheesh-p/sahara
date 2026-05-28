@@ -1,66 +1,110 @@
 # Sahara
 
-Personal cloud storage CLI backed by AWS S3.
-
-Sahara syncs a local folder to an S3 bucket with:
-- Bidirectional sync with three-way diff (local / remote / last-known-good base)
-- Client-side AES-256-GCM encryption (optional)
-- Glacier / Deep Archive archiving with restore support
-- Background daemon with file-watching (watchdog)
-- Rename detection, conflict resolution, cost reporting
+> A local-first personal storage system with semantic search.
+> Find your files by meaning, not by filename.
 
 ---
 
-## Requirements
+## What it does today
 
-- Python 3.11+
-- AWS account with an S3 bucket
-- IAM user or role with: `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:GetBucketLocation`
+- **Sync** a local folder to S3, MinIO, or another local drive — bidirectional, with three-way diff conflict resolution
+- **Encrypt** files client-side with AES-256-GCM before they leave your machine
+- **Index** your documents — PDF, DOCX, Markdown, code, plain text — into a local vector database
+- **Search** by meaning: `sahara search "tax return 2024"` finds the right file even if none of those words appear in the filename
+- **Ask** natural language questions: `sahara ask "what is my passport expiry date?"` extracts the answer and cites the source
+
+All search and answer generation runs locally. Your files never leave your machine for indexing purposes.
+
+## What is coming next
+
+- Hybrid retrieval: BM25 keyword + vector search with cross-encoder reranking
+- Entity extraction: dates, names, amounts, document types
+- OCR support via a plugin (opt-in, not default)
+- Plugin marketplace for parsers, embedders, and rerankers
+
+See [ROADMAP.md](ROADMAP.md) for the full plan.
 
 ---
 
 ## Installation
 
 ```bash
+# Minimal — sync only, no search
 pip install sahara
-```
 
-For semantic search support (large download, ~200 MB):
-
-```bash
+# With semantic search (downloads ~200 MB embedding model on first use)
 pip install "sahara[search]"
+
+# With OCR support
+pip install "sahara[search,ocr]"
+
+# Everything
+pip install "sahara[all]"
 ```
 
-Or from source:
+### Developer setup
 
 ```bash
 git clone https://github.com/nidheesh-p/sahara
 cd sahara
-pip install -e .
+pip install -e ".[search,dev]"
 ```
 
 ---
 
-## AWS Credentials
+## Quick start
 
-Sahara uses the standard AWS credential chain. Choose one method:
+Three commands to your first semantic search:
 
-**Option 1 — Environment variables (recommended for simple setups)**
 ```bash
-export AWS_ACCESS_KEY_ID=AKIAxxxxxxxxxxxxxxxx
-export AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+pip install "sahara[search]"
+sahara init          # 2-minute interactive wizard — choose local, MinIO, or S3
+sahara index && sahara search "my tax return 2024"
+```
+
+---
+
+## Storage backends
+
+Sahara supports three storage modes, selected during `sahara init`:
+
+| Mode | Use case |
+|------|----------|
+| `local` | Second drive, NAS, or network share — no cloud account needed |
+| `minio` | Self-hosted S3-compatible object storage (docker run in 30 seconds) |
+| `s3` | AWS S3 with optional Glacier archiving |
+
+### Local drive
+
+```bash
+sahara init   # choose 'local', point at /Volumes/MyDrive/Backup
+sahara sync
+```
+
+### MinIO (self-hosted)
+
+```bash
+docker run -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=password \
+  minio/minio server /data --console-address :9001
+
+sahara init   # choose 'minio', endpoint http://localhost:9000
+sahara sync
+```
+
+### AWS S3
+
+```bash
+export AWS_ACCESS_KEY_ID=AKIAxxxxxxxx
+export AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxx
 export AWS_DEFAULT_REGION=us-east-1
+
+sahara init   # choose 's3'
+sahara sync
 ```
 
-**Option 2 — AWS CLI profile**
-```bash
-aws configure          # creates ~/.aws/credentials
-# then choose "profile" during `sahara init`
-```
+Minimum IAM policy:
 
-**Option 3 — IAM role** (EC2, ECS, Lambda — no keys needed, works automatically)
-
-To create an IAM user with the minimum required permissions, attach this policy:
 ```json
 {
   "Version": "2012-10-17",
@@ -81,104 +125,114 @@ To create an IAM user with the minimum required permissions, attach this policy:
 
 ---
 
-## Quick Start
+## Search & ask
 
-### 1. Initialise
-
-```bash
-sahara init
-```
-
-The wizard will prompt for:
-- Sync folder path (default: `~/Sahara`)
-- S3 bucket name
-- AWS region
-- S3 key prefix (optional)
-- Encryption passphrase (optional)
-- Conflict resolution strategy
-
-### 2. Run a sync
+### Index your files
 
 ```bash
-sahara sync
+sahara index                    # index all synced files
+sahara index --path docs/       # index a specific subfolder
 ```
 
-### 3. Check status
+### Search by meaning
 
 ```bash
-sahara status
+sahara search "tax return 2024"
+sahara search "kitchen renovation quote" --top 10
+sahara search "passport expiry" --snippet
 ```
 
-### 4. Start background daemon
+### Ask a question (requires `sahara[search]`)
 
 ```bash
-sahara daemon start
-sahara daemon status
+sahara ask "what is my passport expiry date?"
+sahara ask "find the invoice from Amazon last month" --top 10
 ```
+
+`sahara ask` uses a local LLM via [ollama](https://ollama.ai) if available, and falls back to showing ranked snippets if ollama is not running.
+
+```
+Answer: Your passport expires on Aug 14, 2032.
+
+Source: Documents/Personal/passport_scan.pdf  (score: 94%)
+  "…passport valid until 14 AUG 2032. Issued by Government of India…"
+
+Note: Answer generated by local model mistral via ollama.
+```
+
+To use OpenAI instead of ollama, set `OPENAI_API_KEY` in your environment.
 
 ---
 
 ## Commands
 
 | Command | Description |
-|---|---|
+|---------|-------------|
 | `sahara init` | Interactive setup wizard |
 | `sahara doctor [--repair]` | Diagnose configuration and connectivity |
 | `sahara sync` | Bidirectional sync |
 | `sahara push` | Upload local changes only |
 | `sahara pull` | Download remote changes only |
 | `sahara status` | Show pending changes |
-| `sahara diff` | Alias for status |
 | `sahara ls [--long] [--tier]` | List tracked files |
 | `sahara rm <path>` | Delete a file |
 | `sahara mv <src> <dst>` | Rename / move a file |
+| `sahara index` | Index files for semantic search |
+| `sahara search <query>` | Semantic file search |
+| `sahara ask <question>` | Natural language question answering |
 | `sahara conflicts` | List unresolved conflicts |
 | `sahara resolve` | Resolve conflicts |
-| `sahara archive <paths>` | Move files to Glacier |
+| `sahara archive <paths>` | Move files to Glacier (S3 only) |
 | `sahara restore <path>` | Initiate Glacier restore |
-| `sahara restore-status` | Check restore progress |
-| `sahara restore-download <path>` | Download a restored file |
 | `sahara usage` | Storage usage and cost report |
 | `sahara history` | Sync history log |
 | `sahara config show/get/set` | Manage configuration |
-| `sahara encryption setup` | Enable encryption |
-| `sahara encryption rotate` | Rotate encryption key |
-| `sahara daemon start/stop/status/pause/resume/logs` | Daemon control |
+| `sahara encryption setup/rotate` | Manage client-side encryption |
+| `sahara daemon start/stop/status` | Background sync daemon |
 
 ---
 
-## Configuration
+## Configuration reference
 
 Config file: `~/.sahara/config.toml`
 
-Key settings:
-
 ```toml
 sync_folder = "/Users/you/Sahara"
+storage_mode = "local"        # local | minio | s3
+
+# S3 / MinIO settings
 bucket = "my-sahara-bucket"
 region = "us-east-1"
-prefix = ""
-encryption_enabled = false
-conflict_strategy = "backup"   # backup | local | remote | ask
+endpoint_url = ""             # set for MinIO, e.g. http://localhost:9000
+
+# Sync settings
+conflict_strategy = "backup"  # backup | local | remote | ask
 max_workers = 8
-multipart_threshold_mb = 100
+
+# Encryption
+encryption_enabled = false
+
+# Search / ask settings
+[ask]
+model = "mistral"             # ollama model name
+ollama_url = "http://localhost:11434"
+max_context_chunks = 5
 ```
 
 ---
 
 ## Encryption
 
-Sahara uses AES-256-GCM with PBKDF2-HMAC-SHA256 key derivation (600,000 iterations).
-The passphrase is stored in the system keyring (macOS Keychain, libsecret on Linux, Windows Credential Manager).
+Sahara uses AES-256-GCM with PBKDF2-HMAC-SHA256 key derivation (600,000 iterations). The passphrase is stored in the system keyring (macOS Keychain, libsecret on Linux, Windows Credential Manager). There is no recovery path if you lose your passphrase.
 
 ```bash
-sahara encryption setup    # Enable and store passphrase
-sahara encryption rotate   # Rotate to a new passphrase
+sahara encryption setup    # enable and store passphrase
+sahara encryption rotate   # rotate to a new passphrase
 ```
 
 ---
 
-## Ignore Rules
+## Ignore rules
 
 Place a `.saharaignore` file in your sync folder (same syntax as `.gitignore`):
 
@@ -191,18 +245,9 @@ secrets/
 
 ---
 
-## Archiving
+## Contributing
 
-```bash
-# Archive files older than 180 days
-sahara archive --older-than 180
-
-# Archive specific files
-sahara archive documents/old-report.pdf
-
-# Check cost
-sahara usage
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, test conventions, and how to add a storage backend or file parser.
 
 ---
 
