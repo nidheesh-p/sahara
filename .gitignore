@@ -32,6 +32,11 @@ htmlcov/
 *.swp
 *.swo
 
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
 # Sahara runtime files (not source)
 *.db
 *.db-wal

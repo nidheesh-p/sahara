@@ -22,6 +22,33 @@ from sahara.config import (
 
 __all__ = ["main"]
 
+
+def _load_dotenv() -> None:
+    """Load key=value pairs from .env in the project root into os.environ.
+
+    Only sets variables that are not already present in the environment,
+    so shell exports and CI secrets always take precedence.
+    """
+    dotenv = Path(__file__).parent.parent.parent.parent / ".env"
+    if not dotenv.is_file():
+        # Also check current working directory (handy when running from the repo root)
+        dotenv = Path.cwd() / ".env"
+    if not dotenv.is_file():
+        return
+    for line in dotenv.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv()
+
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -106,10 +133,10 @@ def _build_engine(
 
 
 def _require_config(config: SaharaConfig) -> None:
-    if not config.bucket or not config.sync_folder:
-        _abort(
-            "Sahara is not initialised. Run `sahara init` to set up."
-        )
+    if not config.sync_folder:
+        _abort("Sahara is not initialised. Run `sahara init` to set up.")
+    if config.storage_mode == "s3" and not config.bucket:
+        _abort("No S3 bucket configured. Run `sahara init` to set up.")
 
 
 def _require_s3_tiers(config: SaharaConfig, feature: str) -> None:
@@ -1685,7 +1712,7 @@ def search_cmd(
             return
 
         _info(f"Searching {total} indexed file(s)…")
-        results = engine.search(query, top_k=top, s3_prefix=s3_prefix_filter)
+        results = engine.search(query, top_k=top, storage_prefix=s3_prefix_filter)
 
         if not results:
             _info("No results found.")
@@ -1693,7 +1720,7 @@ def search_cmd(
 
         _section(f"Results for: \"{query}\"")
         for i, r in enumerate(results, 1):
-            prefix = r["s3_prefix"]
+            prefix = r.get("storage_prefix", r.get("s3_prefix", ""))
             display = f"{prefix}/{r['relative_path']}" if prefix else r["relative_path"]
             score_pct = int(r["score"] * 100)
             score_color = "green" if score_pct >= 70 else "yellow" if score_pct >= 50 else "white"
@@ -1703,6 +1730,139 @@ def search_cmd(
                 # Print first 150 chars of snippet, indented
                 snip = r["snippet"].replace("\n", " ")[:150].strip()
                 click.echo(click.style(f"       {snip}…", fg="bright_black"))
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# ask
+# ---------------------------------------------------------------------------
+
+
+@main.command("ask")
+@click.argument("question", nargs=-1, required=True)
+@click.option("--top", "-n", default=5, show_default=True, help="Number of chunks to retrieve.")
+@click.option("--folder", "-f", default=None, help="Limit search to this folder.")
+@click.option(
+    "--model", "-m", default=None,
+    help="LLM model name (e.g. gpt-4o-mini for OpenAI, mistral for Ollama).",
+)
+@click.option(
+    "--provider", default=None,
+    type=click.Choice(["openai", "ollama"], case_sensitive=False),
+    help="LLM provider: openai or ollama (auto-detected from OPENAI_API_KEY if not set).",
+)
+@click.option(
+    "--ollama-url", default=None,
+    help="Ollama base URL (default: http://localhost:11434).",
+)
+@click.option("--snippet", is_flag=True, help="Always show source snippets even when an answer is produced.")
+@click.pass_context
+def ask_cmd(
+    ctx: click.Context,
+    question: tuple,
+    top: int,
+    folder: Optional[str],
+    model: Optional[str],
+    provider: Optional[str],
+    ollama_url: Optional[str],
+    snippet: bool,
+) -> None:
+    """Answer a natural language question about your files.
+
+    Automatically uses OpenAI (ChatGPT) when OPENAI_API_KEY is set, otherwise
+    falls back to a local Ollama instance.
+
+    Prefix with 'local' to force Ollama regardless of API key:
+
+        sahara ask "what is my passport expiry date?"
+
+        sahara ask local "what is my passport expiry date?"
+    """
+    import os as _os
+
+    # 'local' as the first word forces Ollama provider
+    if question and question[0].lower() == "local":
+        if provider is None:
+            provider = "ollama"
+        question = question[1:]
+    if not question:
+        _abort("Please provide a question.")
+    question_str = " ".join(question)
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_config(config)
+
+    from sahara.storage.state_db import StateDB
+    from sahara.search.search_engine import SearchEngine
+    from sahara.search.ask_engine import AskEngine
+    from pathlib import Path as _Path
+
+    db = StateDB().connect()
+    search_engine = SearchEngine(db)
+    ask_engine = AskEngine(
+        search_engine,
+        ollama_url=ollama_url or _os.environ.get("OLLAMA_URL", "http://localhost:11434"),
+        model=model or (_os.environ.get("OPENAI_MODEL") if provider != "ollama" else None),
+        provider=provider,
+        openai_api_key=_os.environ.get("OPENAI_API_KEY"),
+    )
+
+    try:
+        # Resolve folder filter
+        storage_prefix_filter: Optional[str] = None
+        if folder:
+            resolved = str(_Path(folder).expanduser().resolve())
+            all_targets: list[tuple[_Path, str]] = [(config.get_sync_folder_path(), "")]
+            for row in db.list_sync_targets():
+                all_targets.append((_Path(row["local_path"]), row["s3_prefix"]))
+            match = [(f, p) for f, p in all_targets if str(f) == resolved]
+            if not match:
+                _abort(f"'{folder}' is not a registered sync folder.")
+            storage_prefix_filter = match[0][1]
+
+        total = db.count_embeddings(s3_prefix=storage_prefix_filter)
+        if total == 0:
+            _warn("No files indexed yet. Run `sahara index` first.")
+            return
+
+        _info(f"Searching {total} indexed file(s)…")
+        result = ask_engine.ask(question_str, top_k=top, storage_prefix=storage_prefix_filter)
+
+        click.echo()
+        if result.answer:
+            click.echo(click.style("Answer:", fg="cyan", bold=True) + " " + result.answer)
+            if result.model_used:
+                provider_label = (
+                    f"OpenAI ({result.model_used})"
+                    if result.provider_used == "openai"
+                    else f"Ollama ({result.model_used})"
+                )
+                click.echo(
+                    click.style(
+                        f"\n  Note: Answer generated by {provider_label}.",
+                        fg="bright_black",
+                    )
+                )
+        else:
+            if result.error:
+                _warn(result.error)
+            _info("Showing top matching results:")
+
+        if result.sources and (snippet or not result.answer):
+            click.echo()
+            _section("Sources")
+            for i, r in enumerate(result.sources, 1):
+                prefix = r.get("storage_prefix", r.get("s3_prefix", ""))
+                display = f"{prefix}/{r['relative_path']}" if prefix else r["relative_path"]
+                score_pct = int(r.get("score", 0) * 100)
+                score_color = "green" if score_pct >= 70 else "yellow" if score_pct >= 50 else "white"
+                score_str = click.style(f"{score_pct}%", fg=score_color)
+                click.echo(f"  {i}. [{score_str}] {display}")
+                snip = r.get("snippet", "")
+                if snip:
+                    snip_display = snip.replace("\n", " ")[:200].strip()
+                    click.echo(click.style(f'       "{snip_display}..."', fg="bright_black"))
     finally:
         db.close()
 
