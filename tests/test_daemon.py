@@ -10,6 +10,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from sahara.daemon import (
+    _clear_pid,
+    _is_paused,
+    _read_pid,
+    _write_pid,
     get_daemon_status,
     install_autostart,
     is_daemon_running,
@@ -19,12 +23,7 @@ from sahara.daemon import (
     resume_daemon,
     stop_daemon,
     uninstall_autostart,
-    _read_pid,
-    _write_pid,
-    _clear_pid,
-    _is_paused,
 )
-
 
 # ---------------------------------------------------------------------------
 # PID helpers (patching the module-level paths)
@@ -201,7 +200,7 @@ class TestPollRestores:
         mock_s3 = MagicMock()
         mock_s3._config.get_s3_key.return_value = "archived.zip"
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
 
         from sahara.models import FileRecord
         record = FileRecord(
@@ -210,9 +209,9 @@ class TestPollRestores:
             size_bytes=100,
             tier="GLACIER",
             s3_etag="etag",
-            last_sync_at=NOW,
-            local_modified_at=NOW,
-            remote_modified_at=NOW,
+            last_sync_at=now,
+            local_modified_at=now,
+            remote_modified_at=now,
             restore_job_id="job-123",
         )
         mock_db.list_pending_restores.return_value = [record]
@@ -229,7 +228,7 @@ class TestPollRestores:
         mock_db = MagicMock()
         mock_s3 = MagicMock()
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
         from sahara.models import FileRecord
         record = FileRecord(
             relative_path="file.zip",
@@ -237,9 +236,9 @@ class TestPollRestores:
             size_bytes=0,
             tier="GLACIER",
             s3_etag="etag",
-            last_sync_at=NOW,
-            local_modified_at=NOW,
-            remote_modified_at=NOW,
+            last_sync_at=now,
+            local_modified_at=now,
+            remote_modified_at=now,
             restore_job_id="job",
         )
         mock_db.list_pending_restores.return_value = [record]
@@ -253,7 +252,7 @@ class TestPollRestores:
         mock_s3 = MagicMock()
         mock_s3._config.get_s3_key.return_value = "archived.zip"
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
         from sahara.models import FileRecord
         record = FileRecord(
             relative_path="archived.zip",
@@ -261,9 +260,9 @@ class TestPollRestores:
             size_bytes=0,
             tier="GLACIER",
             s3_etag="etag",
-            last_sync_at=NOW,
-            local_modified_at=NOW,
-            remote_modified_at=NOW,
+            last_sync_at=now,
+            local_modified_at=now,
+            remote_modified_at=now,
             restore_job_id="job",
         )
         mock_db.list_pending_restores.return_value = [record]
@@ -291,8 +290,8 @@ class TestPollRestores:
 class TestPollRestoreExpiries:
     def test_poll_expiries_notifies_expiring(self):
         mock_db = MagicMock()
-        NOW = datetime.datetime.now(datetime.timezone.utc)
-        expires_soon = NOW + datetime.timedelta(hours=1)
+        now = datetime.datetime.now(datetime.UTC)
+        expires_soon = now + datetime.timedelta(hours=1)
 
         from sahara.models import FileRecord
         record = FileRecord(
@@ -301,9 +300,9 @@ class TestPollRestoreExpiries:
             size_bytes=0,
             tier="HOT_TEMP",
             s3_etag="etag",
-            last_sync_at=NOW,
-            local_modified_at=NOW,
-            remote_modified_at=NOW,
+            last_sync_at=now,
+            local_modified_at=now,
+            remote_modified_at=now,
             restore_expires_at=expires_soon,
         )
         mock_db.list_expiring_restores.return_value = [record]
@@ -316,8 +315,8 @@ class TestPollRestoreExpiries:
 
     def test_poll_expiries_skips_already_expired(self):
         mock_db = MagicMock()
-        NOW = datetime.datetime.now(datetime.timezone.utc)
-        already_expired = NOW - datetime.timedelta(hours=1)
+        now = datetime.datetime.now(datetime.UTC)
+        already_expired = now - datetime.timedelta(hours=1)
 
         from sahara.models import FileRecord
         record = FileRecord(
@@ -326,9 +325,9 @@ class TestPollRestoreExpiries:
             size_bytes=0,
             tier="HOT_TEMP",
             s3_etag="etag",
-            last_sync_at=NOW,
-            local_modified_at=NOW,
-            remote_modified_at=NOW,
+            last_sync_at=now,
+            local_modified_at=now,
+            remote_modified_at=now,
             restore_expires_at=already_expired,
         )
         mock_db.list_expiring_restores.return_value = [record]
@@ -404,6 +403,7 @@ class TestAutostart:
     def test_find_sahara_executable_fallback(self):
         with patch("shutil.which", return_value=None):
             import sys
+
             from sahara.daemon import _find_sahara_executable
             result = _find_sahara_executable()
             assert sys.executable in result

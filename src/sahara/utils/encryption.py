@@ -25,12 +25,11 @@ import hashlib
 import os
 import struct
 from pathlib import Path
-from typing import Callable, Optional
 
 import keyring
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 __all__ = [
     "EncryptionError",
@@ -95,7 +94,7 @@ def generate_salt() -> bytes:
 # ---------------------------------------------------------------------------
 
 
-def get_passphrase() -> Optional[str]:
+def get_passphrase() -> str | None:
     """Retrieve the stored passphrase from the system keyring."""
     try:
         return keyring.get_password(_KEYRING_SERVICE, _KEYRING_USERNAME)
@@ -187,7 +186,6 @@ def decrypt_file(
     Returns the hex-encoded SHA-256 of the recovered plaintext.
     Raises EncryptionError on any integrity failure.
     """
-    aesgcm_cache: dict[bytes, AESGCM] = {}
     sha256 = hashlib.sha256()
 
     dst_path.parent.mkdir(parents=True, exist_ok=True)

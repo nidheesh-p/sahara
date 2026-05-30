@@ -4,10 +4,9 @@ from __future__ import annotations
 import datetime
 import hashlib
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import boto3
-import pytest
 from moto import mock_aws
 
 from sahara.config import SaharaConfig
@@ -16,7 +15,6 @@ from sahara.s3_client import S3Client
 from sahara.state_db import StateDB
 from sahara.sync_engine import DiffResult, SyncEngine, _compute_sha256
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -24,7 +22,7 @@ from sahara.sync_engine import DiffResult, SyncEngine, _compute_sha256
 BUCKET = "sync-test-bucket"
 REGION = "us-east-1"
 
-NOW = datetime.datetime.now(datetime.timezone.utc)
+NOW = datetime.datetime.now(datetime.UTC)
 
 
 def _make_config(tmp_path: Path, **kwargs) -> SaharaConfig:

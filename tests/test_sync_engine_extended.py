@@ -8,19 +8,23 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import boto3
-import pytest
 from moto import mock_aws
 
 from sahara.config import SaharaConfig
 from sahara.models import FileRecord, ManifestEntry, SyncResult
 from sahara.s3_client import S3Client
 from sahara.state_db import StateDB
-from sahara.sync_engine import SyncEngine, DiffResult, _compute_sha256, _local_mtime_utc, _now_utc, _ensure_aware
-
+from sahara.sync_engine import (
+    DiffResult,
+    SyncEngine,
+    _ensure_aware,
+    _local_mtime_utc,
+    _now_utc,
+)
 
 BUCKET = "sync-ext-bucket"
 REGION = "us-east-1"
-NOW = datetime.datetime.now(datetime.timezone.utc)
+NOW = datetime.datetime.now(datetime.UTC)
 
 
 def _make_config(tmp_path: Path, **kwargs) -> SaharaConfig:
@@ -88,7 +92,7 @@ def test_ensure_aware_naive():
 
 
 def test_ensure_aware_already_aware():
-    aware = datetime.datetime(2024, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+    aware = datetime.datetime(2024, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
     result = _ensure_aware(aware)
     assert result == aware
 

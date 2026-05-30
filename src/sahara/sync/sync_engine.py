@@ -4,39 +4,33 @@ from __future__ import annotations
 
 import datetime
 import hashlib
-import json
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor, Future, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
 
 import filelock
 
 from sahara.config import SaharaConfig
-from sahara.utils.encryption import (
-    decrypt_file,
-    encrypt_file,
-    derive_key,
-    generate_salt,
-    get_passphrase,
-    EncryptionError,
-)
-from sahara.sync.ignore_rules import IgnoreRules
 from sahara.models import (
     FileRecord,
     ManifestEntry,
-    SyncOperation,
     SyncResult,
-    StorageTier,
 )
 from sahara.storage.s3_client import (
-    S3Client,
     ManifestConflictError,
+    S3Client,
     S3ClientError,
 )
 from sahara.storage.state_db import StateDB
+from sahara.sync.ignore_rules import IgnoreRules
+from sahara.utils.encryption import (
+    EncryptionError,
+    encrypt_file,
+    generate_salt,
+    get_passphrase,
+)
 
 __all__ = [
     "SyncEngine",
@@ -87,6 +81,14 @@ class DiffResult:
 ConflictStrategy = str  # "backup" | "local" | "remote" | "ask"
 
 
+@dataclass
+class LocalFileInfo:
+    path: Path
+    relative: str
+    mtime: datetime.datetime
+    size: int
+
+
 # ---------------------------------------------------------------------------
 # Helper utilities
 # ---------------------------------------------------------------------------
@@ -102,16 +104,16 @@ def _compute_sha256(path: Path) -> str:
 
 def _local_mtime_utc(path: Path) -> datetime.datetime:
     ts = path.stat().st_mtime
-    return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
+    return datetime.datetime.fromtimestamp(ts, tz=datetime.UTC)
 
 
 def _now_utc() -> datetime.datetime:
-    return datetime.datetime.now(datetime.timezone.utc)
+    return datetime.datetime.now(datetime.UTC)
 
 
 def _ensure_aware(dt: datetime.datetime) -> datetime.datetime:
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.replace(tzinfo=datetime.UTC)
     return dt
 
 
@@ -128,8 +130,8 @@ class SyncEngine:
         config: SaharaConfig,
         db: StateDB,
         s3: S3Client,
-        ignore_rules: Optional[IgnoreRules] = None,
-        sync_folder: Optional[Path] = None,
+        ignore_rules: IgnoreRules | None = None,
+        sync_folder: Path | None = None,
         s3_prefix: str = "",
     ) -> None:
         self._config = config
@@ -165,16 +167,8 @@ class SyncEngine:
     # Local scan
     # ------------------------------------------------------------------
 
-    def _scan_local(self) -> dict[str, "LocalFileInfo"]:
+    def _scan_local(self) -> dict[str, LocalFileInfo]:
         """Walk the sync folder and return metadata for every non-ignored file."""
-
-        @dataclass
-        class LocalFileInfo:
-            path: Path
-            relative: str
-            mtime: datetime.datetime
-            size: int
-
         result: dict[str, LocalFileInfo] = {}
         base = self._sync_folder
 
@@ -204,7 +198,7 @@ class SyncEngine:
                     path=fpath,
                     relative=rel_file,
                     mtime=datetime.datetime.fromtimestamp(
-                        stat.st_mtime, tz=datetime.timezone.utc
+                        stat.st_mtime, tz=datetime.UTC
                     ),
                     size=stat.st_size,
                 )
@@ -267,7 +261,7 @@ class SyncEngine:
                 manifest_sha = manifest_entry.sha256
 
                 # Compute local SHA only if manifest or db differs (lazy)
-                local_sha: Optional[str] = None
+                local_sha: str | None = None
 
                 def get_local_sha() -> str:
                     nonlocal local_sha
@@ -339,7 +333,7 @@ class SyncEngine:
                 old_parent = str(Path(old_path).parent)
 
                 # Tiebreaker: prefer same parent dir or same stem
-                best: Optional[str] = None
+                best: str | None = None
                 for new_path in candidate_news:
                     if new_path in renamed_new:
                         continue
@@ -433,7 +427,7 @@ class SyncEngine:
         self,
         path: str,
         storage_class: str = "STANDARD",
-    ) -> Optional[FileRecord]:
+    ) -> FileRecord | None:
         """Upload *path* to S3 and return the updated FileRecord."""
         local_abs = self._sync_folder / path
         s3_key = self._get_s3_key(path)
@@ -517,7 +511,7 @@ class SyncEngine:
         self,
         path: str,
         manifest_entry: ManifestEntry,
-    ) -> Optional[FileRecord]:
+    ) -> FileRecord | None:
         """Download *path* from S3 and return the updated FileRecord."""
         local_abs = self._sync_folder / path
         s3_key = self._get_s3_key(path)
@@ -536,6 +530,8 @@ class SyncEngine:
                         _MAGIC,
                         _SALT_LEN,
                         derive_key,
+                    )
+                    from sahara.utils.encryption import (
                         decrypt_file as _df,
                     )
 
@@ -616,7 +612,7 @@ class SyncEngine:
     # Execute a server-side move
     # ------------------------------------------------------------------
 
-    def _execute_move(self, old_path: str, new_path: str) -> Optional[FileRecord]:
+    def _execute_move(self, old_path: str, new_path: str) -> FileRecord | None:
         old_s3 = self._get_s3_key(old_path)
         new_s3 = self._get_s3_key(new_path)
         try:
@@ -668,7 +664,7 @@ class SyncEngine:
     def _write_manifest_with_retry(
         self,
         manifest: dict[str, dict],
-        current_etag: Optional[str],
+        current_etag: str | None,
     ) -> None:
         """Write manifest to S3 with conditional PUT, retrying on 412."""
         mkey = self._get_manifest_key()
@@ -1062,7 +1058,7 @@ class SyncEngine:
 
         return status
 
-    def download_restored(self, path: str) -> Optional[str]:
+    def download_restored(self, path: str) -> str | None:
         """Download a restored file from Glacier to the local sync folder."""
         status = self.check_restore_status(path)
         if not status["ready"]:

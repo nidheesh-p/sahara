@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import datetime
-import json
 import logging
-import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 import click
 
@@ -67,19 +64,19 @@ def _abort(msg: str) -> None:
     sys.exit(1)
 
 
-def _load_cfg(config_path: Optional[Path]) -> SaharaConfig:
+def _load_cfg(config_path: Path | None) -> SaharaConfig:
     return load_config(config_path or DEFAULT_CONFIG_PATH)
 
 
 def _build_engine(
     config: SaharaConfig,
-    sync_folder: Optional[Path] = None,
+    sync_folder: Path | None = None,
     s3_prefix: str = "",
 ):
-    from sahara.storage.state_db import StateDB
     from sahara.storage.s3_client import S3Client
-    from sahara.sync.sync_engine import SyncEngine
+    from sahara.storage.state_db import StateDB
     from sahara.sync.ignore_rules import IgnoreRules
+    from sahara.sync.sync_engine import SyncEngine
 
     folder = sync_folder or config.get_sync_folder_path()
     db = StateDB().connect()
@@ -114,7 +111,7 @@ def _require_config(config: SaharaConfig) -> None:
     help="Path to config.toml (default: ~/.sahara/config.toml).",
 )
 @click.pass_context
-def main(ctx: click.Context, config_path: Optional[Path]) -> None:
+def main(ctx: click.Context, config_path: Path | None) -> None:
     """Sahara — personal cloud storage backed by AWS S3."""
     ctx.ensure_object(dict)
     ctx.obj["config_path"] = config_path
@@ -355,7 +352,7 @@ def doctor(ctx: click.Context, repair: bool) -> None:
         _info("Encryption: disabled.")
 
     # DB
-    from sahara.storage.state_db import StateDB, DB_PATH
+    from sahara.storage.state_db import DB_PATH, StateDB
 
     db_path = DB_PATH
     if db_path.exists():
@@ -441,8 +438,14 @@ def encryption_rotate(ctx: click.Context) -> None:
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.utils.encryption import get_passphrase, set_passphrase, derive_key
-    from sahara.utils.encryption import generate_salt, encrypt_file, decrypt_file
+    from sahara.utils.encryption import (
+        decrypt_file,
+        derive_key,
+        encrypt_file,
+        generate_salt,
+        get_passphrase,
+        set_passphrase,
+    )
 
     old_pp = get_passphrase()
     if not old_pp:
@@ -457,9 +460,10 @@ def encryption_rotate(ctx: click.Context) -> None:
     )
 
     _section("Re-encrypting files")
-    from sahara.storage.state_db import StateDB
-    from sahara.storage.s3_client import S3Client
     import tempfile
+
+    from sahara.storage.s3_client import S3Client
+    from sahara.storage.state_db import StateDB
 
     db = StateDB().connect()
     s3 = S3Client(config)
@@ -480,7 +484,7 @@ def encryption_rotate(ctx: click.Context) -> None:
                     s3.download_file(s3_key, enc_dl)
 
                     # Decrypt with old key
-                    from sahara.utils.encryption import _HEADER_LEN, _MAGIC, _SALT_LEN
+                    from sahara.utils.encryption import _HEADER_LEN, _SALT_LEN
 
                     with open(enc_dl, "rb") as fh:
                         hdr = fh.read(_HEADER_LEN)
@@ -597,7 +601,7 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
          "The source folder is placed inside it. Ignored if --as is provided.",
 )
 @click.pass_context
-def add_folder(ctx: click.Context, path: Path, name: Optional[str], dest: Optional[str]) -> None:
+def add_folder(ctx: click.Context, path: Path, name: str | None, dest: str | None) -> None:
     """Register an additional folder for sync."""
     from sahara.storage.state_db import StateDB
 
@@ -719,10 +723,10 @@ def _run_sync(
     dry_run: bool = False,
     verify: bool = False,
     wait: bool = False,
-    folder: Optional[str] = None,
+    folder: str | None = None,
 ) -> None:
-    from sahara.storage.state_db import StateDB
     from sahara.models import SyncResult
+    from sahara.storage.state_db import StateDB
 
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
@@ -803,7 +807,7 @@ def _run_sync(
 @click.option("--wait", is_flag=True, help="Wait for all restores to complete.")
 @click.option("--folder", "-f", default=None, help="Sync only this folder (local path).")
 @click.pass_context
-def sync(ctx: click.Context, dry_run: bool, verify: bool, wait: bool, folder: Optional[str]) -> None:
+def sync(ctx: click.Context, dry_run: bool, verify: bool, wait: bool, folder: str | None) -> None:
     """Sync local folder(s) with S3 (bidirectional)."""
     _run_sync(ctx, dry_run=dry_run, verify=verify, wait=wait, folder=folder)
 
@@ -813,7 +817,7 @@ def sync(ctx: click.Context, dry_run: bool, verify: bool, wait: bool, folder: Op
 @click.option("--verify", is_flag=True)
 @click.option("--folder", "-f", default=None, help="Push only this folder (local path).")
 @click.pass_context
-def push(ctx: click.Context, dry_run: bool, verify: bool, folder: Optional[str]) -> None:
+def push(ctx: click.Context, dry_run: bool, verify: bool, folder: str | None) -> None:
     """Push local changes to S3 (upload only)."""
     _run_sync(ctx, push_only=True, dry_run=dry_run, verify=verify, folder=folder)
 
@@ -823,7 +827,7 @@ def push(ctx: click.Context, dry_run: bool, verify: bool, folder: Optional[str])
 @click.option("--wait", is_flag=True)
 @click.option("--folder", "-f", default=None, help="Pull only this folder (local path).")
 @click.pass_context
-def pull(ctx: click.Context, dry_run: bool, wait: bool, folder: Optional[str]) -> None:
+def pull(ctx: click.Context, dry_run: bool, wait: bool, folder: str | None) -> None:
     """Pull remote changes from S3 (download only)."""
     _run_sync(ctx, pull_only=True, dry_run=dry_run, wait=wait, folder=folder)
 
@@ -915,7 +919,7 @@ def conflicts(ctx: click.Context) -> None:
     help="Which version to keep.",
 )
 @click.pass_context
-def resolve(ctx: click.Context, path: Optional[str], keep: str) -> None:
+def resolve(ctx: click.Context, path: str | None, keep: str) -> None:
     """Resolve a conflict for a specific file."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
@@ -946,7 +950,7 @@ def resolve(ctx: click.Context, path: Optional[str], keep: str) -> None:
 @click.option("--all", "show_all", is_flag=True, help="Show files from all registered folders.")
 @click.pass_context
 def ls_cmd(
-    ctx: click.Context, prefix: str, tier: Optional[str], long: bool, show_all: bool
+    ctx: click.Context, prefix: str, tier: str | None, long: bool, show_all: bool
 ) -> None:
     """List tracked files."""
     config: SaharaConfig = ctx.obj["config"]
@@ -1041,8 +1045,8 @@ def rm_cmd(ctx: click.Context, path: str, force: bool, local_only: bool) -> None
         if not click.confirm(f"  Delete {target}?"):
             return
 
-    from sahara.storage.state_db import StateDB
     from sahara.storage.s3_client import S3Client
+    from sahara.storage.state_db import StateDB
 
     db = StateDB()
     db.connect()
@@ -1081,9 +1085,10 @@ def mv_cmd(ctx: click.Context, src: str, dst: str) -> None:
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.storage.state_db import StateDB
-    from sahara.storage.s3_client import S3Client
     import shutil
+
+    from sahara.storage.s3_client import S3Client
+    from sahara.storage.state_db import StateDB
 
     db = StateDB()
     db.connect()
@@ -1113,7 +1118,7 @@ def mv_cmd(ctx: click.Context, src: str, dst: str) -> None:
             db.delete_file(src)
             import datetime
 
-            now = datetime.datetime.now(datetime.timezone.utc)
+            now = datetime.datetime.now(datetime.UTC)
             rec.relative_path = dst
             rec.last_sync_at = now
             db.upsert_file(rec)
@@ -1153,18 +1158,19 @@ def mv_cmd(ctx: click.Context, src: str, dst: str) -> None:
 def archive(
     ctx: click.Context,
     paths: tuple[str, ...],
-    older_than: Optional[int],
+    older_than: int | None,
     dry_run: bool,
     force: bool,
     storage_class: str,
-    folder: Optional[str],
+    folder: str | None,
 ) -> None:
     """Archive files to Glacier / Deep Archive."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.storage.state_db import StateDB
     from pathlib import Path as _Path
+
+    from sahara.storage.state_db import StateDB
 
     db = StateDB()
     db.connect()
@@ -1181,7 +1187,7 @@ def archive(
             s3_prefix = targets[resolved]["s3_prefix"]
 
         if older_than is not None:
-            cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+            cutoff = datetime.datetime.now(datetime.UTC) - datetime.timedelta(
                 days=older_than
             )
             # Collect files from active tiers (Normal + Premium) eligible for archiving
@@ -1264,17 +1270,15 @@ def restore_cmd(ctx: click.Context, path: str, days: int, tier: str) -> None:
 @main.command("restore-status")
 @click.argument("path", required=False)
 @click.pass_context
-def restore_status_cmd(ctx: click.Context, path: Optional[str]) -> None:
+def restore_status_cmd(ctx: click.Context, path: str | None) -> None:
     """Check the status of a Glacier restore."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
     from sahara.storage.state_db import StateDB
-    from sahara.storage.s3_client import S3Client
 
     db = StateDB()
     db.connect()
-    s3 = S3Client(config)
     try:
         if path:
             files_to_check = [path]
@@ -1342,9 +1346,9 @@ def restore_download_cmd(ctx: click.Context, path: str) -> None:
 def usage(
     ctx: click.Context,
     simulate: bool,
-    standard_gb: Optional[float],
-    glacier_gb: Optional[float],
-    deep_archive_gb: Optional[float],
+    standard_gb: float | None,
+    glacier_gb: float | None,
+    deep_archive_gb: float | None,
     monthly_puts: int,
     monthly_gets: int,
     monthly_egress_gb: float,
@@ -1353,8 +1357,8 @@ def usage(
     config: SaharaConfig = ctx.obj["config"]
 
     from sahara.storage.cost_estimator import CostEstimator
-    from sahara.storage.state_db import StateDB
     from sahara.storage.s3_client import S3Client
+    from sahara.storage.state_db import StateDB
 
     estimator = CostEstimator()
 
@@ -1399,7 +1403,7 @@ def usage(
 @click.argument("path", required=False)
 @click.option("--limit", default=50, show_default=True)
 @click.pass_context
-def history(ctx: click.Context, path: Optional[str], limit: int) -> None:
+def history(ctx: click.Context, path: str | None, limit: int) -> None:
     """Show sync history (optionally for a specific file)."""
     from sahara.storage.state_db import StateDB
 
@@ -1440,14 +1444,15 @@ def history(ctx: click.Context, path: Optional[str], limit: int) -> None:
 @click.option("--folder", "-f", default=None, help="Index only this folder (local path).")
 @click.option("--force", is_flag=True, help="Re-index all files even if unchanged.")
 @click.pass_context
-def index_cmd(ctx: click.Context, folder: Optional[str], force: bool) -> None:
+def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
     """Index file contents for semantic search."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.storage.state_db import StateDB
-    from sahara.search.search_engine import SearchEngine
     from pathlib import Path as _Path
+
+    from sahara.search.search_engine import SearchEngine
+    from sahara.storage.state_db import StateDB
 
     db = StateDB().connect()
     engine = SearchEngine(db)
@@ -1524,22 +1529,23 @@ def index_cmd(ctx: click.Context, folder: Optional[str], force: bool) -> None:
 @click.option("--snippet", is_flag=True, help="Show matching text snippet.")
 @click.pass_context
 def search_cmd(
-    ctx: click.Context, query: str, top: int, folder: Optional[str], snippet: bool
+    ctx: click.Context, query: str, top: int, folder: str | None, snippet: bool
 ) -> None:
     """Search files by content using natural language."""
     config: SaharaConfig = ctx.obj["config"]
     _require_config(config)
 
-    from sahara.storage.state_db import StateDB
-    from sahara.search.search_engine import SearchEngine
     from pathlib import Path as _Path
+
+    from sahara.search.search_engine import SearchEngine
+    from sahara.storage.state_db import StateDB
 
     db = StateDB().connect()
     engine = SearchEngine(db)
 
     try:
         # Resolve optional folder filter to s3_prefix
-        s3_prefix_filter: Optional[str] = None
+        s3_prefix_filter: str | None = None
         if folder:
             resolved = str(_Path(folder).expanduser().resolve())
             all_targets: list[tuple[_Path, str]] = [(config.get_sync_folder_path(), "")]
@@ -1593,13 +1599,13 @@ def daemon() -> None:
 @click.pass_context
 def daemon_start(ctx: click.Context, autostart: bool) -> None:
     """Start the background sync daemon."""
-    from sahara.sync.daemon import start_daemon, is_daemon_running, install_autostart
+    from sahara.sync.daemon import install_autostart, is_daemon_running, start_daemon
 
     if is_daemon_running():
         _warn("Daemon is already running.")
         return
 
-    config_path: Optional[Path] = ctx.obj.get("config_path")
+    config_path: Path | None = ctx.obj.get("config_path")
     try:
         start_daemon(config_path)
         _ok("Daemon started.")

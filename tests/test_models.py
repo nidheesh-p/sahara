@@ -12,12 +12,11 @@ from sahara.models import (
     SyncResult,
 )
 
-
 # ---------------------------------------------------------------------------
 # FileRecord
 # ---------------------------------------------------------------------------
 
-NOW = datetime.datetime(2024, 1, 15, 12, 0, 0, tzinfo=datetime.timezone.utc)
+NOW = datetime.datetime(2024, 1, 15, 12, 0, 0, tzinfo=datetime.UTC)
 
 
 def _make_record(**kwargs) -> FileRecord:
@@ -224,37 +223,37 @@ class TestSyncResult:
     def test_summary_lines_with_uploads(self):
         result = SyncResult(uploaded=["a.txt", "b.txt"])
         lines = result.summary_lines()
-        assert any("Uploaded" in l and "2" in l for l in lines)
+        assert any("Uploaded" in line and "2" in line for line in lines)
 
     def test_summary_lines_with_downloads(self):
         result = SyncResult(downloaded=["x.txt"])
         lines = result.summary_lines()
-        assert any("Downloaded" in l and "1" in l for l in lines)
+        assert any("Downloaded" in line and "1" in line for line in lines)
 
     def test_summary_lines_with_deleted(self):
         result = SyncResult(deleted=["d.txt"])
         lines = result.summary_lines()
-        assert any("Deleted" in l for l in lines)
+        assert any("Deleted" in line for line in lines)
 
     def test_summary_lines_with_moved(self):
         result = SyncResult(moved=[("a.txt", "b.txt")])
         lines = result.summary_lines()
-        assert any("Moved" in l for l in lines)
+        assert any("Moved" in line for line in lines)
 
     def test_summary_lines_with_skipped(self):
         result = SyncResult(skipped=["s.txt"])
         lines = result.summary_lines()
-        assert any("Skipped" in l for l in lines)
+        assert any("Skipped" in line for line in lines)
 
     def test_summary_lines_with_conflicts(self):
         result = SyncResult(conflicts=["c.txt"])
         lines = result.summary_lines()
-        assert any("Conflicts" in l for l in lines)
+        assert any("Conflicts" in line for line in lines)
 
     def test_summary_lines_with_failed(self):
         result = SyncResult(failed=[("f.txt", "some error")])
         lines = result.summary_lines()
-        assert any("Failed" in l for l in lines)
+        assert any("Failed" in line for line in lines)
 
     @pytest.mark.parametrize("uploaded,downloaded,deleted,expected_total", [
         ([], [], [], 0),

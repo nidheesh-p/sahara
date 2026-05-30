@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import logging
-import os
 import random
 import shutil
-import tempfile
 import time
+from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, TypeVar
 
 import boto3
 import botocore.exceptions
@@ -163,10 +161,10 @@ class S3Client:
         self,
         local_path: Path,
         s3_key: str,
-        metadata: Optional[dict[str, str]] = None,
+        metadata: dict[str, str] | None = None,
         storage_class: str = "STANDARD",
-        encrypt_fn: Optional[Callable[[Path], tuple[Path, str]]] = None,
-        on_progress: Optional[Callable[[int], None]] = None,
+        encrypt_fn: Callable[[Path], tuple[Path, str]] | None = None,
+        on_progress: Callable[[int], None] | None = None,
     ) -> str:
         """Upload *local_path* to S3.
 
@@ -176,8 +174,8 @@ class S3Client:
         Returns the S3 ETag of the uploaded object.
         """
         upload_path = local_path
-        plaintext_sha256: Optional[str] = None
-        tmp_enc: Optional[Path] = None
+        plaintext_sha256: str | None = None
+        tmp_enc: Path | None = None
 
         try:
             if encrypt_fn is not None:
@@ -214,7 +212,7 @@ class S3Client:
         local_path: Path,
         s3_key: str,
         extra_args: dict,
-        on_progress: Optional[Callable[[int], None]] = None,
+        on_progress: Callable[[int], None] | None = None,
     ) -> str:
         with open(local_path, "rb") as fh:
             resp = self._s3.put_object(
@@ -230,9 +228,9 @@ class S3Client:
         local_path: Path,
         s3_key: str,
         extra_args: dict,
-        upload_id: Optional[str] = None,
-        completed_parts: Optional[list[dict]] = None,
-        on_progress: Optional[Callable[[int], None]] = None,
+        upload_id: str | None = None,
+        completed_parts: list[dict] | None = None,
+        on_progress: Callable[[int], None] | None = None,
     ) -> str:
         """Perform (or resume) a multipart upload."""
         if upload_id is None:
@@ -251,7 +249,6 @@ class S3Client:
         parts: list[dict] = completed_parts or []
         completed_part_numbers = {p["PartNumber"] for p in parts}
 
-        file_size = local_path.stat().st_size
         part_number = 1
 
         with open(local_path, "rb") as fh:
@@ -306,14 +303,13 @@ class S3Client:
         file_sha256: str,
         pending_parts_json: str,
         storage_class: str = "STANDARD",
-        metadata: Optional[dict[str, str]] = None,
+        metadata: dict[str, str] | None = None,
     ) -> str:
         """Resume an interrupted multipart upload.
 
         Verifies the local file's SHA-256 matches the recorded value.
         If not, aborts the old upload and raises S3ClientError.
         """
-        import json as _json
 
         # Verify SHA-256 has not changed
         current_sha256 = _compute_sha256(local_path)
@@ -357,8 +353,8 @@ class S3Client:
         self,
         s3_key: str,
         local_path: Path,
-        decrypt_fn: Optional[Callable[[Path, Path], str]] = None,
-        on_progress: Optional[Callable[[int], None]] = None,
+        decrypt_fn: Callable[[Path, Path], str] | None = None,
+        on_progress: Callable[[int], None] | None = None,
     ) -> str:
         """Download an S3 object to *local_path* atomically.
 
@@ -415,7 +411,7 @@ class S3Client:
         src_key: str,
         dst_key: str,
         storage_class: str = "STANDARD",
-        extra_metadata: Optional[dict[str, str]] = None,
+        extra_metadata: dict[str, str] | None = None,
     ) -> str:
         """Server-side copy; returns new ETag."""
         kwargs: dict[str, Any] = {
@@ -473,8 +469,8 @@ class S3Client:
     # ------------------------------------------------------------------
 
     def get_manifest(
-        self, key: Optional[str] = None
-    ) -> tuple[Optional[dict], Optional[str]]:
+        self, key: str | None = None
+    ) -> tuple[dict | None, str | None]:
         """Fetch the Sahara manifest from S3.
 
         Returns (manifest_dict, etag) or (None, None) if no manifest exists.
@@ -505,8 +501,8 @@ class S3Client:
     def put_manifest(
         self,
         manifest_dict: dict,
-        if_match_etag: Optional[str] = None,
-        key: Optional[str] = None,
+        if_match_etag: str | None = None,
+        key: str | None = None,
     ) -> str:
         """Write the manifest to S3, optionally with conditional PUT.
 
@@ -675,7 +671,6 @@ class S3Client:
                 Key=test_key,
                 Body=b"test",
             )
-            etag = resp["ETag"].strip('"')
             # Try conditional overwrite with wrong ETag — should 412
             try:
                 self._s3.put_object(
