@@ -23,7 +23,7 @@ NOW = datetime.datetime.now(datetime.timezone.utc)
 
 
 def _runner():
-    return CliRunner(mix_stderr=False)
+    return CliRunner()
 
 
 def _make_config(tmp_path: Path, **kwargs) -> tuple[SaharaConfig, Path]:
