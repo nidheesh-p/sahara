@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from sahara.storage.state_db import StateDB
@@ -20,7 +20,7 @@ class TextExtractor:
     SUPPORTED_EXTENSIONS = {".txt", ".md", ".rst", ".py", ".js", ".ts", ".json",
                             ".yaml", ".yml", ".toml", ".csv", ".html", ".xml"}
 
-    def extract(self, file_path: Path) -> Optional[str]:
+    def extract(self, file_path: Path) -> str | None:
         """Extract text from *file_path*.
 
         Returns extracted text string, or None if extraction failed or
@@ -46,7 +46,7 @@ class TextExtractor:
 
         return None
 
-    def _extract_pdf(self, file_path: Path) -> Optional[str]:
+    def _extract_pdf(self, file_path: Path) -> str | None:
         try:
             import pypdf  # type: ignore[import]
             reader = pypdf.PdfReader(str(file_path))
@@ -63,7 +63,7 @@ class TextExtractor:
             logger.debug("PDF extraction failed for %s: %s", file_path, exc)
             return None
 
-    def _extract_docx(self, file_path: Path) -> Optional[str]:
+    def _extract_docx(self, file_path: Path) -> str | None:
         try:
             import docx  # type: ignore[import]
             doc = docx.Document(str(file_path))
@@ -92,7 +92,7 @@ class TextExtractor:
 class SearchEngine:
     """Semantic search using fastembed embeddings and cosine similarity."""
 
-    def __init__(self, db: "StateDB") -> None:
+    def __init__(self, db: StateDB) -> None:
         self._db = db
         self._extractor = TextExtractor()
         self._model: Any = None  # lazy-loaded fastembed model
@@ -162,7 +162,7 @@ class SearchEngine:
         self,
         query: str,
         top_k: int = 5,
-        s3_prefix: Optional[str] = None,
+        s3_prefix: str | None = None,
     ) -> list[dict]:
         """Search for files semantically similar to *query*.
 
@@ -174,6 +174,7 @@ class SearchEngine:
             return []
 
         import json
+
         import numpy as np
 
         query_vec = np.array(query_embeddings[0], dtype=np.float32)

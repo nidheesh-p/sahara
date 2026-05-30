@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Literal
 
 __all__ = [
     "FileRecord",
@@ -49,9 +49,9 @@ class FileRecord:
     last_sync_at: datetime.datetime
     local_modified_at: datetime.datetime
     remote_modified_at: datetime.datetime
-    archived_at: Optional[datetime.datetime] = None
-    restore_job_id: Optional[str] = None
-    restore_expires_at: Optional[datetime.datetime] = None
+    archived_at: datetime.datetime | None = None
+    restore_job_id: str | None = None
+    restore_expires_at: datetime.datetime | None = None
     is_deleted: bool = False
 
     def __post_init__(self) -> None:
@@ -79,11 +79,11 @@ class SyncOperation:
 
     op_type: OpType
     path: str
-    source_path: Optional[str] = None
-    dest_path: Optional[str] = None
+    source_path: str | None = None
+    dest_path: str | None = None
     size_bytes: int = 0
-    sha256: Optional[str] = None
-    conflict_reason: Optional[str] = None
+    sha256: str | None = None
+    conflict_reason: str | None = None
     storage_class: str = "STANDARD"
     dry_run: bool = False
 
@@ -116,7 +116,7 @@ class ManifestEntry:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ManifestEntry":
+    def from_dict(cls, data: dict) -> ManifestEntry:
         return cls(
             sha256=data["sha256"],
             size=data["size"],

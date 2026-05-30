@@ -2,19 +2,14 @@
 from __future__ import annotations
 
 import datetime
-import os
-import signal
-import sys
 from pathlib import Path
-from types import ModuleType
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
-from sahara.cli import _styled, _human_size, main
+from sahara.cli import _human_size, _styled, main
 from sahara.config import SaharaConfig, save_config
-
 
 # ---------------------------------------------------------------------------
 # cli.py helpers
@@ -372,8 +367,8 @@ class TestInstallWindowsStartup:
 
 class TestScanLocalOSError:
     def test_scan_local_skips_oserror(self, tmp_path: Path):
-        from sahara.sync_engine import SyncEngine
         from sahara.ignore_rules import IgnoreRules
+        from sahara.sync_engine import SyncEngine
 
         sync_folder = tmp_path / "sync"
         sync_folder.mkdir()
@@ -399,9 +394,9 @@ class TestScanLocalOSError:
 
 class TestThreeWayDiffNoDbRecord:
     def test_conflict_when_local_and_manifest_differ_but_no_db(self, tmp_path: Path):
-        from sahara.sync_engine import SyncEngine, DiffResult
         from sahara.ignore_rules import IgnoreRules
         from sahara.models import ManifestEntry
+        from sahara.sync_engine import SyncEngine
 
         sync_folder = tmp_path / "sync"
         sync_folder.mkdir()
@@ -414,7 +409,7 @@ class TestThreeWayDiffNoDbRecord:
         mock_s3 = MagicMock()
         engine = SyncEngine(cfg, mock_db, mock_s3, ignore)
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        NOW = datetime.datetime.now(datetime.UTC)
 
         # Build a minimal LocalFileInfo-like mock
         class FakeLocalFile:
@@ -449,9 +444,9 @@ class TestThreeWayDiffNoDbRecord:
         assert "file.txt" in diff.conflict
 
     def test_no_conflict_when_local_and_manifest_match_but_no_db(self, tmp_path: Path):
-        from sahara.sync_engine import SyncEngine
         from sahara.ignore_rules import IgnoreRules
         from sahara.models import ManifestEntry
+        from sahara.sync_engine import SyncEngine
 
         sync_folder = tmp_path / "sync"
         sync_folder.mkdir()
@@ -462,7 +457,7 @@ class TestThreeWayDiffNoDbRecord:
         ignore = IgnoreRules(sync_folder)
         engine = SyncEngine(cfg, MagicMock(), MagicMock(), ignore)
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        NOW = datetime.datetime.now(datetime.UTC)
         SAME_SHA = "abc123"
 
         class FakeLocalFile:
@@ -497,9 +492,9 @@ class TestThreeWayDiffNoDbRecord:
 
 class TestSyncManifestWriteFailure:
     def test_sync_manifest_write_failure_recorded(self, tmp_path: Path):
-        from sahara.sync_engine import SyncEngine
         from sahara.ignore_rules import IgnoreRules
         from sahara.s3_client import S3ClientError
+        from sahara.sync_engine import SyncEngine
 
         sync_folder = tmp_path / "sync"
         sync_folder.mkdir()
@@ -538,9 +533,8 @@ class TestSyncManifestWriteFailure:
 
 class TestSyncVerifyPass:
     def test_sync_verify_sha_mismatch_logged(self, tmp_path: Path):
-        from sahara.sync_engine import SyncEngine, DiffResult
         from sahara.ignore_rules import IgnoreRules
-        from sahara.models import FileRecord
+        from sahara.sync_engine import DiffResult, SyncEngine
 
         sync_folder = tmp_path / "sync"
         sync_folder.mkdir()
@@ -587,7 +581,8 @@ class TestRetryDecorator:
     def test_retry_logs_on_retryable_error(self):
         """Test that the retry decorator logs warnings on retryable failures."""
         import botocore.exceptions
-        from sahara.s3_client import retry, _is_retryable
+
+        from sahara.s3_client import retry
 
         call_count = 0
 
@@ -609,6 +604,7 @@ class TestRetryDecorator:
     def test_retry_gives_up_after_max_retries(self):
         """Test that retry raises after max_retries exceeded."""
         import botocore.exceptions
+
         from sahara.s3_client import retry
 
         @retry(max_retries=2)
@@ -676,6 +672,7 @@ class TestMultipartProgress:
 class TestAbortMultipartNoSuchUpload:
     def test_abort_no_such_upload_returns_silently(self, tmp_path: Path):
         import botocore.exceptions
+
         from sahara.s3_client import S3Client
 
         cfg = SaharaConfig(sync_folder=str(tmp_path), bucket="b", region="us-east-1")
@@ -704,7 +701,8 @@ class TestAbortMultipartNoSuchUpload:
 class TestListPartsNoSuchUpload:
     def test_list_parts_no_such_upload_raises(self, tmp_path: Path):
         import botocore.exceptions
-        from sahara.s3_client import S3Client, NoSuchUploadError
+
+        from sahara.s3_client import NoSuchUploadError, S3Client
 
         cfg = SaharaConfig(sync_folder=str(tmp_path), bucket="b", region="us-east-1")
 
@@ -732,8 +730,9 @@ class TestListPartsNoSuchUpload:
 class TestPutManifestHeadObjectFailure:
     def test_put_manifest_precondition_failed_head_raises(self, tmp_path: Path):
         import botocore.exceptions
-        from sahara.s3_client import S3Client, ManifestConflictError
+
         from sahara.config import SaharaConfig
+        from sahara.s3_client import ManifestConflictError, S3Client
 
         cfg = SaharaConfig(sync_folder=str(tmp_path), bucket="b", region="us-east-1")
 
@@ -765,6 +764,7 @@ class TestPutManifestHeadObjectFailure:
 class TestHeadObjectReraise:
     def test_head_object_reraises_non_404(self, tmp_path: Path):
         import botocore.exceptions
+
         from sahara.s3_client import S3Client
 
         cfg = SaharaConfig(sync_folder=str(tmp_path), bucket="b", region="us-east-1")
@@ -813,6 +813,7 @@ class TestCheckConditionalPutSupport:
     def test_returns_true_when_412_raised(self, tmp_path: Path):
         """Returns True when the conditional PUT raises PreconditionFailed."""
         import botocore.exceptions
+
         from sahara.s3_client import S3Client
 
         cfg = SaharaConfig(sync_folder=str(tmp_path), bucket="b", region="us-east-1")
@@ -869,7 +870,7 @@ class TestResumeMultipartSHAMismatch:
         mock_abort.assert_called_once()
 
     def test_resume_multipart_no_such_upload_raises(self, tmp_path: Path):
-        from sahara.s3_client import S3Client, S3ClientError, NoSuchUploadError
+        from sahara.s3_client import NoSuchUploadError, S3Client, S3ClientError
 
         cfg = SaharaConfig(sync_folder=str(tmp_path), bucket="b", region="us-east-1")
         local_file = tmp_path / "file.bin"
@@ -896,9 +897,9 @@ class TestResumeMultipartSHAMismatch:
 
 class TestEncryptedDownload:
     def test_download_encrypted_file_calls_decrypt_fn(self, tmp_path: Path):
-        from sahara.sync_engine import SyncEngine
         from sahara.ignore_rules import IgnoreRules
-        from sahara.models import ManifestEntry, FileRecord
+        from sahara.models import FileRecord, ManifestEntry
+        from sahara.sync_engine import SyncEngine
 
         sync_folder = tmp_path / "sync"
         sync_folder.mkdir()
@@ -913,7 +914,7 @@ class TestEncryptedDownload:
         mock_db = MagicMock()
         mock_s3 = MagicMock()
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        NOW = datetime.datetime.now(datetime.UTC)
         record = FileRecord(
             relative_path="file.txt",
             sha256_checksum="sha1",
@@ -953,8 +954,8 @@ class TestEncryptedDownload:
 
 class TestBootstrapManifest:
     def test_bootstrap_manifest_strips_prefix(self, tmp_path: Path):
-        from sahara.sync_engine import SyncEngine
         from sahara.ignore_rules import IgnoreRules
+        from sahara.sync_engine import SyncEngine
 
         sync_folder = tmp_path / "sync"
         sync_folder.mkdir()
@@ -969,7 +970,7 @@ class TestBootstrapManifest:
         mock_db = MagicMock()
         mock_s3 = MagicMock()
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        NOW = datetime.datetime.now(datetime.UTC)
         mock_s3.list_all_objects.return_value = [
             {
                 "Key": "myprefix/file.txt",
@@ -1076,7 +1077,7 @@ class TestSyncTargetsMethods:
         db = StateDB(tmp_path / "state.db")
         db.connect()
         try:
-            NOW = datetime.datetime.now(datetime.timezone.utc)
+            NOW = datetime.datetime.now(datetime.UTC)
             from sahara.models import FileRecord
             r1 = FileRecord(
                 relative_path="a.txt",
@@ -1254,8 +1255,8 @@ class TestFolderCommands:
 
 class TestGetStatusBootstrap:
     def test_get_status_bootstraps_when_no_manifest(self, tmp_path: Path):
-        from sahara.sync_engine import SyncEngine
         from sahara.ignore_rules import IgnoreRules
+        from sahara.sync_engine import SyncEngine
 
         sync_folder = tmp_path / "sync"
         sync_folder.mkdir()
@@ -1282,8 +1283,8 @@ class TestGetStatusBootstrap:
 
 class TestGetS3KeyWithPrefix:
     def test_get_s3_key_with_s3_prefix_and_config_prefix(self, tmp_path: Path):
-        from sahara.sync_engine import SyncEngine
         from sahara.ignore_rules import IgnoreRules
+        from sahara.sync_engine import SyncEngine
 
         sync_folder = tmp_path / "sync"
         sync_folder.mkdir()
@@ -1300,8 +1301,8 @@ class TestGetS3KeyWithPrefix:
         assert key == "global/team/report.pdf"
 
     def test_get_manifest_key_with_s3_prefix(self, tmp_path: Path):
-        from sahara.sync_engine import SyncEngine
         from sahara.ignore_rules import IgnoreRules
+        from sahara.sync_engine import SyncEngine
 
         sync_folder = tmp_path / "sync"
         sync_folder.mkdir()
@@ -1321,9 +1322,9 @@ class TestGetS3KeyWithPrefix:
 
 class TestCheckRestoreStatusBadExpiry:
     def test_check_restore_bad_expiry_doesnt_crash(self, tmp_path: Path):
-        from sahara.sync_engine import SyncEngine
         from sahara.ignore_rules import IgnoreRules
         from sahara.models import FileRecord
+        from sahara.sync_engine import SyncEngine
 
         sync_folder = tmp_path / "sync"
         sync_folder.mkdir()
@@ -1332,7 +1333,7 @@ class TestCheckRestoreStatusBadExpiry:
         mock_db = MagicMock()
         mock_s3 = MagicMock()
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        NOW = datetime.datetime.now(datetime.UTC)
         record = FileRecord(
             relative_path="file.txt",
             sha256_checksum="sha",
@@ -1395,7 +1396,7 @@ class TestArchiveMoreFiles:
         cfg_path = tmp_path / "config.toml"
         save_config(cfg, cfg_path)
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        NOW = datetime.datetime.now(datetime.UTC)
         old_time = NOW - datetime.timedelta(days=400)
         from sahara.models import FileRecord
 

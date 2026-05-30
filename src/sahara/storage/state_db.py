@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import datetime
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator, Iterator, Optional
 
 from sahara.models import FileRecord, StorageTier
 
@@ -98,7 +98,7 @@ def _apply_pragmas(conn: sqlite3.Connection) -> None:
 
 
 def _row_to_file_record(row: sqlite3.Row) -> FileRecord:
-    def _dt(val: Optional[str]) -> Optional[datetime.datetime]:
+    def _dt(val: str | None) -> datetime.datetime | None:
         if val is None:
             return None
         return datetime.datetime.fromisoformat(val)
@@ -224,15 +224,15 @@ class StateDB:
             record = db.get_file("docs/report.pdf")
     """
 
-    def __init__(self, db_path: Optional[Path] = None) -> None:
+    def __init__(self, db_path: Path | None = None) -> None:
         self._path = db_path or DB_PATH
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
 
     # ------------------------------------------------------------------
     # Connection lifecycle
     # ------------------------------------------------------------------
 
-    def connect(self) -> "StateDB":
+    def connect(self) -> StateDB:
         """Open the database connection and initialise the schema."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self._path), check_same_thread=False)
@@ -249,7 +249,7 @@ class StateDB:
             self._conn.close()
             self._conn = None
 
-    def __enter__(self) -> "StateDB":
+    def __enter__(self) -> StateDB:
         return self.connect()
 
     def __exit__(self, *_: object) -> None:
@@ -301,7 +301,7 @@ class StateDB:
             is_deleted         = excluded.is_deleted
         """
 
-        def _iso(dt: Optional[datetime.datetime]) -> Optional[str]:
+        def _iso(dt: datetime.datetime | None) -> str | None:
             return dt.isoformat() if dt is not None else None
 
         params = {
@@ -322,7 +322,7 @@ class StateDB:
         with self.transaction():
             self.conn.execute(sql, params)
 
-    def get_file(self, relative_path: str, s3_prefix: str = "") -> Optional[FileRecord]:
+    def get_file(self, relative_path: str, s3_prefix: str = "") -> FileRecord | None:
         """Retrieve a single FileRecord by relative path."""
         row = self.conn.execute(
             "SELECT * FROM files WHERE s3_prefix = ? AND relative_path = ?",
@@ -385,7 +385,7 @@ class StateDB:
         ).fetchall()
         return [_row_to_file_record(r) for r in rows]
 
-    def get_total_size_by_tier(self, s3_prefix: Optional[str] = None) -> dict[str, int]:
+    def get_total_size_by_tier(self, s3_prefix: str | None = None) -> dict[str, int]:
         """Return {tier: total_bytes} for all non-deleted files.
 
         If s3_prefix is provided, scopes to that prefix only.
@@ -412,10 +412,10 @@ class StateDB:
         self,
         relative_path: str,
         operation: str,
-        sha256: Optional[str] = None,
-        size_bytes: Optional[int] = None,
-        tier: Optional[str] = None,
-        details: Optional[str] = None,
+        sha256: str | None = None,
+        size_bytes: int | None = None,
+        tier: str | None = None,
+        details: str | None = None,
         s3_prefix: str = "",
     ) -> None:
         """Append an entry to the history log."""
@@ -434,16 +434,16 @@ class StateDB:
                     sha256,
                     size_bytes,
                     tier,
-                    datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    datetime.datetime.now(datetime.UTC).isoformat(),
                     details,
                 ),
             )
 
     def get_history(
         self,
-        relative_path: Optional[str] = None,
+        relative_path: str | None = None,
         limit: int = 100,
-        s3_prefix: Optional[str] = None,
+        s3_prefix: str | None = None,
     ) -> list[dict]:
         """Return history entries, optionally filtered by path and prefix."""
         conditions: list[str] = []
@@ -500,13 +500,13 @@ class StateDB:
                     file_sha256,
                     size_bytes,
                     parts_json,
-                    datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    datetime.datetime.now(datetime.UTC).isoformat(),
                 ),
             )
 
     def get_pending_multipart(
         self, relative_path: str, s3_prefix: str = ""
-    ) -> Optional[dict]:
+    ) -> dict | None:
         row = self.conn.execute(
             "SELECT * FROM pending_multipart WHERE s3_prefix = ? AND relative_path = ?",
             (s3_prefix, relative_path),
@@ -542,7 +542,7 @@ class StateDB:
     # config_kv table
     # ------------------------------------------------------------------
 
-    def get_config_value(self, key: str) -> Optional[str]:
+    def get_config_value(self, key: str) -> str | None:
         row = self.conn.execute(
             "SELECT value FROM config_kv WHERE key = ?", (key,)
         ).fetchone()
@@ -578,7 +578,7 @@ class StateDB:
     ) -> list[FileRecord]:
         """Return HOT_TEMP files whose restore window expires soon."""
         cutoff = (
-            datetime.datetime.now(datetime.timezone.utc)
+            datetime.datetime.now(datetime.UTC)
             + datetime.timedelta(hours=within_hours)
         ).isoformat()
         rows = self.conn.execute(
@@ -602,7 +602,7 @@ class StateDB:
                 (
                     local_path,
                     s3_prefix,
-                    datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    datetime.datetime.now(datetime.UTC).isoformat(),
                 ),
             )
 
@@ -621,7 +621,7 @@ class StateDB:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_sync_target_by_prefix(self, s3_prefix: str) -> Optional[dict]:
+    def get_sync_target_by_prefix(self, s3_prefix: str) -> dict | None:
         row = self.conn.execute(
             "SELECT * FROM sync_targets WHERE s3_prefix = ?", (s3_prefix,)
         ).fetchone()
@@ -659,11 +659,11 @@ class StateDB:
                     content_hash,
                     embedding_json,
                     snippet,
-                    datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    datetime.datetime.now(datetime.UTC).isoformat(),
                 ),
             )
 
-    def get_embedding(self, s3_prefix: str, relative_path: str) -> Optional[dict]:
+    def get_embedding(self, s3_prefix: str, relative_path: str) -> dict | None:
         """Return the embedding record for a file, or None."""
         row = self.conn.execute(
             "SELECT * FROM embeddings WHERE s3_prefix = ? AND relative_path = ?",
@@ -671,7 +671,7 @@ class StateDB:
         ).fetchone()
         return dict(row) if row else None
 
-    def list_embeddings(self, s3_prefix: Optional[str] = None) -> list[dict]:
+    def list_embeddings(self, s3_prefix: str | None = None) -> list[dict]:
         """Return all embedding records, optionally filtered by s3_prefix."""
         if s3_prefix is not None:
             rows = self.conn.execute(
@@ -681,7 +681,7 @@ class StateDB:
             rows = self.conn.execute("SELECT * FROM embeddings").fetchall()
         return [dict(r) for r in rows]
 
-    def count_embeddings(self, s3_prefix: Optional[str] = None) -> int:
+    def count_embeddings(self, s3_prefix: str | None = None) -> int:
         """Return the count of indexed files, optionally scoped to s3_prefix."""
         if s3_prefix is not None:
             row = self.conn.execute(

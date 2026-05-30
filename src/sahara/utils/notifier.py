@@ -8,7 +8,6 @@ subsystem is unavailable.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 __all__ = [
     "send_notification",

@@ -3,11 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from sahara.config import DEFAULT_EXCLUDES
 from sahara.ignore_rules import IgnoreRules
-
 
 # ---------------------------------------------------------------------------
 # Basic matching
