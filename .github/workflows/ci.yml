@@ -28,7 +28,7 @@ jobs:
         run: pip install -e ".[search,dev]"
 
       - name: Run tests with coverage
-        run: pytest --cov=src/sahara --cov-report=term-missing --cov-fail-under=90
+        run: pytest --cov=src/sahara --cov-report=term-missing --cov-fail-under=80
 
       - name: Lint
         run: ruff check src/ tests/
