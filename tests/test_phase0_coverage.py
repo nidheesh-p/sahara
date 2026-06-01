@@ -340,14 +340,14 @@ class TestStateDBMigration:
         db.close()
 
     def test_vec_chunk_operations_without_vec_table(self, tmp_db):
-        """vec methods degrade gracefully when vec_chunks doesn't exist."""
-        assert tmp_db.has_vec_table() is False
+        """vec methods handle the case when vec_chunks doesn't exist (no sqlite-vec)."""
+        import pytest
 
-        # upsert_vec_chunk and delete_vec_chunks should be no-ops without the table
+        if tmp_db.has_vec_table():
+            pytest.skip("sqlite-vec is installed; vec_chunks is always created on connect")
+
+        # upsert_vec_chunk should raise or no-op without the table
         chunk_id = tmp_db.upsert_chunk("", "doc.txt", 0, "h", "text")
-
-        # These would fail at the SQL level if called without checking has_vec_table
-        # In the StateDB they're called unconditionally — verify they raise or succeed
         try:
             tmp_db.upsert_vec_chunk(chunk_id, b"\x00" * (384 * 4))
         except Exception:

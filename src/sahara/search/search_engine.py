@@ -223,6 +223,8 @@ class SearchEngine:
         query_bytes = _floats_to_bytes(query_emb)
         # Fetch top_k*4 to have enough after per-file dedup
         raw = self._db.vec_knn_search(query_bytes, k=top_k * 4, storage_prefix=storage_prefix)
+        if not raw:
+            return self._search_cosine(query_emb, top_k, storage_prefix)
         return self._dedup_to_top_k(raw, top_k)
 
     def _search_cosine(
@@ -267,8 +269,8 @@ class SearchEngine:
         seen: dict[tuple, dict] = {}
         for row in rows:
             key = (row["storage_prefix"], row["relative_path"])
-            # vec distance is lower-is-better; convert to score (higher = better)
-            score = 1.0 - float(row.get("distance", 0.0))
+            # vec distance is lower-is-better; clamp to [0, 1] similarity score
+            score = max(0.0, 1.0 - float(row.get("distance", 0.0)))
             if key not in seen or score > seen[key]["score"]:
                 seen[key] = {
                     "storage_prefix": row["storage_prefix"],
