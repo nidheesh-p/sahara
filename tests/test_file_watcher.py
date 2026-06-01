@@ -2,14 +2,10 @@
 from __future__ import annotations
 
 import time
-import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from sahara.file_watcher import Debouncer, SaharaEventHandler, start_watching
-
 
 # ---------------------------------------------------------------------------
 # Debouncer

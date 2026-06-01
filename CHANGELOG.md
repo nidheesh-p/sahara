@@ -1,0 +1,59 @@
+# Changelog
+
+All notable changes to Sahara are documented here.
+
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara uses [Semantic Versioning](https://semver.org/).
+
+---
+
+## [Unreleased]
+
+---
+
+## [0.2.0] — 2026-05-27
+
+### Added
+
+- **Semantic search** — `sahara index` extracts and embeds file content; `sahara search <query>` retrieves files by meaning using sqlite-vec KNN
+- **Chunked indexing** — long documents (PDFs, DOCX) are split into overlapping 400-token chunks so content past the first page is retrievable
+- **`sahara ask`** — natural language question answering; uses local Ollama or OpenAI when available, degrades gracefully to ranked snippets
+- **MinIO backend** — S3-compatible self-hosted storage via `endpoint_url` configuration
+- **Local drive backend** — sync to a second local drive or NAS with no cloud account required
+- **`local+glacier` dual-write mode** — writes to a local drive and S3 Glacier simultaneously
+- **`StorageBackend` Protocol** — formal structural interface for all storage backends; `SyncEngine` no longer imports concrete backend classes
+- **`BAAI/bge-small-en-v1.5` embedding model** — 384-dim vectors via `fastembed`; fast enough for CPU-only indexing
+- **PDF and DOCX extraction** — `pypdf` and `python-docx` are optional dependencies under `[search]`
+- **`sahara doctor --repair`** — diagnose and auto-fix common configuration problems
+- **SHA-256 utility** — shared `utils/hash.py` used by both sync and search (previously duplicated)
+
+### Changed
+
+- `pyproject.toml`: description updated to "Local-first intelligent storage with semantic search"
+- `_require_config` guard: local drive mode no longer requires a bucket to be configured
+- Storage modules reorganised into `src/sahara/storage/`, sync modules into `src/sahara/sync/`
+
+### Fixed
+
+- Manifest locking race condition under concurrent syncs
+- False abort in local drive mode due to missing bucket check
+
+---
+
+## [0.1.0] — 2024-03-16
+
+### Added
+
+- **Bidirectional sync** to AWS S3 with three-way diff (local / remote / last-known-good)
+- **Client-side AES-256-GCM encryption** with PBKDF2-HMAC-SHA256 key derivation (600,000 iterations)
+- **Glacier archiving** — `sahara archive`, `sahara restore`, `sahara restore-download`
+- **Background daemon** with file-watching via watchdog
+- **Rename detection** — moves are tracked as copy + delete rather than delete + upload
+- **Conflict resolution** — backup, local, remote, and ask strategies
+- **Cost reporting** — `sahara usage` shows storage usage and estimated monthly S3 cost
+- **`.saharaignore`** — gitignore-style rules for excluding files from sync
+- **Multipart uploads** — automatic for files above a configurable threshold
+- **`sahara doctor`** — connectivity and configuration diagnostics
+- `sahara init` interactive setup wizard
+- `sahara config show/get/set` configuration management
+- `sahara history` sync operation log
+- `sahara conflicts` and `sahara resolve`

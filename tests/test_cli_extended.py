@@ -2,28 +2,23 @@
 from __future__ import annotations
 
 import datetime
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import boto3
-import pytest
 from click.testing import CliRunner
-from moto import mock_aws
 
 from sahara.cli import main
 from sahara.config import SaharaConfig, save_config
 from sahara.models import FileRecord
 from sahara.sync_engine import DiffResult
 
-
 BUCKET = "cli-ext-bucket"
 REGION = "us-east-1"
-NOW = datetime.datetime.now(datetime.timezone.utc)
+NOW = datetime.datetime.now(datetime.UTC)
 
 
 def _runner():
-    return CliRunner(mix_stderr=False)
+    return CliRunner()
 
 
 def _make_config(tmp_path: Path, **kwargs) -> tuple[SaharaConfig, Path]:
@@ -1008,7 +1003,6 @@ class TestDaemonCommandsExtended:
         log_file = tmp_path / "daemon.log"
         log_file.write_text("test log\n")
         runner = _runner()
-        import subprocess
 
         with patch("sahara.daemon._LOG_FILE", log_file), \
              patch("subprocess.run") as mock_run:

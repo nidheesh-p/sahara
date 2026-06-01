@@ -1,9 +1,8 @@
 """Extended tests for sahara.s3_client covering additional code paths."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import patch
 
 import boto3
 import botocore.exceptions
@@ -11,8 +10,7 @@ import pytest
 from moto import mock_aws
 
 from sahara.config import SaharaConfig
-from sahara.s3_client import S3Client, S3ClientError, ManifestConflictError, NoSuchUploadError
-
+from sahara.s3_client import S3Client, S3ClientError
 
 BUCKET = "ext-test-bucket"
 REGION = "us-east-1"

@@ -1,3 +1,5 @@
 # Module alias — canonical location: sahara.sync.ignore_rules
-import importlib, sys
+import importlib
+import sys
+
 sys.modules[__name__] = importlib.import_module('sahara.sync.ignore_rules')

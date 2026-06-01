@@ -2,24 +2,23 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
 import keyring.errors
+import pytest
 
 from sahara.encryption import (
     EncryptionError,
-    derive_key,
-    generate_salt,
-    encrypt_file,
     decrypt_file,
+    decrypt_file_with_passphrase,
+    delete_passphrase,
+    derive_key,
+    encrypt_file,
+    encrypt_file_with_passphrase,
+    generate_salt,
     get_passphrase,
     set_passphrase,
-    delete_passphrase,
-    encrypt_file_with_passphrase,
-    decrypt_file_with_passphrase,
 )
-
 
 # ---------------------------------------------------------------------------
 # delete_passphrase

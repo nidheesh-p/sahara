@@ -11,12 +11,11 @@ from sahara.cost_estimator import CostEstimator
 from sahara.models import FileRecord
 from sahara.state_db import StateDB
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
-NOW = datetime.datetime.now(datetime.timezone.utc)
+NOW = datetime.datetime.now(datetime.UTC)
 
 
 @pytest.fixture

@@ -8,13 +8,13 @@ when no LLM is available.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import urllib.error
 import urllib.request
-import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sahara.search.search_engine import SearchEngine
@@ -36,12 +36,12 @@ DEFAULT_MODEL = DEFAULT_OLLAMA_MODEL
 
 @dataclass
 class AskResult:
-    answer: Optional[str]
+    answer: str | None
     sources: list[dict]
     degraded: bool = False
-    model_used: Optional[str] = None
-    provider_used: Optional[str] = None
-    error: Optional[str] = None
+    model_used: str | None = None
+    provider_used: str | None = None
+    error: str | None = None
 
 
 class AskEngine:
@@ -49,12 +49,12 @@ class AskEngine:
 
     def __init__(
         self,
-        search_engine: "SearchEngine",
+        search_engine: SearchEngine,
         ollama_url: str = DEFAULT_OLLAMA_URL,
-        model: Optional[str] = None,
+        model: str | None = None,
         max_context_chunks: int = DEFAULT_MAX_CONTEXT_CHUNKS,
-        provider: Optional[str] = None,
-        openai_api_key: Optional[str] = None,
+        provider: str | None = None,
+        openai_api_key: str | None = None,
         openai_model: str = DEFAULT_OPENAI_MODEL,
     ) -> None:
         self._search = search_engine
@@ -85,7 +85,7 @@ class AskEngine:
         self,
         question: str,
         top_k: int = 5,
-        storage_prefix: Optional[str] = None,
+        storage_prefix: str | None = None,
     ) -> AskResult:
         chunks = self._search.search(question, top_k=top_k, storage_prefix=storage_prefix)
         if not chunks:
@@ -128,7 +128,7 @@ class AskEngine:
 
     def _call_openai(
         self, question: str, context: str
-    ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    ) -> tuple[str | None, str | None, str | None, str | None]:
         """Call OpenAI chat completions API. Returns (answer, model, provider, error)."""
         if not self._openai_api_key:
             return None, None, None, "OpenAI API key not set. Set OPENAI_API_KEY env var."
@@ -183,7 +183,7 @@ class AskEngine:
 
     def _call_ollama(
         self, question: str, context: str
-    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    ) -> tuple[str | None, str | None, str | None]:
         """Call Ollama generate API. Returns (answer, model, error_message)."""
         prompt = (
             "You are a helpful assistant. Answer the question using ONLY the provided "

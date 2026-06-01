@@ -3,23 +3,22 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import boto3
 import pytest
 from moto import mock_aws
 
 from sahara.config import SaharaConfig
-from sahara.models import FileRecord, ManifestEntry, SyncResult
-from sahara.s3_client import S3Client, ManifestConflictError, S3ClientError
-from sahara.sync_engine import SyncEngine, DiffResult
-from sahara.state_db import StateDB
 from sahara.ignore_rules import IgnoreRules
-
+from sahara.models import FileRecord, ManifestEntry, SyncResult
+from sahara.s3_client import ManifestConflictError, S3Client, S3ClientError
+from sahara.state_db import StateDB
+from sahara.sync_engine import DiffResult, SyncEngine
 
 BUCKET = "sync-cov-bucket"
 REGION = "us-east-1"
-NOW = datetime.datetime.now(datetime.timezone.utc)
+NOW = datetime.datetime.now(datetime.UTC)
 
 
 def _make_config(tmp_path: Path, **kwargs) -> SaharaConfig:
@@ -643,7 +642,6 @@ class TestResolveConflictsAllStrategies:
         result = SyncResult()
 
         # Make shutil.copy2 fail
-        import shutil
         with patch("shutil.copy2", side_effect=OSError("permission denied")):
             uploads, downloads, skips = engine._resolve_conflicts(diff, "backup", result)
             assert "conflict.txt" in skips

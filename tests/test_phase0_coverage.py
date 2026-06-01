@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 import struct
-import tempfile
 from pathlib import Path
-from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -14,15 +12,12 @@ import pytest
 from click.testing import CliRunner
 
 from sahara.cli import main
-from sahara.config import SaharaConfig
 from sahara.search.search_engine import (
     SearchEngine,
     TextExtractor,
     _floats_to_bytes,
-    _split_chunks,
 )
 from sahara.storage.state_db import StateDB
-
 
 # ---------------------------------------------------------------------------
 # Fixtures (duplicated for isolation)
@@ -37,7 +32,8 @@ def tmp_db(tmp_path):
 
 
 def _make_fake_embedding(text: str, dim: int = 384):
-    import hashlib, math
+    import hashlib
+    import math
     seed = int(hashlib.md5(text.encode()).hexdigest(), 16) % (2**31)
     vec = [(math.sin(seed + i) + 1) / 2 for i in range(dim)]
     magnitude = sum(x**2 for x in vec) ** 0.5
@@ -308,7 +304,6 @@ class TestCosineEdgePaths:
         # Insert a row with bad embedding JSON
         tmp_db.upsert_embedding("", "bad.txt", "hash", "NOT_VALID_JSON", "snippet")
         # Insert a good row too
-        import json
         good_vec = json.dumps([0.1] * 384)
         tmp_db.upsert_embedding("", "good.txt", "hash2", good_vec, "good snippet")
 
@@ -345,14 +340,14 @@ class TestStateDBMigration:
         db.close()
 
     def test_vec_chunk_operations_without_vec_table(self, tmp_db):
-        """vec methods degrade gracefully when vec_chunks doesn't exist."""
-        assert tmp_db.has_vec_table() is False
+        """vec methods handle the case when vec_chunks doesn't exist (no sqlite-vec)."""
+        import pytest
 
-        # upsert_vec_chunk and delete_vec_chunks should be no-ops without the table
+        if tmp_db.has_vec_table():
+            pytest.skip("sqlite-vec is installed; vec_chunks is always created on connect")
+
+        # upsert_vec_chunk should raise or no-op without the table
         chunk_id = tmp_db.upsert_chunk("", "doc.txt", 0, "h", "text")
-
-        # These would fail at the SQL level if called without checking has_vec_table
-        # In the StateDB they're called unconditionally — verify they raise or succeed
         try:
             tmp_db.upsert_vec_chunk(chunk_id, b"\x00" * (384 * 4))
         except Exception:
@@ -397,8 +392,9 @@ class TestIndexCLIWithFiles:
 
         # We need a FileRecord in the DB for index to pick it up
         import datetime
-        from sahara.storage.state_db import StateDB as _StateDB
+
         from sahara.models import FileRecord
+        from sahara.storage.state_db import StateDB as _StateDB
 
         db = _StateDB(db_path).connect()
         db.upsert_file(
@@ -408,9 +404,9 @@ class TestIndexCLIWithFiles:
                 size_bytes=40,
                 tier="STANDARD",
                 s3_etag="abc",
-                last_sync_at=datetime.datetime.now(datetime.timezone.utc),
-                local_modified_at=datetime.datetime.now(datetime.timezone.utc),
-                remote_modified_at=datetime.datetime.now(datetime.timezone.utc),
+                last_sync_at=datetime.datetime.now(datetime.UTC),
+                local_modified_at=datetime.datetime.now(datetime.UTC),
+                remote_modified_at=datetime.datetime.now(datetime.UTC),
             ),
             s3_prefix="",
         )
@@ -434,7 +430,6 @@ class TestIndexCLIWithFiles:
         # Pre-insert an embedding so search has something to return
         import numpy as np
         db = StateDB(db_path).connect()
-        import json
         vec = json.dumps([0.5] * 384)
         db.upsert_embedding("", "report.txt", "hash", vec, "Financial report snippet")
         db.close()
@@ -455,7 +450,6 @@ class TestIndexCLIWithFiles:
 
         import numpy as np
         db = StateDB(db_path).connect()
-        import json
         vec = json.dumps([0.5] * 384)
         db.upsert_embedding("", "memo.txt", "hash", vec, "This is the memo snippet content")
         db.close()
@@ -476,7 +470,6 @@ class TestIndexCLIWithFiles:
 
         import numpy as np
         db = StateDB(db_path).connect()
-        import json
         vec = json.dumps([0.5] * 384)
         db.upsert_embedding("", "passport.txt", "hash", vec, "Passport expires 2032-08-14")
         db.close()
@@ -496,7 +489,7 @@ class TestIndexCLIWithFiles:
              patch("sahara.search.search_engine.SearchEngine._embed") as mock_embed, \
              patch("urllib.request.urlopen", return_value=FakeResp()):
             mock_embed.return_value = [np.array([0.5] * 384, dtype=np.float32)]
-            result = runner.invoke(main, ["--config", str(cfg), "ask", "passport expiry date"])
+            result = runner.invoke(main, ["--config", str(cfg), "ask", "--provider", "ollama", "passport expiry date"])
 
         assert result.exit_code == 0
         assert "August 14, 2032" in result.output
@@ -508,7 +501,6 @@ class TestIndexCLIWithFiles:
 
         import numpy as np
         db = StateDB(db_path).connect()
-        import json
         vec = json.dumps([0.5] * 384)
         db.upsert_embedding("", "notes.txt", "hash", vec, "Notes about the meeting agenda")
         db.close()
@@ -529,7 +521,7 @@ class TestIndexCLIWithFiles:
              patch("urllib.request.urlopen", return_value=FakeResp()):
             mock_embed.return_value = [np.array([0.5] * 384, dtype=np.float32)]
             result = runner.invoke(main, [
-                "--config", str(cfg), "ask", "--snippet", "meeting agenda"
+                "--config", str(cfg), "ask", "--snippet", "--provider", "ollama", "meeting agenda"
             ])
 
         assert result.exit_code == 0
@@ -540,6 +532,7 @@ class TestIndexCLIWithFiles:
         db_path = tmp_path / "state.db"
 
         import datetime
+
         from sahara.models import FileRecord
         db = StateDB(db_path).connect()
         db.upsert_file(
@@ -549,9 +542,9 @@ class TestIndexCLIWithFiles:
                 size_bytes=100,
                 tier="STANDARD",
                 s3_etag="abc",
-                last_sync_at=datetime.datetime.now(datetime.timezone.utc),
-                local_modified_at=datetime.datetime.now(datetime.timezone.utc),
-                remote_modified_at=datetime.datetime.now(datetime.timezone.utc),
+                last_sync_at=datetime.datetime.now(datetime.UTC),
+                local_modified_at=datetime.datetime.now(datetime.UTC),
+                remote_modified_at=datetime.datetime.now(datetime.UTC),
             ),
             s3_prefix="",
         )

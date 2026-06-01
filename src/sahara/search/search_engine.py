@@ -6,7 +6,7 @@ import hashlib
 import logging
 import struct
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from sahara.storage.state_db import StateDB
@@ -28,7 +28,7 @@ class TextExtractor:
         ".yaml", ".yml", ".toml", ".csv", ".html", ".xml",
     }
 
-    def extract(self, file_path: Path) -> Optional[str]:
+    def extract(self, file_path: Path) -> str | None:
         suffix = file_path.suffix.lower()
         if suffix == ".pdf":
             return self._extract_pdf(file_path)
@@ -42,7 +42,7 @@ class TextExtractor:
                 return None
         return None
 
-    def _extract_pdf(self, file_path: Path) -> Optional[str]:
+    def _extract_pdf(self, file_path: Path) -> str | None:
         try:
             import pypdf  # type: ignore[import]
             reader = pypdf.PdfReader(str(file_path))
@@ -56,7 +56,7 @@ class TextExtractor:
             logger.debug("PDF extraction failed for %s: %s", file_path, exc)
             return None
 
-    def _extract_docx(self, file_path: Path) -> Optional[str]:
+    def _extract_docx(self, file_path: Path) -> str | None:
         try:
             import docx  # type: ignore[import]
             doc = docx.Document(str(file_path))
@@ -111,7 +111,7 @@ class SearchEngine:
     cosine scan against the legacy embeddings table otherwise.
     """
 
-    def __init__(self, db: "StateDB") -> None:
+    def __init__(self, db: StateDB) -> None:
         self._db = db
         self._extractor = TextExtractor()
         self._model: Any = None
@@ -200,7 +200,7 @@ class SearchEngine:
         self,
         query: str,
         top_k: int = 5,
-        storage_prefix: Optional[str] = None,
+        storage_prefix: str | None = None,
     ) -> list[dict]:
         """Search for files semantically similar to query.
 
@@ -218,21 +218,24 @@ class SearchEngine:
         self,
         query_emb: Any,
         top_k: int,
-        storage_prefix: Optional[str],
+        storage_prefix: str | None,
     ) -> list[dict]:
         query_bytes = _floats_to_bytes(query_emb)
         # Fetch top_k*4 to have enough after per-file dedup
         raw = self._db.vec_knn_search(query_bytes, k=top_k * 4, storage_prefix=storage_prefix)
+        if not raw:
+            return self._search_cosine(query_emb, top_k, storage_prefix)
         return self._dedup_to_top_k(raw, top_k)
 
     def _search_cosine(
         self,
         query_emb: Any,
         top_k: int,
-        storage_prefix: Optional[str],
+        storage_prefix: str | None,
     ) -> list[dict]:
         """Fallback: O(n) cosine scan against legacy embeddings table."""
         import json
+
         import numpy as np
 
         query_vec = np.array(query_emb, dtype=np.float32)
@@ -266,8 +269,8 @@ class SearchEngine:
         seen: dict[tuple, dict] = {}
         for row in rows:
             key = (row["storage_prefix"], row["relative_path"])
-            # vec distance is lower-is-better; convert to score (higher = better)
-            score = 1.0 - float(row.get("distance", 0.0))
+            # vec distance is lower-is-better; clamp to [0, 1] similarity score
+            score = max(0.0, 1.0 - float(row.get("distance", 0.0)))
             if key not in seen or score > seen[key]["score"]:
                 seen[key] = {
                     "storage_prefix": row["storage_prefix"],

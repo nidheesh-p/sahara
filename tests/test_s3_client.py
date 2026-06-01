@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import boto3
 import botocore.exceptions
@@ -20,7 +19,6 @@ from sahara.s3_client import (
     _compute_sha256,
     _is_retryable,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -440,7 +438,6 @@ class TestRetryDecorator:
         """Verify that the retry decorator retries on transient errors."""
         client, cfg = s3_setup
 
-        call_count = 0
         original_simple_upload = client._simple_upload.__wrapped__  # type: ignore[attr-defined]
 
         retryable_err = botocore.exceptions.ClientError(

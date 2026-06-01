@@ -5,10 +5,9 @@ from __future__ import annotations
 import datetime
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
-import pytest
 from click.testing import CliRunner
 
 from sahara.cli import main
@@ -39,9 +38,9 @@ def _insert_file(db_path: Path, relative_path: str, sync_dir: Path) -> None:
             size_bytes=10,
             tier="STANDARD",
             s3_etag="abc",
-            last_sync_at=datetime.datetime.now(datetime.timezone.utc),
-            local_modified_at=datetime.datetime.now(datetime.timezone.utc),
-            remote_modified_at=datetime.datetime.now(datetime.timezone.utc),
+            last_sync_at=datetime.datetime.now(datetime.UTC),
+            local_modified_at=datetime.datetime.now(datetime.UTC),
+            remote_modified_at=datetime.datetime.now(datetime.UTC),
         ),
         s3_prefix="",
     )

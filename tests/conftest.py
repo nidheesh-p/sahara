@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import datetime
-import os
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import boto3
 import pytest
@@ -13,7 +11,6 @@ from moto import mock_aws
 from sahara.config import SaharaConfig
 from sahara.encryption import derive_key, generate_salt
 from sahara.state_db import StateDB
-
 
 # ---------------------------------------------------------------------------
 # Basic fixtures
@@ -99,4 +96,4 @@ def encryption_key_and_salt() -> tuple[bytes, bytes]:
 
 @pytest.fixture
 def now_utc() -> datetime.datetime:
-    return datetime.datetime.now(datetime.timezone.utc)
+    return datetime.datetime.now(datetime.UTC)

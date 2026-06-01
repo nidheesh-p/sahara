@@ -10,9 +10,13 @@ import signal
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
 
-from sahara.config import SaharaConfig, load_config, DEFAULT_CONFIG_PATH
+from sahara.config import load_config
+
+if TYPE_CHECKING:
+    from sahara.storage.s3_client import S3Client
+    from sahara.storage.state_db import StateDB
 
 __all__ = [
     "start_daemon",
@@ -48,7 +52,7 @@ _SYSTEMD_SERVICE_PATH = (
 # ---------------------------------------------------------------------------
 
 
-def _read_pid() -> Optional[int]:
+def _read_pid() -> int | None:
     """Read PID from the PID file; return None if absent or invalid."""
     pid_path = _PID_FILE
     if not pid_path.exists():
@@ -127,7 +131,7 @@ def get_daemon_status() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def start_daemon(config_path: Optional[Path] = None) -> None:
+def start_daemon(config_path: Path | None = None) -> None:
     """Fork and start the Sahara background sync daemon.
 
     The child process:
@@ -160,7 +164,7 @@ def start_daemon(config_path: Optional[Path] = None) -> None:
         sys.exit(0)
 
 
-def _start_daemon_windows(config_path: Optional[Path]) -> None:
+def _start_daemon_windows(config_path: Path | None) -> None:
     """Start daemon on Windows using subprocess."""
     import subprocess
 
@@ -177,7 +181,7 @@ def _start_daemon_windows(config_path: Optional[Path]) -> None:
     logger.info("Daemon started (Windows) with PID %d", proc.pid)
 
 
-def _daemon_main(config_path: Optional[Path]) -> None:
+def _daemon_main(config_path: Path | None) -> None:
     """Main loop for the daemon process."""
     import logging.handlers
 
@@ -203,19 +207,19 @@ def _daemon_main(config_path: Optional[Path]) -> None:
 
     config = load_config(config_path)
 
-    from sahara.storage.state_db import StateDB
     from sahara.storage.s3_client import S3Client
-    from sahara.sync.sync_engine import SyncEngine
+    from sahara.storage.state_db import StateDB
     from sahara.sync.file_watcher import SaharaEventHandler, start_watching
-    from sahara.utils.notifier import notify_sync_error, notify_sync_complete
     from sahara.sync.ignore_rules import IgnoreRules
+    from sahara.sync.sync_engine import SyncEngine
+    from sahara.utils.notifier import notify_sync_complete, notify_sync_error
 
     db = StateDB().connect()
     s3 = S3Client(config)
 
     def _make_engine_and_handler(
         folder: Path, s3_prefix: str = ""
-    ) -> tuple["SyncEngine", "SaharaEventHandler"]:
+    ) -> tuple[SyncEngine, SaharaEventHandler]:
         """Build a SyncEngine + SaharaEventHandler for a single folder."""
         ig = IgnoreRules(folder, extra_patterns=config.exclude_patterns)
         eng = SyncEngine(config, db, s3, ig, sync_folder=folder, s3_prefix=s3_prefix)
@@ -250,8 +254,8 @@ def _daemon_main(config_path: Optional[Path]) -> None:
 
     # Build engines for primary folder + all registered additional targets
     primary_folder = config.get_sync_folder_path()
-    engines: list["SyncEngine"] = []
-    watch_pairs: list[tuple[Path, "SaharaEventHandler"]] = []
+    engines: list[SyncEngine] = []
+    watch_pairs: list[tuple[Path, SaharaEventHandler]] = []
 
     primary_engine, primary_handler = _make_engine_and_handler(primary_folder, "")
     engines.append(primary_engine)
@@ -332,7 +336,7 @@ def stop_daemon() -> None:
 # ---------------------------------------------------------------------------
 
 
-def poll_restores(db: "StateDB", s3: "S3Client") -> None:  # type: ignore[name-defined]
+def poll_restores(db: StateDB, s3: S3Client) -> None:
     """Check all pending Glacier restores and update the DB."""
     from sahara.utils.notifier import notify_restore_complete
 
@@ -369,12 +373,12 @@ def poll_restores(db: "StateDB", s3: "S3Client") -> None:  # type: ignore[name-d
             )
 
 
-def poll_restore_expiries(db: "StateDB", within_hours: int = 48) -> None:  # type: ignore[name-defined]
+def poll_restore_expiries(db: StateDB, within_hours: int = 48) -> None:
     """Warn about restored files whose hot window is expiring soon."""
     from sahara.utils.notifier import notify_restore_expiring
 
     expiring = db.list_expiring_restores(within_hours=within_hours)
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     for record in expiring:
         if record.restore_expires_at:
             delta = record.restore_expires_at - now
@@ -388,7 +392,7 @@ def poll_restore_expiries(db: "StateDB", within_hours: int = 48) -> None:  # typ
 # ---------------------------------------------------------------------------
 
 
-def install_autostart(platform_name: Optional[str] = None) -> str:
+def install_autostart(platform_name: str | None = None) -> str:
     """Install Sahara daemon to run at login.
 
     Returns the path of the created autostart file.
@@ -406,7 +410,7 @@ def install_autostart(platform_name: Optional[str] = None) -> str:
         raise RuntimeError(f"Autostart not supported on platform: {plat}")
 
 
-def uninstall_autostart(platform_name: Optional[str] = None) -> None:
+def uninstall_autostart(platform_name: str | None = None) -> None:
     """Remove the autostart entry for the current platform."""
     plat = platform_name or platform.system()
     if plat == "Darwin":
