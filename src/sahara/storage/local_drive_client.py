@@ -7,8 +7,9 @@ import hashlib
 import json
 import logging
 import shutil
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from sahara.config import SaharaConfig
 from sahara.storage.s3_client import ManifestConflictError, S3ClientError
@@ -64,10 +65,10 @@ class LocalDriveClient:
             raise
 
     def _atomic_write(self, dst: Path, data: bytes) -> None:
-        self._atomic_op(dst, lambda tmp: tmp.write_bytes(data))
+        self._atomic_op(dst, lambda tmp: tmp.write_bytes(data))  # type: ignore[arg-type]
 
     def _atomic_copy(self, src: Path, dst: Path) -> None:
-        self._atomic_op(dst, lambda tmp: shutil.copy2(str(src), str(tmp)))
+        self._atomic_op(dst, lambda tmp: shutil.copy2(str(src), str(tmp)))  # type: ignore[arg-type]
 
     # ------------------------------------------------------------------
     # Upload
@@ -77,15 +78,15 @@ class LocalDriveClient:
         self,
         local_path: Path,
         key: str,
-        metadata: Optional[dict[str, str]] = None,
+        metadata: dict[str, str] | None = None,
         storage_class: str = "STANDARD",
-        encrypt_fn: Optional[Callable[[Path], tuple[Path, str]]] = None,
-        on_progress: Optional[Callable[[int], None]] = None,
+        encrypt_fn: Callable[[Path], tuple[Path, str]] | None = None,
+        on_progress: Callable[[int], None] | None = None,
     ) -> str:
         """Copy *local_path* to ALL drives under *key*. Returns SHA-256."""
         upload_path = local_path
-        sha256: Optional[str] = None
-        tmp_enc: Optional[Path] = None
+        sha256: str | None = None
+        tmp_enc: Path | None = None
 
         try:
             if encrypt_fn is not None:
@@ -115,8 +116,8 @@ class LocalDriveClient:
         self,
         key: str,
         local_path: Path,
-        decrypt_fn: Optional[Callable[[Path, Path], str]] = None,
-        on_progress: Optional[Callable[[int], None]] = None,
+        decrypt_fn: Callable[[Path, Path], str] | None = None,
+        on_progress: Callable[[int], None] | None = None,
     ) -> str:
         """Copy *key* from first available drive to *local_path*. Returns SHA-256."""
         src = self._first_available(key)
@@ -163,10 +164,10 @@ class LocalDriveClient:
         src_key: str,
         dst_key: str,
         storage_class: str = "STANDARD",
-        extra_metadata: Optional[dict[str, str]] = None,
+        extra_metadata: dict[str, str] | None = None,
     ) -> str:
         """Copy *src_key* to *dst_key* on ALL drives. Returns SHA-256 of source."""
-        src_sha: Optional[str] = None
+        src_sha: str | None = None
         found = False
 
         for drive in self._drives:
@@ -200,7 +201,7 @@ class LocalDriveClient:
             "Restore": None,
             "Metadata": {},
             "LastModified": datetime.datetime.fromtimestamp(
-                stat.st_mtime, tz=datetime.timezone.utc
+                stat.st_mtime, tz=datetime.UTC
             ),
         }
 
@@ -210,8 +211,8 @@ class LocalDriveClient:
 
     def get_manifest(
         self,
-        key: Optional[str] = None,
-    ) -> tuple[Optional[dict], Optional[str]]:
+        key: str | None = None,
+    ) -> tuple[dict | None, str | None]:
         """Read manifest from first available drive. Returns (dict, etag) or (None, None)."""
         manifest_key = key or self._manifest_key
         for drive in self._drives:
@@ -228,8 +229,8 @@ class LocalDriveClient:
     def put_manifest(
         self,
         manifest_dict: dict,
-        if_match_etag: Optional[str] = None,
-        key: Optional[str] = None,
+        if_match_etag: str | None = None,
+        key: str | None = None,
     ) -> str:
         """Write manifest to ALL drives with optimistic locking. Returns new etag."""
         manifest_key = key or self._manifest_key
@@ -280,7 +281,7 @@ class LocalDriveClient:
                     "ETag": compute_sha256(fpath),
                     "StorageClass": "STANDARD",
                     "LastModified": datetime.datetime.fromtimestamp(
-                        stat.st_mtime, tz=datetime.timezone.utc
+                        stat.st_mtime, tz=datetime.UTC
                     ),
                 }
             )

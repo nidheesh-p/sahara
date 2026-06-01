@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 __all__ = ["StorageBackend"]
 
@@ -20,10 +21,10 @@ class StorageBackend(Protocol):
         self,
         local_path: Path,
         key: str,
-        metadata: Optional[dict[str, str]] = None,
+        metadata: dict[str, str] | None = None,
         storage_class: str = "STANDARD",
-        encrypt_fn: Optional[Callable[[Path], tuple[Path, str]]] = None,
-        on_progress: Optional[Callable[[int], None]] = None,
+        encrypt_fn: Callable[[Path], tuple[Path, str]] | None = None,
+        on_progress: Callable[[int], None] | None = None,
     ) -> str:
         """Upload local_path to storage under *key*. Returns an etag/hash string."""
         ...
@@ -32,8 +33,8 @@ class StorageBackend(Protocol):
         self,
         key: str,
         local_path: Path,
-        decrypt_fn: Optional[Callable[[Path, Path], str]] = None,
-        on_progress: Optional[Callable[[int], None]] = None,
+        decrypt_fn: Callable[[Path, Path], str] | None = None,
+        on_progress: Callable[[int], None] | None = None,
     ) -> str:
         """Download *key* from storage to local_path. Returns SHA-256 of the file."""
         ...
@@ -47,23 +48,23 @@ class StorageBackend(Protocol):
         src_key: str,
         dst_key: str,
         storage_class: str = "STANDARD",
-        extra_metadata: Optional[dict[str, str]] = None,
+        extra_metadata: dict[str, str] | None = None,
     ) -> str:
         """Copy *src_key* to *dst_key*. Returns etag/hash of the destination."""
         ...
 
     def get_manifest(
         self,
-        key: Optional[str] = None,
-    ) -> tuple[Optional[dict], Optional[str]]:
+        key: str | None = None,
+    ) -> tuple[dict | None, str | None]:
         """Fetch the Sahara manifest. Returns (manifest_dict, etag) or (None, None)."""
         ...
 
     def put_manifest(
         self,
         manifest_dict: dict,
-        if_match_etag: Optional[str] = None,
-        key: Optional[str] = None,
+        if_match_etag: str | None = None,
+        key: str | None = None,
     ) -> str:
         """Write manifest. Raises ManifestConflictError on concurrent modification."""
         ...

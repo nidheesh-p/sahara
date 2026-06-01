@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import pathspec
 
@@ -26,7 +25,7 @@ class IgnoreRules:
     def __init__(
         self,
         sync_folder: Path,
-        extra_patterns: Optional[list[str]] = None,
+        extra_patterns: list[str] | None = None,
     ) -> None:
         self._sync_folder = sync_folder
         self._ignore_file = sync_folder / _SAHARAIGNORE_NAME

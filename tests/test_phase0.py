@@ -3,12 +3,8 @@
 from __future__ import annotations
 
 import json
-import struct
-import tempfile
-import textwrap
 from pathlib import Path
-from typing import Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -17,7 +13,6 @@ from sahara.cli import main
 from sahara.config import SaharaConfig
 from sahara.search.search_engine import SearchEngine, TextExtractor, _split_chunks
 from sahara.storage.state_db import StateDB
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -66,7 +61,6 @@ def config_s3():
 
 
 def test_pyproject_version():
-    import importlib.metadata
     # The installed package version should be ≥ 0.2.0 after our change.
     # We test the source directly since the package may not be reinstalled yet.
     toml_path = Path(__file__).parent.parent / "pyproject.toml"
@@ -434,7 +428,7 @@ class TestAskEngine:
         f.write_text("Passport number: A1234567. Expires 2032-08-14.")
         search_engine.index_file(f, "", "passport.txt")
 
-        ask = AskEngine(search_engine, ollama_url="http://localhost:99999")
+        ask = AskEngine(search_engine, ollama_url="http://localhost:99999", openai_api_key=None, provider="ollama")
         result = ask.ask("passport expiry")
         # Ollama won't be available on port 99999 — should degrade but have sources
         assert len(result.sources) > 0
@@ -459,7 +453,7 @@ class TestAskEngine:
                 pass
 
         with patch("urllib.request.urlopen", return_value=FakeResp()):
-            ask = AskEngine(search_engine)
+            ask = AskEngine(search_engine, openai_api_key=None, provider="ollama")
             result = ask.ask("what is the project deadline?")
 
         assert result.answer == "The deadline is March 15 2026."
@@ -467,8 +461,9 @@ class TestAskEngine:
         assert result.model_used is not None
 
     def test_ask_ollama_timeout_degrades(self, search_engine, tmp_path):
-        from sahara.search.ask_engine import AskEngine
         import urllib.error
+
+        from sahara.search.ask_engine import AskEngine
         f = tmp_path / "note.txt"
         f.write_text("Some content to find")
         search_engine.index_file(f, "", "note.txt")
@@ -483,7 +478,7 @@ class TestAskEngine:
         assert len(result.sources) > 0  # sources still returned
 
     def test_build_context_respects_char_limit(self, search_engine):
-        from sahara.search.ask_engine import AskEngine, _CONTEXT_CHAR_LIMIT
+        from sahara.search.ask_engine import _CONTEXT_CHAR_LIMIT, AskEngine
         ask = AskEngine(search_engine)
         chunks = [
             {"relative_path": f"doc{i}.txt", "snippet": "X" * 2000, "storage_prefix": ""}

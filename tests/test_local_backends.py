@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from sahara.config import SaharaConfig
-from sahara.storage.local_drive_client import LocalDriveClient
 from sahara.storage.dual_write_backend import DualWriteBackend
+from sahara.storage.local_drive_client import LocalDriveClient
 from sahara.storage.s3_client import ManifestConflictError, S3ClientError
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -449,7 +447,7 @@ def test_config_s3_mode_keeps_glacier_class():
 
 
 def test_config_drive_paths_roundtrip(tmp_path):
-    from sahara.config import save_config, load_config
+    from sahara.config import load_config, save_config
     config = SaharaConfig(
         sync_folder=str(tmp_path / "sync"),
         storage_mode="local",

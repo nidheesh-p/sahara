@@ -2,13 +2,10 @@
 from __future__ import annotations
 
 import datetime
-import json
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import boto3
-import pytest
 from click.testing import CliRunner
 from moto import mock_aws
 
@@ -17,14 +14,13 @@ from sahara.config import SaharaConfig, save_config
 from sahara.models import FileRecord
 from sahara.sync_engine import DiffResult
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 BUCKET = "cli-test-bucket"
 REGION = "us-east-1"
-NOW = datetime.datetime.now(datetime.timezone.utc)
+NOW = datetime.datetime.now(datetime.UTC)
 
 
 def _runner() -> CliRunner:

@@ -9,12 +9,11 @@ import pytest
 from sahara.models import FileRecord
 from sahara.state_db import StateDB
 
-
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 
-NOW = datetime.datetime(2024, 6, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+NOW = datetime.datetime(2024, 6, 1, 12, 0, 0, tzinfo=datetime.UTC)
 
 
 def _make_record(
@@ -373,7 +372,7 @@ class TestRestoreHelpers:
 
     def test_list_expiring_restores(self, in_memory_db: StateDB):
         # A restore expiring in 1 hour should appear in within_hours=48
-        soon = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
+        soon = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)
         rec = _make_record(
             relative_path="expiring.zip",
             tier="HOT_TEMP",
@@ -384,7 +383,7 @@ class TestRestoreHelpers:
         assert any(r.relative_path == "expiring.zip" for r in results)
 
     def test_list_expiring_restores_excludes_far_future(self, in_memory_db: StateDB):
-        far_future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=365)
+        far_future = datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=365)
         rec = _make_record(
             relative_path="farfuture.zip",
             tier="HOT_TEMP",
@@ -395,7 +394,7 @@ class TestRestoreHelpers:
         assert not any(r.relative_path == "farfuture.zip" for r in results)
 
     def test_list_expiring_restores_excludes_non_hot_temp(self, in_memory_db: StateDB):
-        soon = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
+        soon = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)
         rec = _make_record(
             relative_path="not_hot.zip",
             tier="GLACIER",
@@ -413,7 +412,6 @@ class TestRestoreHelpers:
 
 class TestTransaction:
     def test_transaction_commit_on_success(self, in_memory_db: StateDB):
-        rec = _make_record()
         with in_memory_db.transaction():
             in_memory_db.conn.execute(
                 "INSERT INTO files "

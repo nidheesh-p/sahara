@@ -1,112 +1,113 @@
 # Sahara
 
-**Local-first personal storage with semantic search.**
-
-Sahara syncs your files to wherever you want — AWS S3, a self-hosted MinIO server, or locally mounted hard drives — and lets you search them with natural language.
-
-```
-sahara search "2023 tax return"
-sahara ask "when does my passport expire?"
-```
+> A local-first personal storage system with semantic search.
+> Find your files by meaning, not by filename.
 
 ---
 
-## What Sahara does
+## What it does today
 
-| Capability | Details |
-|---|---|
-| **Storage backends** | AWS S3, MinIO (self-hosted), local drives, local+Glacier |
-| **Sync** | Bidirectional three-way diff (local / remote / last-known base) |
-| **Encryption** | AES-256-GCM, PBKDF2-SHA256 key derivation, keyring storage |
-| **Semantic search** | sqlite-vec KNN on BAAI/bge-small-en-v1.5 384-dim embeddings |
-| **Ask** | LLM-powered answers from your files (OpenAI or local Ollama) |
-| **Archiving** | Glacier / Deep Archive tiering with restore tracking |
-| **Background sync** | Watchdog-based daemon with autostart support |
-| **Multiple folders** | Register any number of folders, each synced independently |
+- **Sync** a local folder to S3, MinIO, or a locally mounted drive — bidirectional, with three-way diff conflict resolution
+- **Encrypt** files client-side with AES-256-GCM before they leave your machine
+- **Index** your documents — PDF, DOCX, Markdown, code, plain text — into a local vector database
+- **Search** by meaning: `sahara search "tax return 2024"` finds the right file even if none of those words appear in the filename
+- **Ask** natural language questions: `sahara ask "what is my passport expiry date?"` extracts the answer and cites the source
+
+All search and answer generation runs locally. Your files never leave your machine for indexing purposes.
+
+## What is coming next
+
+- Hybrid retrieval: BM25 keyword + vector search with cross-encoder reranking
+- Entity extraction: dates, names, amounts, document types
+- OCR support via a plugin (opt-in, not default)
+- Plugin marketplace for parsers, embedders, and rerankers
+
+See [ROADMAP.md](ROADMAP.md) for the full plan.
 
 ---
 
 ## Installation
 
 ```bash
+# Minimal — sync only, no search
 pip install sahara
+
+# With semantic search (downloads ~200 MB embedding model on first use)
+pip install "sahara[search]"
+
+# With OCR support
+pip install "sahara[search,ocr]"
+
+# Everything
+pip install "sahara[all]"
 ```
 
-Add semantic search and `sahara ask`:
-
-```bash
-pip install "sahara[search]"   # ~200 MB: fastembed, pypdf, python-docx, sqlite-vec
-```
-
-From source:
+### Developer setup
 
 ```bash
 git clone https://github.com/nidheesh-p/sahara
 cd sahara
-pip install -e ".[search]"
+pip install -e ".[search,dev]"
 ```
 
 ---
 
-## Quick Start
+## Quick start
 
-### 1. Initialise
-
-```bash
-sahara init
-```
-
-Choose your storage backend:
-
-```
-aws           — Amazon S3 with Glacier tiering (pay-per-use cloud)
-minio         — Self-hosted MinIO / S3-compatible server
-local         — Locally mounted hard drives (no cloud)
-local+glacier — Drives as primary + S3 Glacier as cold backup
-```
-
-### 2. Sync
+Three commands to your first semantic search:
 
 ```bash
-sahara sync       # bidirectional
-sahara push       # upload only
-sahara pull       # download only
+pip install "sahara[search]"
+sahara init          # 2-minute interactive wizard — choose local, MinIO, or S3
+sahara index && sahara search "my tax return 2024"
 ```
-
-### 3. Search your files
-
-Index file contents, then search:
-
-```bash
-sahara index
-sahara search "invoice from contractor 2024"
-```
-
-### 4. Ask questions
-
-```bash
-sahara ask "what is my passport expiry date?"
-sahara ask "summarise the Q3 budget notes"
-```
-
-Uses OpenAI (`gpt-4o-mini`) when `OPENAI_API_KEY` is set, otherwise tries a local Ollama instance. Degrades gracefully to showing matching snippets if no LLM is available.
 
 ---
 
-## Storage Backends
+## Storage backends
 
-### AWS S3 (default)
+Sahara supports four storage modes, selected during `sahara init`:
 
-Full feature support including Glacier archiving and restore.
+| Mode | Use case |
+|------|----------|
+| `local` | Second drive, NAS, or network share — no cloud account needed |
+| `local+glacier` | Local drives as primary + S3 Glacier as cold backup |
+| `minio` | Self-hosted S3-compatible object storage |
+| `s3` (aws) | AWS S3 with optional Glacier archiving |
+
+### Local drive
+
+Files are written to one or more mounted drives independently — no RAID required. Drives are append-only by default (deleting a file locally does not remove it from drives).
 
 ```bash
-export AWS_ACCESS_KEY_ID=AKIAxxxxxxxxxxxxxxxx
-export AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+sahara init   # choose 'local', point at /Volumes/MyDrive/Backup
+sahara sync
+```
+
+### MinIO (self-hosted)
+
+```bash
+docker run -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=password \
+  minio/minio server /data --console-address :9001
+
+sahara init   # choose 'minio', endpoint http://localhost:9000
+sahara sync
+```
+
+### AWS S3
+
+```bash
+export AWS_ACCESS_KEY_ID=AKIAxxxxxxxx
+export AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxx
 export AWS_DEFAULT_REGION=us-east-1
-sahara init   # choose "aws"
+
+sahara init   # choose 'aws'
+sahara sync
 ```
 
 Minimum IAM policy:
+
 ```json
 {
   "Version": "2012-10-17",
@@ -118,76 +119,58 @@ Minimum IAM policy:
       "s3:RestoreObject", "s3:GetObjectAttributes"
     ],
     "Resource": [
-      "arn:aws:s3:::YOUR-BUCKET",
-      "arn:aws:s3:::YOUR-BUCKET/*"
+      "arn:aws:s3:::YOUR-BUCKET-NAME",
+      "arn:aws:s3:::YOUR-BUCKET-NAME/*"
     ]
   }]
 }
 ```
 
-### MinIO (self-hosted)
-
-Drop-in replacement for S3. Glacier-specific features are not available.
-
-```bash
-sahara init   # choose "minio"
-# prompts for endpoint URL, access key, secret key, bucket name
-```
-
-### Local drives
-
-Files are written to one or more mounted drives (NAS, external HDD, USB). Every write goes to **all** configured drives independently — no RAID required. Drives are append-only by default: deleting a file locally does not remove it from drives.
-
-```bash
-sahara init   # choose "local"
-# enter drive paths, e.g. /Volumes/Drive1/Sahara
-```
-
-### Local + Glacier
-
-Drives as primary storage, S3 Glacier as a cold backup. Useful for archiving important files while keeping fast local access.
-
-```bash
-sahara init   # choose "local+glacier"
-```
-
 ---
 
-## Semantic Search
+## Search & ask
 
-Sahara uses [BAAI/bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) (384-dimensional embeddings) with sqlite-vec for fast KNN search.
-
-**Supported file types:** PDF, DOCX, Markdown, plain text, code files (`.py`, `.js`, `.ts`, etc.), YAML, TOML, CSV, HTML, XML.
-
-Files are split into 1600-character chunks (320-character overlap) so specific passages — including page 30 of a long PDF — are independently retrievable.
+### Index your files
 
 ```bash
-sahara index                        # index all synced files
-sahara index --force                # re-index everything
-sahara index --folder ~/Documents   # index a specific folder
-
-sahara search "quarterly report"
-sahara search --snippet "tax year 2023"   # show matching text
-sahara search -n 10 "passport"            # top 10 results
+sahara index                    # index all synced files
+sahara index --force            # re-index everything (ignores content hash)
+sahara index --folder ~/Docs    # index a specific registered folder
 ```
 
----
+**Supported file types:** PDF, DOCX, Markdown, plain text, code (`.py`, `.js`, `.ts`, etc.), YAML, TOML, CSV, HTML, XML.
 
-## Ask (LLM Q&A)
+Files are split into 1600-character chunks with 320-character overlap so specific passages — including page 30 of a long PDF — are independently retrievable.
 
-`sahara ask` retrieves relevant chunks, builds a context window, and sends it to an LLM for a grounded answer.
+### Search by meaning
 
 ```bash
-sahara ask "when does my car insurance expire?"
-sahara ask "what was the project deadline in the notes?"
-sahara ask local "summarise the meeting minutes"   # force local Ollama
+sahara search "tax return 2024"
+sahara search "kitchen renovation quote" --top 10
+sahara search "passport expiry" --snippet
+```
+
+### Ask a question
+
+```bash
+sahara ask "what is my passport expiry date?"
+sahara ask "find the invoice from Amazon last month" --top 10
+```
+
+```
+Answer: Your passport expires on Aug 14, 2032.
+
+Source: Documents/Personal/passport_scan.pdf  (score: 94%)
+  "…passport valid until 14 AUG 2032. Issued by Government of India…"
+
+Note: Answer generated by local model mistral via Ollama.
 ```
 
 **Provider selection:**
 - `OPENAI_API_KEY` set → OpenAI (`gpt-4o-mini` by default)
-- No key → local Ollama (`mistral` by default, `http://localhost:11434`)
-- `--provider openai|ollama` to override
-- `--model gpt-4o` or `--model llama3` to select model
+- No key → local Ollama (`mistral` by default at `http://localhost:11434`)
+- `sahara ask local "..."` or `--provider ollama` to force Ollama
+- `--provider openai` or `--model gpt-4o` to override
 
 ---
 
@@ -213,7 +196,7 @@ sahara ask local "summarise the meeting minutes"   # force local Ollama
 | `sahara index [--force]` | Index file contents for search |
 | `sahara search <query>` | Semantic search |
 | `sahara ask <question>` | LLM-powered Q&A over your files |
-| `sahara archive [paths]` | Move files to Glacier |
+| `sahara archive [paths]` | Move files to Glacier (AWS only) |
 | `sahara restore <path>` | Initiate Glacier restore |
 | `sahara restore-status` | Check restore progress |
 | `sahara restore-download <path>` | Download a restored file |
@@ -231,19 +214,17 @@ sahara ask local "summarise the meeting minutes"   # force local Ollama
 Config file: `~/.sahara/config.toml`
 
 ```toml
-sync_folder       = "/Users/you/Sahara"
-storage_mode      = "s3"          # s3 | local | local+glacier
-bucket            = "my-bucket"
-region            = "us-east-1"
-prefix            = ""
-endpoint_url      = ""            # set for MinIO, e.g. http://192.168.1.10:9000
+sync_folder        = "/Users/you/Sahara"
+storage_mode       = "s3"         # s3 | local | local+glacier
+bucket             = "my-bucket"
+region             = "us-east-1"
+prefix             = ""
+endpoint_url       = ""           # set for MinIO, e.g. http://192.168.1.10:9000
 encryption_enabled = false
-conflict_strategy = "backup"      # backup | local | remote | ask
-upload_only       = false         # this machine only pushes, never pulls
-max_workers       = 8
+conflict_strategy  = "backup"     # backup | local | remote | ask
+upload_only        = false        # this machine only pushes, never pulls
+max_workers        = 8
 ```
-
-Manage without editing the file:
 
 ```bash
 sahara config show
@@ -262,11 +243,11 @@ sahara encryption setup    # enable and store passphrase
 sahara encryption rotate   # re-encrypt all files with a new passphrase
 ```
 
-Wire format: `[16-byte salt][12-byte nonce][ciphertext + 16-byte auth tag]`
+See [SECURITY.md](SECURITY.md) for the wire format and threat model.
 
 ---
 
-## Ignore Rules
+## Ignore rules
 
 Create `.saharaignore` in your sync folder (gitignore syntax):
 
@@ -279,17 +260,13 @@ secrets/
 
 ---
 
-## Archiving (AWS S3 only)
+## Documentation
 
-```bash
-sahara archive --older-than 180          # archive files not modified in 6 months
-sahara archive documents/old-report.pdf  # archive a specific file
-sahara archive --storage-class DEEP_ARCHIVE --older-than 365
-
-sahara restore documents/old-report.pdf  # initiate restore (takes hours for DEEP_ARCHIVE)
-sahara restore-status                    # check all pending restores
-sahara restore-download documents/old-report.pdf
-```
+- [ARCHITECTURE.md](ARCHITECTURE.md) — System design, storage protocols, search pipeline, SQLite schema
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Dev setup, test conventions, how to add a storage backend
+- [ROADMAP.md](ROADMAP.md) — What is built, what is next, explicit non-goals
+- [SECURITY.md](SECURITY.md) — Encryption wire format, threat model, vulnerability reporting
+- [CHANGELOG.md](CHANGELOG.md) — Release history
 
 ---
 

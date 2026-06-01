@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 from click.testing import CliRunner
 
 from sahara.cli import main
@@ -152,6 +150,7 @@ class TestIndexCLIErrorPaths:
         db_path = tmp_path / "state.db"
 
         import datetime
+
         from sahara.models import FileRecord
 
         db = StateDB(db_path).connect()
@@ -162,9 +161,9 @@ class TestIndexCLIErrorPaths:
                 size_bytes=10,
                 tier="STANDARD",
                 s3_etag="abc",
-                last_sync_at=datetime.datetime.now(datetime.timezone.utc),
-                local_modified_at=datetime.datetime.now(datetime.timezone.utc),
-                remote_modified_at=datetime.datetime.now(datetime.timezone.utc),
+                last_sync_at=datetime.datetime.now(datetime.UTC),
+                local_modified_at=datetime.datetime.now(datetime.UTC),
+                remote_modified_at=datetime.datetime.now(datetime.UTC),
             ),
             s3_prefix="",
         )
@@ -207,7 +206,6 @@ class TestSearchCLIErrorPaths:
         db_path = tmp_path / "state.db"
 
         db = StateDB(db_path).connect()
-        import json
         db.upsert_embedding("", "doc.txt", "h", json.dumps([0.0] * 384), "snippet")
         db.close()
 
@@ -263,7 +261,6 @@ class TestAskCLIErrorPaths:
         db_path = tmp_path / "state.db"
 
         db = StateDB(db_path).connect()
-        import json
         db.upsert_embedding("", "doc.txt", "h", json.dumps([0.5] * 384), "snippet")
         db.close()
 

@@ -5,16 +5,16 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 from watchdog.events import (  # type: ignore[import]
-    FileSystemEvent,
-    FileSystemEventHandler,
     FileCreatedEvent,
     FileDeletedEvent,
     FileModifiedEvent,
     FileMovedEvent,
+    FileSystemEvent,
+    FileSystemEventHandler,
 )
 from watchdog.observers import Observer  # type: ignore[import]
 
@@ -47,7 +47,7 @@ class Debouncer:
         self._debounce = debounce_seconds
         self._pending: dict[str, float] = {}
         self._lock = threading.Lock()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
     def touch(self, path: str) -> None:
@@ -163,7 +163,7 @@ class SaharaEventHandler(FileSystemEventHandler):
 
 
 def start_watching(
-    folders: list[tuple[Path, "SaharaEventHandler"]],
+    folders: list[tuple[Path, SaharaEventHandler]],
     recursive: bool = True,
 ) -> Observer:
     """Start a watchdog Observer for one or more folders.

@@ -154,8 +154,8 @@ class CostEstimator:
 
     def get_usage_report(
         self,
-        db: "StateDB",
-        s3_client: "S3Client",
+        db: StateDB,
+        s3_client: S3Client,
     ) -> str:
         """Generate a formatted usage and cost report."""
         tier_sizes = db.get_total_size_by_tier()
@@ -206,7 +206,7 @@ class CostEstimator:
             f"    Premium (Standard)        : ${storage['standard_cost_usd']:.4f}",
             f"    Archive (Deep Archive)    : ${storage['deep_archive_cost_usd']:.4f}",
             f"    Glacier Flexible          : ${storage['glacier_cost_usd']:.4f}",
-            f"    ─────────────────────────────────",
+            "    ─────────────────────────────────",
             f"    Total storage             : ${storage['total_storage_cost_usd']:.4f}",
             "",
             "  Note: Request and egress costs depend on actual usage.",
@@ -263,7 +263,7 @@ class CostEstimator:
             f"    Storage           : ${storage['total_storage_cost_usd']:.4f}",
             f"    Requests          : ${requests['total_request_cost_usd']:.4f}",
             f"    Data egress       : ${egress:.4f}",
-            f"    ─────────────────────────────────",
+            "    ─────────────────────────────────",
             f"    TOTAL             : ${total:.4f}",
             "=" * 60,
         ]

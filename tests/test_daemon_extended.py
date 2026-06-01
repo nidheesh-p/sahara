@@ -2,31 +2,18 @@
 from __future__ import annotations
 
 import datetime
-import os
-import signal
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from sahara.daemon import (
-    _read_pid,
-    _write_pid,
-    _clear_pid,
-    _is_paused,
-    is_daemon_running,
-    pause_daemon,
-    resume_daemon,
-    get_daemon_status,
-    start_daemon,
-    stop_daemon,
-    poll_restores,
-    poll_restore_expiries,
     install_autostart,
+    poll_restore_expiries,
+    poll_restores,
+    start_daemon,
     uninstall_autostart,
 )
-
 
 # ---------------------------------------------------------------------------
 # start_daemon (non-fork path)
@@ -137,7 +124,7 @@ class TestPollRestoresExtended:
         mock_s3 = MagicMock()
         mock_s3._config.get_s3_key.return_value = "archive.zip"
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
         from sahara.models import FileRecord
         record = FileRecord(
             relative_path="archive.zip",
@@ -145,9 +132,9 @@ class TestPollRestoresExtended:
             size_bytes=100,
             tier="GLACIER",
             s3_etag="etag",
-            last_sync_at=NOW,
-            local_modified_at=NOW,
-            remote_modified_at=NOW,
+            last_sync_at=now,
+            local_modified_at=now,
+            remote_modified_at=now,
             restore_job_id="job-123",
         )
         mock_db.list_pending_restores.return_value = [record]
@@ -170,7 +157,7 @@ class TestPollRestoresExtended:
         mock_s3 = MagicMock()
         mock_s3._config.get_s3_key.return_value = "file.zip"
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
         from sahara.models import FileRecord
         record = FileRecord(
             relative_path="file.zip",
@@ -178,9 +165,9 @@ class TestPollRestoresExtended:
             size_bytes=0,
             tier="GLACIER",
             s3_etag="etag",
-            last_sync_at=NOW,
-            local_modified_at=NOW,
-            remote_modified_at=NOW,
+            last_sync_at=now,
+            local_modified_at=now,
+            remote_modified_at=now,
             restore_job_id="job",
         )
         mock_db.list_pending_restores.return_value = [record]
@@ -200,7 +187,7 @@ class TestPollRestoresExtended:
         mock_s3 = MagicMock()
         mock_s3._config.get_s3_key.return_value = "file.zip"
 
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
         from sahara.models import FileRecord
         record = FileRecord(
             relative_path="file.zip",
@@ -208,9 +195,9 @@ class TestPollRestoresExtended:
             size_bytes=0,
             tier="GLACIER",
             s3_etag="etag",
-            last_sync_at=NOW,
-            local_modified_at=NOW,
-            remote_modified_at=NOW,
+            last_sync_at=now,
+            local_modified_at=now,
+            remote_modified_at=now,
             restore_job_id="job",
         )
         mock_db.list_pending_restores.return_value = [record]
@@ -234,7 +221,7 @@ class TestPollRestoreExpiriesExtended:
     def test_poll_expiries_no_expires_at(self):
         """Records without restore_expires_at should be skipped."""
         mock_db = MagicMock()
-        NOW = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
         from sahara.models import FileRecord
         record = FileRecord(
             relative_path="file.zip",
@@ -242,9 +229,9 @@ class TestPollRestoreExpiriesExtended:
             size_bytes=0,
             tier="HOT_TEMP",
             s3_etag="etag",
-            last_sync_at=NOW,
-            local_modified_at=NOW,
-            remote_modified_at=NOW,
+            last_sync_at=now,
+            local_modified_at=now,
+            remote_modified_at=now,
             restore_expires_at=None,  # No expiry
         )
         mock_db.list_expiring_restores.return_value = [record]

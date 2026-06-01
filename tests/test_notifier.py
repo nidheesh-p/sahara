@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from sahara.notifier import (
     notify_auth_failure,
     notify_restore_complete,
@@ -13,7 +11,6 @@ from sahara.notifier import (
     notify_sync_error,
     send_notification,
 )
-
 
 # ---------------------------------------------------------------------------
 # send_notification
@@ -36,8 +33,6 @@ class TestSendNotification:
 
         with patch.dict("sys.modules", {"plyer": mock_plyer}):
             # Re-import to get the patched version
-            import importlib
-            import sahara.notifier as notifier_module
             # Direct patch on the import inside the function
             with patch("builtins.__import__", side_effect=_make_import(mock_notif)):
                 # Just call — should not raise
@@ -51,8 +46,6 @@ class TestSendNotification:
     def test_send_notification_does_not_raise_when_plyer_unavailable(self):
         """When plyer raises ImportError, function should not raise."""
         # We simulate ImportError by patching the import inside send_notification
-        original_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
-
         def _fake_import(name, *args, **kwargs):
             if name == "plyer":
                 raise ImportError("plyer not installed")
@@ -74,7 +67,6 @@ class TestSendNotification:
 
         # Use direct approach: mock the plyer import
         with patch.dict("sys.modules", {"plyer": MagicMock()}):
-            import sahara.notifier
             plyer_mod = MagicMock()
             plyer_mod.notification.notify.side_effect = RuntimeError("OS error")
 

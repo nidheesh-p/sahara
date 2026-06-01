@@ -14,8 +14,9 @@ safety net even after local deletions.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from sahara.storage.backend import StorageBackend
 from sahara.storage.s3_client import S3ClientError
@@ -53,10 +54,10 @@ class DualWriteBackend:
         self,
         local_path: Path,
         key: str,
-        metadata: Optional[dict[str, str]] = None,
+        metadata: dict[str, str] | None = None,
         storage_class: str = "STANDARD",
-        encrypt_fn: Optional[Callable[[Path], tuple[Path, str]]] = None,
-        on_progress: Optional[Callable[[int], None]] = None,
+        encrypt_fn: Callable[[Path], tuple[Path, str]] | None = None,
+        on_progress: Callable[[int], None] | None = None,
     ) -> str:
         etag = self._primary.upload_file(
             local_path, key, metadata, storage_class, encrypt_fn, on_progress
@@ -82,8 +83,8 @@ class DualWriteBackend:
         self,
         key: str,
         local_path: Path,
-        decrypt_fn: Optional[Callable[[Path, Path], str]] = None,
-        on_progress: Optional[Callable[[int], None]] = None,
+        decrypt_fn: Callable[[Path, Path], str] | None = None,
+        on_progress: Callable[[int], None] | None = None,
     ) -> str:
         return self._primary.download_file(key, local_path, decrypt_fn, on_progress)
 
@@ -110,7 +111,7 @@ class DualWriteBackend:
         src_key: str,
         dst_key: str,
         storage_class: str = "STANDARD",
-        extra_metadata: Optional[dict[str, str]] = None,
+        extra_metadata: dict[str, str] | None = None,
     ) -> str:
         etag = self._primary.copy_object(src_key, dst_key, storage_class, extra_metadata)
         try:
@@ -128,15 +129,15 @@ class DualWriteBackend:
     # ------------------------------------------------------------------
 
     def get_manifest(
-        self, key: Optional[str] = None
-    ) -> tuple[Optional[dict], Optional[str]]:
+        self, key: str | None = None
+    ) -> tuple[dict | None, str | None]:
         return self._primary.get_manifest(key)
 
     def put_manifest(
         self,
         manifest_dict: dict,
-        if_match_etag: Optional[str] = None,
-        key: Optional[str] = None,
+        if_match_etag: str | None = None,
+        key: str | None = None,
     ) -> str:
         return self._primary.put_manifest(manifest_dict, if_match_etag, key)
 

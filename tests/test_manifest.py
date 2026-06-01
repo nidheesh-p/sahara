@@ -3,10 +3,7 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from sahara.models import ManifestEntry
-
 
 # ---------------------------------------------------------------------------
 # ManifestEntry to_dict / from_dict

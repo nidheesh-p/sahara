@@ -5,7 +5,6 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 __all__ = [
     "SaharaConfig",
@@ -179,7 +178,7 @@ def _flatten_toml(data: dict, parent_key: str = "", sep: str = "_") -> dict:
     return dict(items)
 
 
-def load_config(path: Optional[Path] = None) -> SaharaConfig:
+def load_config(path: Path | None = None) -> SaharaConfig:
     """Load SaharaConfig from a TOML file.
 
     Falls back to DEFAULT_CONFIG_PATH if path is None.
@@ -214,7 +213,7 @@ def load_config(path: Optional[Path] = None) -> SaharaConfig:
     return SaharaConfig(**kwargs)
 
 
-def save_config(config: SaharaConfig, path: Optional[Path] = None) -> None:
+def save_config(config: SaharaConfig, path: Path | None = None) -> None:
     """Persist a SaharaConfig to a TOML file."""
     config_path = path or DEFAULT_CONFIG_PATH
     config_path.parent.mkdir(parents=True, exist_ok=True)

@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from sahara.search.ask_engine import AskEngine, AskResult, DEFAULT_OPENAI_MODEL, DEFAULT_OLLAMA_MODEL
+from sahara.search.ask_engine import (
+    DEFAULT_OLLAMA_MODEL,
+    DEFAULT_OPENAI_MODEL,
+    AskEngine,
+)
 
 
 def _make_engine(provider=None, openai_api_key=None, model=None, **kw):
@@ -164,6 +166,7 @@ class TestCLILocalPrefix:
     def test_local_prefix_routes_to_ollama(self, tmp_path):
         import numpy as np
         from click.testing import CliRunner
+
         from sahara.cli import main
         from sahara.storage.state_db import StateDB
 
@@ -209,6 +212,7 @@ class TestCLILocalPrefix:
         """LOCAL (uppercase) also triggers Ollama routing."""
         import numpy as np
         from click.testing import CliRunner
+
         from sahara.cli import main
         from sahara.storage.state_db import StateDB
 
@@ -218,7 +222,6 @@ class TestCLILocalPrefix:
         db.upsert_embedding("", "doc.txt", "h", json.dumps([0.5] * 384), "snippet")
         db.close()
 
-        captured_urls = []
         ollama_body = json.dumps({"response": "Local answer"}).encode()
 
         class FakeResp:
@@ -261,6 +264,7 @@ class TestCLIProviderFlag:
     def test_cli_ask_openai_provider_flag(self, tmp_path):
         import numpy as np
         from click.testing import CliRunner
+
         from sahara.cli import main
         from sahara.storage.state_db import StateDB
 
@@ -296,6 +300,7 @@ class TestCLIProviderFlag:
     def test_cli_ask_defaults_to_openai_from_env(self, tmp_path):
         import numpy as np
         from click.testing import CliRunner
+
         from sahara.cli import main
         from sahara.storage.state_db import StateDB
 
