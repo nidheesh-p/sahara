@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -243,7 +244,6 @@ class TestThreeWayDiff:
 
         content = b"modified content"
         (sync_folder / "mod.txt").write_bytes(content)
-        local_sha = hashlib.sha256(content).hexdigest()
         db_sha = "old-sha"
 
         from dataclasses import dataclass
@@ -310,7 +310,6 @@ class TestThreeWayDiff:
         # Both local and remote differ from DB (and differ from each other)
         content = b"local conflict content"
         (sync_folder / "conflict.txt").write_bytes(content)
-        local_sha = hashlib.sha256(content).hexdigest()
 
         from dataclasses import dataclass
 
@@ -547,9 +546,6 @@ class TestSyncDownloadsRemoteNew:
             db.close()
 
 
-import json
-
-
 class TestSyncConflictBackupStrategy:
     def test_sync_conflict_creates_backup_file(self, tmp_path: Path):
         with mock_aws():
@@ -563,7 +559,6 @@ class TestSyncConflictBackupStrategy:
             sync_folder = cfg.get_sync_folder_path()
             content_local = b"local version of conflict"
             content_remote = b"remote version of conflict"
-            sha_local = hashlib.sha256(content_local).hexdigest()
             sha_remote = hashlib.sha256(content_remote).hexdigest()
             sha_db = "original-sha-before-both-changed"
 

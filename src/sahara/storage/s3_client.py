@@ -666,7 +666,7 @@ class S3Client:
         """
         test_key = ".sahara/.conditional_put_test"
         try:
-            resp = self._s3.put_object(
+            self._s3.put_object(
                 Bucket=self._bucket,
                 Key=test_key,
                 Body=b"test",

@@ -145,8 +145,7 @@ class TestArchiveFiles:
             engine = SyncEngine(cfg, db, s3)
 
             # File not in S3, should not raise
-            result = engine.archive_files(["nonexistent.txt"])
-            # The file won't be in the result because copy_object will fail
+            engine.archive_files(["nonexistent.txt"])
             db.close()
 
 
