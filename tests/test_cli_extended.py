@@ -392,6 +392,53 @@ class TestMvCommand:
             assert result.exit_code == 0
             mock_db.delete_file.assert_called_once_with("old.txt")
 
+    def test_mv_preserves_storage_class(self, tmp_path: Path):
+        """Moving a Glacier IR file must copy to GLACIER_IR, not STANDARD."""
+        cfg, config_path = _make_config(tmp_path)
+        runner = _runner()
+
+        src_file = cfg.get_sync_folder_path() / "old.txt"
+        src_file.write_text("hello")
+
+        existing_record = _make_file_record("old.txt", tier="GLACIER_IR")
+        mock_db = _make_mock_db()
+        mock_db.get_file.return_value = existing_record
+        mock_s3 = _make_mock_s3()
+        mock_s3.copy_object.return_value = "newtag"
+
+        with patch("sahara.state_db.StateDB", return_value=mock_db), \
+             patch("sahara.s3_client.S3Client", return_value=mock_s3):
+            result = runner.invoke(
+                main, ["--config", str(config_path), "mv", "old.txt", "new.txt"]
+            )
+            assert result.exit_code == 0
+            mock_s3.copy_object.assert_called_once()
+            _, kwargs = mock_s3.copy_object.call_args
+            assert kwargs.get("storage_class") == "GLACIER_IR"
+
+    def test_mv_uses_config_default_when_no_db_record(self, tmp_path: Path):
+        """When no DB record exists, mv falls back to config.default_storage_class."""
+        cfg, config_path = _make_config(tmp_path)
+        runner = _runner()
+
+        src_file = cfg.get_sync_folder_path() / "old.txt"
+        src_file.write_text("hello")
+
+        mock_db = _make_mock_db()
+        mock_db.get_file.return_value = None
+        mock_s3 = _make_mock_s3()
+        mock_s3.copy_object.return_value = "newtag"
+
+        with patch("sahara.state_db.StateDB", return_value=mock_db), \
+             patch("sahara.s3_client.S3Client", return_value=mock_s3):
+            result = runner.invoke(
+                main, ["--config", str(config_path), "mv", "old.txt", "new.txt"]
+            )
+            assert result.exit_code == 0
+            mock_s3.copy_object.assert_called_once()
+            _, kwargs = mock_s3.copy_object.call_args
+            assert kwargs.get("storage_class") == cfg.default_storage_class
+
 
 # ---------------------------------------------------------------------------
 # archive command

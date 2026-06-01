@@ -86,6 +86,20 @@ CREATE TABLE IF NOT EXISTS embeddings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_embeddings_prefix ON embeddings (s3_prefix);
+
+CREATE TABLE IF NOT EXISTS chunks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    storage_prefix  TEXT    NOT NULL DEFAULT '',
+    relative_path   TEXT    NOT NULL,
+    chunk_index     INTEGER NOT NULL,
+    content_hash    TEXT    NOT NULL,
+    chunk_text      TEXT    NOT NULL,
+    indexed_at      TEXT    NOT NULL,
+    UNIQUE(storage_prefix, relative_path, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chunks_prefix ON chunks (storage_prefix);
+CREATE INDEX IF NOT EXISTS idx_chunks_path   ON chunks (storage_prefix, relative_path);
 """
 
 
@@ -122,6 +136,8 @@ def _row_to_file_record(row: sqlite3.Row) -> FileRecord:
 def _migrate_v2(conn: sqlite3.Connection) -> None:
     """Add s3_prefix namespacing (idempotent — runs once on old databases)."""
     cols = {row[1] for row in conn.execute("PRAGMA table_info(files)").fetchall()}
+    if not cols:
+        return  # empty DB — SCHEMA_SQL will create fresh tables with s3_prefix
     if "s3_prefix" in cols:
         return  # already migrated
 
@@ -215,6 +231,45 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _try_load_sqlite_vec(conn: sqlite3.Connection) -> bool:
+    """Load the sqlite-vec extension if available. Returns True on success."""
+    try:
+        import sqlite_vec  # type: ignore[import]
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        return True
+    except Exception:
+        return False
+
+
+def _migrate_v3(conn: sqlite3.Connection) -> None:
+    """Create vec_chunks virtual table for ANN search (idempotent)."""
+    # Check if chunks table exists (created by _SCHEMA_SQL in v3+)
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "chunks" not in tables:
+        return  # schema not yet applied (shouldn't happen)
+
+    # vec_chunks is a virtual table — check via sqlite_master
+    virtual_tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' OR type='shadow'"
+    ).fetchall()}
+    if "vec_chunks" in virtual_tables:
+        return  # already exists
+
+    has_vec = _try_load_sqlite_vec(conn)
+    if not has_vec:
+        return  # sqlite-vec not installed; degrade gracefully
+
+    conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks
+            USING vec0(embedding float[384])
+    """)
+    conn.commit()
+
+
 class StateDB:
     """Manages the local SQLite state database for Sahara.
 
@@ -237,10 +292,14 @@ class StateDB:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self._path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        _try_load_sqlite_vec(conn)
         _apply_pragmas(conn)
+        # Run v2 migration BEFORE SCHEMA_SQL so that old DBs (without s3_prefix)
+        # have their tables upgraded before the index CREATE statements run.
+        _migrate_v2(conn)
         conn.executescript(_SCHEMA_SQL)
         conn.commit()
-        _migrate_v2(conn)
+        _migrate_v3(conn)
         self._conn = conn
         return self
 
@@ -689,4 +748,125 @@ class StateDB:
             ).fetchone()
         else:
             row = self.conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()
+        return row[0] if row else 0
+
+    # ------------------------------------------------------------------
+    # chunks table (chunked semantic search)
+    # ------------------------------------------------------------------
+
+    def upsert_chunk(
+        self,
+        storage_prefix: str,
+        relative_path: str,
+        chunk_index: int,
+        content_hash: str,
+        chunk_text: str,
+    ) -> int:
+        """Insert or replace a chunk row. Returns the row id."""
+        sql = """
+        INSERT INTO chunks
+            (storage_prefix, relative_path, chunk_index, content_hash, chunk_text, indexed_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(storage_prefix, relative_path, chunk_index) DO UPDATE SET
+            content_hash = excluded.content_hash,
+            chunk_text   = excluded.chunk_text,
+            indexed_at   = excluded.indexed_at
+        RETURNING id
+        """
+        with self.transaction():
+            row = self.conn.execute(
+                sql,
+                (
+                    storage_prefix,
+                    relative_path,
+                    chunk_index,
+                    content_hash,
+                    chunk_text,
+                    datetime.datetime.now(datetime.UTC).isoformat(),
+                ),
+            ).fetchone()
+        return row[0]
+
+    def delete_chunks_for_file(self, storage_prefix: str, relative_path: str) -> list[int]:
+        """Delete all chunks for a file. Returns the deleted chunk ids."""
+        rows = self.conn.execute(
+            "SELECT id FROM chunks WHERE storage_prefix = ? AND relative_path = ?",
+            (storage_prefix, relative_path),
+        ).fetchall()
+        ids = [r[0] for r in rows]
+        if ids:
+            with self.transaction():
+                self.conn.execute(
+                    "DELETE FROM chunks WHERE storage_prefix = ? AND relative_path = ?",
+                    (storage_prefix, relative_path),
+                )
+        return ids
+
+    def get_chunk_content_hash(
+        self, storage_prefix: str, relative_path: str
+    ) -> str | None:
+        """Return the content_hash of the first chunk for a file, or None."""
+        row = self.conn.execute(
+            "SELECT content_hash FROM chunks "
+            "WHERE storage_prefix = ? AND relative_path = ? AND chunk_index = 0",
+            (storage_prefix, relative_path),
+        ).fetchone()
+        return row[0] if row else None
+
+    def upsert_vec_chunk(self, chunk_id: int, embedding: bytes) -> None:
+        """Insert or replace a vec0 row. embedding must be float32 bytes."""
+        self.conn.execute(
+            "INSERT OR REPLACE INTO vec_chunks (rowid, embedding) VALUES (?, ?)",
+            (chunk_id, embedding),
+        )
+        self.conn.commit()
+
+    def delete_vec_chunks(self, chunk_ids: list[int]) -> None:
+        """Delete vec0 rows by rowid."""
+        if not chunk_ids:
+            return
+        placeholders = ",".join("?" * len(chunk_ids))
+        with self.transaction():
+            self.conn.execute(
+                f"DELETE FROM vec_chunks WHERE rowid IN ({placeholders})", chunk_ids
+            )
+
+    def vec_knn_search(
+        self,
+        query_embedding: bytes,
+        k: int,
+        storage_prefix: str | None = None,
+    ) -> list[dict]:
+        """Run KNN search via sqlite-vec. Returns rows with chunk metadata + distance."""
+        sql = """
+            SELECT c.id, c.storage_prefix, c.relative_path, c.chunk_index,
+                   c.chunk_text, c.content_hash, v.distance
+            FROM vec_chunks v
+            JOIN chunks c ON c.id = v.rowid
+            WHERE v.embedding MATCH ?
+              AND k = ?
+            ORDER BY v.distance
+        """
+        rows = self.conn.execute(sql, (query_embedding, k)).fetchall()
+        results = [dict(r) for r in rows]
+        if storage_prefix is not None:
+            results = [r for r in results if r["storage_prefix"] == storage_prefix]
+        return results
+
+    def has_vec_table(self) -> bool:
+        """Return True if the vec_chunks virtual table exists."""
+        row = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'vec_chunks'"
+        ).fetchone()
+        return row is not None
+
+    def count_chunks(self, storage_prefix: str | None = None) -> int:
+        """Return the total number of indexed chunks."""
+        if storage_prefix is not None:
+            row = self.conn.execute(
+                "SELECT COUNT(*) FROM chunks WHERE storage_prefix = ?",
+                (storage_prefix,),
+            ).fetchone()
+        else:
+            row = self.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()
         return row[0] if row else 0

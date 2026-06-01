@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import hashlib
 import logging
 import os
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
@@ -18,9 +17,9 @@ from sahara.models import (
     ManifestEntry,
     SyncResult,
 )
+from sahara.storage.backend import StorageBackend
 from sahara.storage.s3_client import (
     ManifestConflictError,
-    S3Client,
     S3ClientError,
 )
 from sahara.storage.state_db import StateDB
@@ -31,6 +30,7 @@ from sahara.utils.encryption import (
     generate_salt,
     get_passphrase,
 )
+from sahara.utils.hash import compute_sha256 as _compute_sha256
 
 __all__ = [
     "SyncEngine",
@@ -94,14 +94,6 @@ class LocalFileInfo:
 # ---------------------------------------------------------------------------
 
 
-def _compute_sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def _local_mtime_utc(path: Path) -> datetime.datetime:
     ts = path.stat().st_mtime
     return datetime.datetime.fromtimestamp(ts, tz=datetime.UTC)
@@ -129,7 +121,7 @@ class SyncEngine:
         self,
         config: SaharaConfig,
         db: StateDB,
-        s3: S3Client,
+        s3: StorageBackend,
         ignore_rules: IgnoreRules | None = None,
         sync_folder: Path | None = None,
         s3_prefix: str = "",
@@ -833,7 +825,7 @@ class SyncEngine:
 
                 if self._config.delete_remote_on_local_delete:
                     for path in diff.local_deleted:
-                        f = executor.submit(self._execute_delete_remote, path)
+                        f = executor.submit(self._execute_delete_remote, path)  # type: ignore[arg-type]
                         futures[f] = ("delete_remote", path)
 
             if not push_only:
@@ -846,7 +838,7 @@ class SyncEngine:
 
                 if self._config.delete_local_on_remote_delete:
                     for path in diff.remote_deleted:
-                        f = executor.submit(self._execute_delete_local, path)
+                        f = executor.submit(self._execute_delete_local, path)  # type: ignore[arg-type]
                         futures[f] = ("delete_local", path)
 
             # Step 9: Process results as they complete — update DB inline
