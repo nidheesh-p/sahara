@@ -264,6 +264,7 @@ secrets/
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System design, storage protocols, search pipeline, SQLite schema
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Dev setup, test conventions, how to add a storage backend
+- [STATUS.md](STATUS.md) — Current project status, completed work, and remaining tasks
 - [ROADMAP.md](ROADMAP.md) — What is built, what is next, explicit non-goals
 - [SECURITY.md](SECURITY.md) — Encryption wire format, threat model, vulnerability reporting
 - [CHANGELOG.md](CHANGELOG.md) — Release history
