@@ -4,12 +4,11 @@ Last updated: 2026-06-03
 
 ## Current Repository State
 
-- Active local branch: `fix/full-suite-file-watcher-reliability`
+- Active local branch: `main`
 - Base branch: `main`
-- Working tree: clean except for this status-page update
-- Latest PR: [#7 Fix full-suite file watcher reliability](https://github.com/nidheesh-p/sahara/pull/7)
-- PR state: open, mergeable
-- PR CI state: in progress on GitHub at the time of this update
+- Working tree: contains local hardening/status updates after PR #7 merge
+- Latest merged PR: [#7 Fix full-suite file watcher reliability](https://github.com/nidheesh-p/sahara/pull/7)
+- Latest `main` CI state: passed for merge commit `d6cf0a4`
 
 ## Verification
 
@@ -18,10 +17,17 @@ Latest local verification:
 - `pytest`: 765 passed
 - `ruff check .`: passed
 - `mypy src`: passed
+- Clean-venv install: `pip install -e ".[search,dev]"` passed
+- Clean-venv CLI smoke: `sahara --version` prints `0.2.0`
+- Backend validation tests: local drive, dual-write, S3, and S3-compatible client behavior passed
 
-Known warning noise:
+Current CI coverage threshold:
 
-- `pathspec` emits deprecation warnings for `GitWildMatchPattern` during ignore-rule-heavy tests.
+- Keep `--cov-fail-under=80` for now. The implementation plan's 90% target remains aspirational until the suite is ready for that stricter gate.
+
+Warning cleanup:
+
+- `pathspec` deprecation warnings were fixed by switching ignore-rule parsing from deprecated `gitwildmatch` to `gitignore`.
 
 ## Completed Work
 
@@ -40,7 +46,17 @@ Known warning noise:
 - Added observer injection to `start_watching()` so tests can use a fake observer while production keeps the real watchdog observer by default.
 - Made `Debouncer.stop()` join its worker thread briefly for cleaner teardown.
 - Set `asyncio_default_fixture_loop_scope = "function"` to remove the pytest-asyncio deprecation warning.
-- Created PR #7 for this work.
+- Merged PR #7 for this work.
+
+### Phase 0 / Phase 1 Hardening
+
+- Confirmed PR #7 merge CI passed on `main`.
+- Kept CI coverage threshold at 80% by decision.
+- Fixed `pathspec` deprecation warning noise.
+- Ran a clean virtual-environment install with `[search,dev]` extras.
+- Fixed the CLI/package version mismatch so `sahara --version` reports `0.2.0`.
+- Validated local drive, dual-write, S3, and S3-compatible backend behavior through focused automated tests.
+- Added `RELEASE_CHECKLIST.md`.
 
 ### Phase 0: Local Testing Ready
 
@@ -65,27 +81,11 @@ Status: mostly complete.
 
 ## Remaining Work
 
-### Immediate
+### Release Readiness
 
-1. Merge PR #7 after GitHub CI completes successfully.
-2. After merge, update local `main` from `origin/main`.
-3. Confirm full CI matrix passes on:
-   - Ubuntu Python 3.11
-   - Ubuntu Python 3.12
-   - macOS Python 3.11
-   - macOS Python 3.12
-4. Decide whether to address `pathspec` deprecation warnings now or leave them as dependency noise.
-
-### Phase 0 / Phase 1 Hardening
-
-1. Run a clean-machine or clean-venv install test with `pip install -e ".[search,dev]"`.
-2. Manually validate the main backend flows:
-   - Local drive sync
-   - MinIO sync
-   - AWS S3 sync
-   - local+glacier dual-write
-3. Decide whether CI coverage should move from the current 80% threshold to the plan's 90% target.
-4. Add any missing release checklist steps before publishing a v0.2 package.
+1. Run live MinIO validation when Docker daemon is available.
+2. Run live AWS S3 validation against a real test bucket before a public release.
+3. Build and inspect release artifacts with `python -m build`.
 
 ### Phase 2: Plugin Ecosystem
 
