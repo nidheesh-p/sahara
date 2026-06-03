@@ -239,17 +239,45 @@ class TestSaharaEventHandler:
 
 
 class TestStartWatching:
+    class FakeObserver:
+        def __init__(self):
+            self.scheduled = []
+            self.started = False
+            self.stopped = False
+            self.joined = False
+
+        def schedule(self, handler, path, recursive=True):
+            self.scheduled.append((handler, path, recursive))
+
+        def start(self):
+            self.started = True
+
+        def is_alive(self):
+            return self.started and not self.stopped
+
+        def stop(self):
+            self.stopped = True
+
+        def join(self, timeout=None):
+            self.joined = True
+
     def test_start_watching_returns_observer(self, tmp_path: Path):
         handler = SaharaEventHandler(
             sync_folder=tmp_path,
             on_changes=MagicMock(),
             debounce_seconds=0.05,
         )
-        observer = start_watching([(tmp_path, handler)], recursive=True)
+        observer = start_watching(
+            [(tmp_path, handler)],
+            recursive=True,
+            observer_factory=self.FakeObserver,
+        )
         assert observer is not None
         assert observer.is_alive()
+        assert observer.scheduled == [(handler, str(tmp_path), True)]
         observer.stop()
         observer.join(timeout=5)
+        assert observer.joined
         handler.stop()
 
     def test_start_watching_non_recursive(self, tmp_path: Path):
@@ -258,8 +286,13 @@ class TestStartWatching:
             on_changes=MagicMock(),
             debounce_seconds=0.05,
         )
-        observer = start_watching([(tmp_path, handler)], recursive=False)
+        observer = start_watching(
+            [(tmp_path, handler)],
+            recursive=False,
+            observer_factory=self.FakeObserver,
+        )
         assert observer is not None
+        assert observer.scheduled == [(handler, str(tmp_path), False)]
         observer.stop()
         observer.join(timeout=5)
         handler.stop()

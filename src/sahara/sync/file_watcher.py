@@ -88,6 +88,8 @@ class Debouncer:
 
     def stop(self) -> None:
         self._stop_event.set()
+        if self._thread is not None and self._thread is not threading.current_thread():
+            self._thread.join(timeout=1)
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +167,7 @@ class SaharaEventHandler(FileSystemEventHandler):
 def start_watching(
     folders: list[tuple[Path, SaharaEventHandler]],
     recursive: bool = True,
+    observer_factory: Callable[[], Observer] = Observer,
 ) -> Observer:
     """Start a watchdog Observer for one or more folders.
 
@@ -175,7 +178,7 @@ def start_watching(
     Returns the running Observer; caller is responsible for calling
     observer.stop() and observer.join() on shutdown.
     """
-    observer = Observer()
+    observer = observer_factory()
     for sync_folder, event_handler in folders:
         observer.schedule(event_handler, str(sync_folder), recursive=recursive)
         logger.info("File watcher registered on %s", sync_folder)
