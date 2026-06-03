@@ -16,18 +16,19 @@
 
 ## Next (v0.3)
 
+- **Local MCP server:** expose Sahara search/ask as read-only MCP tools for Claude Desktop, OpenClaw, and other agent clients
+- **Chat/agent integrations:** integration guides for OpenClaw, Claude Desktop, and future ChatGPT connector paths
 - **Hybrid retrieval:** BM25 keyword search (sqlite-fts5, no new dependency) + vector search merged via Reciprocal Rank Fusion
-- **Cross-encoder reranking:** optional plugin — the top merged results are re-scored by a cross-encoder model for much better precision on ambiguous queries
+- **Cross-encoder reranking:** optional future plugin — the top merged results are re-scored by a cross-encoder model for much better precision on ambiguous queries
 - **Entity extraction:** structured extraction of dates, names, amounts, and document types from indexed content — enables queries like `sahara ask "invoices over $500 in March"`
-- **OCR plugin:** opt-in tesseract integration for image-heavy PDFs and scanned documents (`pip install sahara-plugin-ocr`)
 - **Rucksack backend:** Backblaze B2, Cloudflare R2, Wasabi via a thin wrapper (no new SDK dependency)
 
 ---
 
 ## Future (v0.4+)
 
-- **Local MCP server:** expose Sahara search/ask as read-only MCP tools for Claude Desktop, OpenClaw, and other agent clients
-- **Chat/agent integrations:** integration guides for OpenClaw, Claude Desktop, and future ChatGPT connector paths
+- **Plugin ecosystem:** parser, embedder, and reranker extension interfaces plus `sahara plugins list`
+- **OCR plugin:** opt-in tesseract integration for image-heavy PDFs and scanned documents (`pip install sahara-plugin-ocr`)
 - **Image search:** CLIP embeddings for photos, EXIF metadata indexing — find images by content description
 - **Audio / video:** Whisper transcription + scene indexing for MP3, MP4, MOV
 - **Plugin marketplace:** `sahara plugins install`, curated list of community parsers and embedders

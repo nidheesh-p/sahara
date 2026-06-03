@@ -1035,6 +1035,26 @@ def diff_cmd(ctx: click.Context) -> None:
 
 
 # ---------------------------------------------------------------------------
+# MCP
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def mcp() -> None:
+    """Run Sahara MCP integrations."""
+
+
+@mcp.command("serve")
+@click.pass_context
+def mcp_serve(ctx: click.Context) -> None:
+    """Serve read-only Sahara search/ask tools over MCP stdio."""
+    from sahara.mcp_server import serve
+
+    config_path = ctx.obj.get("config_path")
+    serve(str(config_path) if config_path else None)
+
+
+# ---------------------------------------------------------------------------
 # conflicts / resolve
 # ---------------------------------------------------------------------------
 

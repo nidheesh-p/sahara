@@ -813,6 +813,15 @@ class StateDB:
         ).fetchone()
         return row[0] if row else None
 
+    def get_chunk(self, chunk_id: int) -> dict | None:
+        """Return one indexed chunk by id, or None."""
+        row = self.conn.execute(
+            "SELECT id, storage_prefix, relative_path, chunk_index, content_hash, "
+            "chunk_text, indexed_at FROM chunks WHERE id = ?",
+            (chunk_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
     def upsert_vec_chunk(self, chunk_id: int, embedding: bytes) -> None:
         """Insert or replace a vec0 row. embedding must be float32 bytes."""
         self.conn.execute(
@@ -870,3 +879,14 @@ class StateDB:
         else:
             row = self.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()
         return row[0] if row else 0
+
+    def latest_chunk_indexed_at(self, storage_prefix: str | None = None) -> str | None:
+        """Return the latest chunk indexed_at timestamp, optionally scoped by prefix."""
+        if storage_prefix is not None:
+            row = self.conn.execute(
+                "SELECT MAX(indexed_at) FROM chunks WHERE storage_prefix = ?",
+                (storage_prefix,),
+            ).fetchone()
+        else:
+            row = self.conn.execute("SELECT MAX(indexed_at) FROM chunks").fetchone()
+        return row[0] if row and row[0] else None

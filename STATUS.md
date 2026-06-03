@@ -4,11 +4,11 @@ Last updated: 2026-06-03
 
 ## Current Repository State
 
-- Active local branch: `main`
+- Active local branch: `feat/mcp-chat-agent-integration`
 - Base branch: `main`
-- Working tree: contains a local validation/status update after PR #8 merge
-- Latest merged PR: [#8 Harden release readiness status](https://github.com/nidheesh-p/sahara/pull/8)
-- Latest `main` CI state: passed for merge commit `9f55c6a`
+- Working tree: contains Phase 2 MCP/chat-agent implementation updates
+- Latest merged PR: [#9 Document Sahara chat and agent integration plan](https://github.com/nidheesh-p/sahara/pull/9)
+- Latest `main` state: local `main` is aligned with `origin/main` at merge commit `9682140`
 
 ## Verification
 
@@ -24,6 +24,8 @@ Latest local verification:
 - Live MinIO validation: passed using a temporary Docker container on `127.0.0.1:19000`; bucket and container were deleted after validation
 - Release artifact build: passed with `python3 -m build --outdir /tmp/sahara-dist-check`
 - Artifact inspection: wheel and sdist are version `0.2.0`; installed wheel imports `sahara.__version__ == "0.2.0"`
+- Release rehearsal: built wheel/sdist into `/tmp/sahara-release-rehearsal-dist`, installed the wheel into `/tmp/sahara-release-rehearsal-venv`, and verified `sahara --version` plus `sahara.__version__`
+- MCP implementation checks: `pytest`, focused MCP/search tests, `ruff check`, `mypy src`, `python3 -m build --outdir /tmp/sahara-mcp-build-check`, and `python3 -m pip install --dry-run '.[mcp]'` passed
 
 Current CI coverage threshold:
 
@@ -64,6 +66,8 @@ Warning cleanup:
 - Validated live MinIO upload/download/head/list/manifest/delete behavior with a temporary Docker container.
 - Built and inspected release artifacts in `/tmp/sahara-dist-check`.
 - Added `RELEASE_CHECKLIST.md`.
+- Completed local release rehearsal from built artifacts.
+- TestPyPI publishing was not attempted because no `twine` install or TestPyPI credentials were present in the environment.
 
 ### Phase 0: Local Testing Ready
 
@@ -90,14 +94,21 @@ Status: mostly complete.
 
 ### Release Readiness
 
-1. Do a final TestPyPI/install-from-artifact release rehearsal before publishing.
+1. Optional: publish to TestPyPI and install from the published TestPyPI artifact when TestPyPI credentials are available.
+2. Tag the release after public artifact verification.
 
-### Phase 2: Plugin Ecosystem
+### Phase 2: MCP / Chat and Agent Integrations
 
-1. Add plugin interfaces:
-   - `FileParser`
-   - `Embedder`
-   - `Reranker`
+1. Add a read-only local MCP server for Sahara search and ask. In progress: `sahara mcp serve` exists on the feature branch.
+2. Expose tools such as `sahara_search`, `sahara_ask`, `sahara_read_chunk`, and `sahara_list_folders`. In progress: first read-only tool set implemented with `sahara_index_status`.
+3. Add Claude Desktop integration docs and example MCP configuration. In progress: first guide added under `docs/integrations/`.
+4. Add OpenClaw integration docs that use Sahara as the local retrieval engine. In progress: first guide explains the recommended read-only retrieval role.
+5. Track ChatGPT connector/MCP support as an optional future client path, with explicit privacy and data-flow warnings.
+6. Keep Sahara out of the autonomous-agent runtime business; clients can act, Sahara retrieves and cites.
+
+### Future Plugin Ecosystem
+
+1. Add plugin interfaces for parsers, embedders, and rerankers.
 2. Add plugin discovery and registry using `importlib.metadata.entry_points`.
 3. Move built-in parsers behind the parser plugin interface.
 4. Move the built-in fastembed integration behind the embedder interface.
@@ -105,15 +116,6 @@ Status: mostly complete.
 6. Add plugin enable/disable config support.
 7. Write `PLUGIN_SYSTEM.md`.
 8. Add tests for plugin discovery, built-in plugin registration, and CLI plugin commands.
-
-### Phase 3: Chat and Agent Integrations
-
-1. Add a read-only local MCP server for Sahara search and ask.
-2. Expose tools such as `sahara_search`, `sahara_ask`, `sahara_read_chunk`, and `sahara_list_folders`.
-3. Add Claude Desktop integration docs and example MCP configuration.
-4. Add OpenClaw integration docs that use Sahara as the local retrieval engine.
-5. Track ChatGPT connector/MCP support as an optional future client path, with explicit privacy and data-flow warnings.
-6. Keep Sahara out of the autonomous-agent runtime business; clients can act, Sahara retrieves and cites.
 
 ### v0.3 Roadmap
 
