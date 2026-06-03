@@ -5,6 +5,28 @@
 
 ---
 
+## The problem
+
+Most people now have years of important context scattered across PDFs, notes, code,
+invoices, screenshots, folders, drives, and cloud buckets. Traditional file search only
+works when you remember the exact filename or keyword. General chat assistants can
+answer questions, but they usually cannot see your local files, cannot maintain a
+durable index of your computer, and often require sending private documents to a cloud
+service.
+
+Sahara solves the retrieval layer for personal data. It syncs and protects your files,
+extracts their text, chunks long documents, embeds those chunks into a local vector
+database, and lets you search or ask questions with citations. The goal is to give you
+the same kind of knowledge retrieval companies get from enterprise AI connectors, but
+for your own machine and under your control.
+
+Sahara is not trying to be a general autonomous agent. Tools like Claude Desktop,
+OpenClaw, or future ChatGPT connectors can become chat front ends. Sahara's job is to
+be the trusted local index: retrieve the right local context, cite where it came from,
+and avoid broad filesystem access unless you explicitly opt in.
+
+---
+
 ## What it does today
 
 - **Sync** a local folder to S3, MinIO, or a locally mounted drive — bidirectional, with three-way diff conflict resolution

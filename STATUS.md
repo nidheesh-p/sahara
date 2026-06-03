@@ -6,9 +6,9 @@ Last updated: 2026-06-03
 
 - Active local branch: `main`
 - Base branch: `main`
-- Working tree: contains local hardening/status updates after PR #7 merge
-- Latest merged PR: [#7 Fix full-suite file watcher reliability](https://github.com/nidheesh-p/sahara/pull/7)
-- Latest `main` CI state: passed for merge commit `d6cf0a4`
+- Working tree: contains a local validation/status update after PR #8 merge
+- Latest merged PR: [#8 Harden release readiness status](https://github.com/nidheesh-p/sahara/pull/8)
+- Latest `main` CI state: passed for merge commit `9f55c6a`
 
 ## Verification
 
@@ -20,6 +20,10 @@ Latest local verification:
 - Clean-venv install: `pip install -e ".[search,dev]"` passed
 - Clean-venv CLI smoke: `sahara --version` prints `0.2.0`
 - Backend validation tests: local drive, dual-write, S3, and S3-compatible client behavior passed
+- Live AWS S3 validation: passed using a temporary bucket in account `825502798121`; bucket was deleted after validation
+- Live MinIO validation: passed using a temporary Docker container on `127.0.0.1:19000`; bucket and container were deleted after validation
+- Release artifact build: passed with `python3 -m build --outdir /tmp/sahara-dist-check`
+- Artifact inspection: wheel and sdist are version `0.2.0`; installed wheel imports `sahara.__version__ == "0.2.0"`
 
 Current CI coverage threshold:
 
@@ -50,12 +54,15 @@ Warning cleanup:
 
 ### Phase 0 / Phase 1 Hardening
 
-- Confirmed PR #7 merge CI passed on `main`.
+- Confirmed PR #8 merge CI passed on `main`.
 - Kept CI coverage threshold at 80% by decision.
 - Fixed `pathspec` deprecation warning noise.
 - Ran a clean virtual-environment install with `[search,dev]` extras.
 - Fixed the CLI/package version mismatch so `sahara --version` reports `0.2.0`.
 - Validated local drive, dual-write, S3, and S3-compatible backend behavior through focused automated tests.
+- Validated live AWS S3 upload/download/head/list/manifest/delete behavior with a temporary bucket.
+- Validated live MinIO upload/download/head/list/manifest/delete behavior with a temporary Docker container.
+- Built and inspected release artifacts in `/tmp/sahara-dist-check`.
 - Added `RELEASE_CHECKLIST.md`.
 
 ### Phase 0: Local Testing Ready
@@ -83,9 +90,7 @@ Status: mostly complete.
 
 ### Release Readiness
 
-1. Run live MinIO validation when Docker daemon is available.
-2. Run live AWS S3 validation against a real test bucket before a public release.
-3. Build and inspect release artifacts with `python -m build`.
+1. Do a final TestPyPI/install-from-artifact release rehearsal before publishing.
 
 ### Phase 2: Plugin Ecosystem
 
@@ -100,6 +105,15 @@ Status: mostly complete.
 6. Add plugin enable/disable config support.
 7. Write `PLUGIN_SYSTEM.md`.
 8. Add tests for plugin discovery, built-in plugin registration, and CLI plugin commands.
+
+### Phase 3: Chat and Agent Integrations
+
+1. Add a read-only local MCP server for Sahara search and ask.
+2. Expose tools such as `sahara_search`, `sahara_ask`, `sahara_read_chunk`, and `sahara_list_folders`.
+3. Add Claude Desktop integration docs and example MCP configuration.
+4. Add OpenClaw integration docs that use Sahara as the local retrieval engine.
+5. Track ChatGPT connector/MCP support as an optional future client path, with explicit privacy and data-flow warnings.
+6. Keep Sahara out of the autonomous-agent runtime business; clients can act, Sahara retrieves and cites.
 
 ### v0.3 Roadmap
 
@@ -134,5 +148,5 @@ Status: mostly complete.
 
 - Cloud SaaS
 - Multi-user shared storage
-- AI agent framework
+- General-purpose autonomous agent framework; Sahara retrieves and cites, agent clients act
 - Web UI or desktop GUI before the CLI and plugin ecosystem are stable
