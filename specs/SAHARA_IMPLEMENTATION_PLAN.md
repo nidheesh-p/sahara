@@ -449,15 +449,15 @@ matters for OSS credibility — projects without changelogs look abandoned.
 
 ---
 
-## Phase 2 — Plugin Ecosystem
-**Timeline: 2–3 weeks**  
+## Future — Plugin Ecosystem
+**Timeline: 2–3 weeks after MCP/chat-agent integration**  
 **Exit criterion:** An external developer can write and publish a Sahara plugin that
 adds a new file parser, and another developer can install and use it with
 `pip install sahara-plugin-pdf-advanced && sahara plugins enable pdf-advanced`.
 
 ---
 
-### 2.1 Plugin Architecture Design
+### F.1 Plugin Architecture Design
 
 Sahara has four natural plugin extension points. Each maps to an interface that
 contributors can implement without touching core code.
@@ -477,7 +477,7 @@ already know it.
 
 ---
 
-### 2.2 Define the Plugin Interfaces
+### F.2 Define the Plugin Interfaces
 
 **File: `src/sahara/plugins/interfaces.py`** (new file)
 
@@ -534,7 +534,7 @@ class Reranker(Protocol):
 
 ---
 
-### 2.3 Plugin Registry and Discovery
+### F.3 Plugin Registry and Discovery
 
 **File: `src/sahara/plugins/registry.py`** (new file)
 
@@ -587,7 +587,7 @@ def get_reranker(name: str | None = None) -> Reranker | None:
 
 ---
 
-### 2.4 Register Built-in Implementations as Plugins
+### F.4 Register Built-in Implementations as Plugins
 
 Move the existing `TextExtractor` and `fastembed` embedding code out of
 `search_engine.py` and into the plugin system, registered via `pyproject.toml`
@@ -612,7 +612,7 @@ bge-small = "sahara.embedders.fastembed_embedder:FastEmbedEmbedder"
 
 ---
 
-### 2.5 `sahara plugins` CLI Commands
+### F.5 `sahara plugins` CLI Commands
 
 ```bash
 sahara plugins list              # show all discovered plugins with type and source
@@ -640,12 +640,12 @@ Rerankers
 
 ---
 
-### 2.6 Plugin Author Guide
+### F.6 Plugin Author Guide
 
 Write `PLUGIN_SYSTEM.md`. This is the document that turns Sahara from a project you
 contribute to into a project you build on. It must include:
 
-- The four plugin types and their interfaces (copy from 2.2)
+- The four plugin types and their interfaces
 - How to package a plugin (`pyproject.toml` entry-point declaration)
 - A complete minimal example: a parser plugin that handles `.epub` files
 - Naming conventions (`sahara-plugin-<name>`)
@@ -669,12 +669,11 @@ automatically — no config file changes, no restart of the daemon required.
 
 ---
 
-### 2.7 Hybrid Retrieval (Bonus — do after plugin system is stable)
+### F.7 Hybrid Retrieval (Bonus — do after plugin system is stable)
 
 Once the plugin system is in place, add BM25 keyword search as a second retrieval
 path that runs in parallel with the vector search and whose results are merged before
-reranking. This directly enables the "hybrid retrieval" described in the proposal's
-Phase 2 and dramatically improves precision for structured queries like invoice numbers,
+reranking. This directly enables stronger precision for structured queries like invoice numbers,
 names, and dates.
 
 The implementation:
@@ -686,15 +685,15 @@ The implementation:
 
 ---
 
-## Phase 3 — Chat and Agent Integrations
-**Timeline: 1–2 weeks after Phase 2**  
+## Phase 2 — MCP / Chat and Agent Integrations
+**Timeline: 1–2 weeks after Phase 1**  
 **Exit criterion:** A user can connect a chat/agent client such as Claude Desktop or
 OpenClaw to Sahara and ask questions about local files through Sahara's local index,
 without granting the agent broad filesystem write access.
 
 ---
 
-### 3.1 Why This Phase Exists
+### 2.1 Why This Phase Exists
 
 Sahara's core problem is the same one enterprise ChatGPT deployments solve with
 company knowledge connectors: retrieve relevant private context and give it to an LLM
@@ -729,7 +728,7 @@ Sahara remains the retrieval engine. Chat clients become optional front ends.
 
 ---
 
-### 3.2 Local MCP Server
+### 2.2 Local MCP Server
 
 Add a local MCP server package or command, for example:
 
@@ -755,7 +754,7 @@ modify them through Sahara."
 
 ---
 
-### 3.3 OpenClaw Integration
+### 2.3 OpenClaw Integration
 
 OpenClaw is best treated as a personal agent runtime: it provides the chat surface,
 tool routing, automation loop, and optional access to OpenAI, Claude, or local models.
@@ -786,7 +785,7 @@ Security posture:
 
 ---
 
-### 3.4 Claude Desktop Integration
+### 2.4 Claude Desktop Integration
 
 Claude Desktop supports local MCP servers and is likely the easiest first chat client
 for Sahara's local-first use case.
@@ -803,7 +802,7 @@ Desktop, and ask questions about indexed local files with citations.
 
 ---
 
-### 3.5 ChatGPT Integration
+### 2.5 ChatGPT Integration
 
 ChatGPT's built-in connector model is strongest for cloud document stores and
 enterprise-managed data sources. Sahara should not depend on ChatGPT for local-first
@@ -822,7 +821,7 @@ This keeps Sahara useful even if the preferred chat front end changes.
 
 ---
 
-### 3.6 Integration Documentation
+### 2.6 Integration Documentation
 
 Add an integration guide:
 
@@ -890,12 +889,12 @@ These are tempting but will slow down the OSS launch if included:
 |-------------|-------------|---------------------------------------------------------------|
 | Phase 0     | 3–5 days    | Fixed install, chunked indexing, sqlite-vec, `sahara ask`     |
 | Phase 1     | 1 week      | README, ARCHITECTURE.md, CONTRIBUTING.md, CI, templates       |
-| Phase 2     | 2–3 weeks   | Plugin interfaces, registry, built-ins as plugins, PLUGIN_SYSTEM.md |
-| Phase 3     | 1–2 weeks   | Local MCP server, Claude Desktop/OpenClaw integration docs    |
+| Phase 2     | 1–2 weeks   | Local MCP server, Claude Desktop/OpenClaw integration docs    |
+| Future      | 2–3 weeks   | Plugin interfaces, registry, built-ins as plugins, PLUGIN_SYSTEM.md |
 | Post-launch | Ongoing     | Hybrid retrieval, OCR plugin, reranker plugin, community PRs  |
 
-Total to OSS launch with plugin support: **4–6 weeks of focused work.**
-Total including the chat/agent integration layer: **5–8 weeks of focused work.**
+Total to OSS launch with the chat/agent integration layer: **3–5 weeks of focused work.**
+Total including plugin support: **5–8 weeks of focused work.**
 
 The single most important task is Phase 0.3 (chunked indexing + sqlite-vec). Everything
 else is documentation, packaging, and interface design — necessary but straightforward.
