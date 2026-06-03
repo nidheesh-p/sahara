@@ -686,6 +686,159 @@ The implementation:
 
 ---
 
+## Phase 3 — Chat and Agent Integrations
+**Timeline: 1–2 weeks after Phase 2**  
+**Exit criterion:** A user can connect a chat/agent client such as Claude Desktop or
+OpenClaw to Sahara and ask questions about local files through Sahara's local index,
+without granting the agent broad filesystem write access.
+
+---
+
+### 3.1 Why This Phase Exists
+
+Sahara's core problem is the same one enterprise ChatGPT deployments solve with
+company knowledge connectors: retrieve relevant private context and give it to an LLM
+at question time. The important distinction is that Sahara does this for a user's local
+machine, with a local SQLite/sqlite-vec index, rather than relying on cloud document
+stores such as Google Drive, SharePoint, or GitHub.
+
+OpenClaw, Claude Desktop, ChatGPT connectors, and similar systems are useful chat or
+agent front ends. They are not, by themselves, a replacement for Sahara's local
+retrieval layer. Without a durable local index, an agent usually falls back to ad hoc
+filesystem reads, shell searches, or manual file inspection. That works for small
+folders, but not for a whole computer with long PDFs, source trees, notes, and archived
+documents.
+
+The intended architecture is:
+
+```text
+OpenClaw / Claude Desktop / other MCP client
+        │
+        │ calls read-only tools
+        ▼
+Sahara MCP server
+        │
+        ▼
+SearchEngine + AskEngine
+        │
+        ▼
+SQLite chunks + sqlite-vec embeddings
+```
+
+Sahara remains the retrieval engine. Chat clients become optional front ends.
+
+---
+
+### 3.2 Local MCP Server
+
+Add a local MCP server package or command, for example:
+
+```bash
+sahara mcp serve
+```
+
+The first version should expose read-only tools only:
+
+```
+Tool                         Purpose
+────────────────────────────────────────────────────────────────────
+sahara_search(query, top_k)  Return ranked local files/chunks
+sahara_ask(question, top_k)  Return answer + cited sources
+sahara_read_chunk(id)        Return one indexed chunk by ID
+sahara_list_folders()        Show indexed/synced folders
+sahara_index_status()        Show index size, last indexed time, model
+```
+
+Do not expose file writes, shell execution, or sync mutation in the first MCP release.
+The safest initial promise is: "A chat client can ask about your files, but cannot
+modify them through Sahara."
+
+---
+
+### 3.3 OpenClaw Integration
+
+OpenClaw is best treated as a personal agent runtime: it provides the chat surface,
+tool routing, automation loop, and optional access to OpenAI, Claude, or local models.
+Sahara should integrate with it by exposing a narrow MCP tool server.
+
+Recommended OpenClaw flow:
+
+```text
+User asks OpenClaw:
+  "Find the document where I discussed the kitchen renovation budget."
+
+OpenClaw calls:
+  sahara_search("kitchen renovation budget", top_k=8)
+
+Sahara returns:
+  ranked chunks, paths, scores, and snippets
+
+OpenClaw answers:
+  a conversational answer with Sahara citations
+```
+
+Security posture:
+
+- Prefer read-only Sahara tools over broad OpenClaw filesystem access.
+- Let Sahara enforce indexed-folder boundaries.
+- Return citations and snippets, not arbitrary full-file dumps by default.
+- Add explicit opt-in for any future write/action tools.
+
+---
+
+### 3.4 Claude Desktop Integration
+
+Claude Desktop supports local MCP servers and is likely the easiest first chat client
+for Sahara's local-first use case.
+
+Deliverables:
+
+- `docs/integrations/claude-desktop.md`
+- Example Claude Desktop MCP config
+- Smoke test using a temporary indexed folder
+- Troubleshooting notes for Python environment paths and permissions
+
+The goal is to let a user run Sahara locally, add one MCP server entry to Claude
+Desktop, and ask questions about indexed local files with citations.
+
+---
+
+### 3.5 ChatGPT Integration
+
+ChatGPT's built-in connector model is strongest for cloud document stores and
+enterprise-managed data sources. Sahara should not depend on ChatGPT for local-first
+retrieval. However, support may be possible through future local or remote MCP-style
+connectors.
+
+Approach:
+
+- Document ChatGPT as an optional client path only when the integration can preserve
+  Sahara's local-first privacy expectations.
+- Do not require users to expose their whole local filesystem to a remote service.
+- If a remote bridge is needed, make authentication, scope, and data-flow warnings
+  explicit.
+
+This keeps Sahara useful even if the preferred chat front end changes.
+
+---
+
+### 3.6 Integration Documentation
+
+Add an integration guide:
+
+**File: `docs/integrations/chat-agents.md`**
+
+It should explain:
+
+- Sahara as the local retrieval/index layer
+- OpenClaw as an agent/runtime front end
+- Claude Desktop as the easiest local MCP client
+- ChatGPT as a possible future or remote connector client
+- Threat model: read-only tools first, least privilege, indexed-folder boundaries
+- Example queries and expected cited output
+
+---
+
 ## Dependency and Compatibility Matrix
 
 | Feature              | Extra install      | Requires system dep?       |
@@ -693,6 +846,7 @@ The implementation:
 | Sync (all backends)  | none               | no                         |
 | Semantic search      | `[search]`         | no                         |
 | Answer generation    | `[search]` + ollama| ollama running locally      |
+| Local MCP server     | `[mcp]` or `[all]` | no                         |
 | OCR                  | `[search,ocr]`     | tesseract binary            |
 | Reranking            | plugin             | no                         |
 | Image search         | future             | CLIP model via plugin       |
@@ -716,6 +870,11 @@ These are tempting but will slow down the OSS launch if included:
   significant CPU time. Committing to these in the roadmap is fine; building them before
   the plugin system is stable is premature.
 
+- **A general-purpose autonomous agent framework.** Sahara can expose read-only search
+  tools to agents such as OpenClaw, but it should not become the agent runtime itself.
+  Tool routing, automation loops, browser control, and cross-app actions belong in the
+  client/agent layer.
+
 - **Multi-user support.** The manifest + SQLite architecture is single-user by design.
   Multi-user would require a server process, access control, and a fundamentally
   different consistency model. Non-goal.
@@ -732,9 +891,11 @@ These are tempting but will slow down the OSS launch if included:
 | Phase 0     | 3–5 days    | Fixed install, chunked indexing, sqlite-vec, `sahara ask`     |
 | Phase 1     | 1 week      | README, ARCHITECTURE.md, CONTRIBUTING.md, CI, templates       |
 | Phase 2     | 2–3 weeks   | Plugin interfaces, registry, built-ins as plugins, PLUGIN_SYSTEM.md |
+| Phase 3     | 1–2 weeks   | Local MCP server, Claude Desktop/OpenClaw integration docs    |
 | Post-launch | Ongoing     | Hybrid retrieval, OCR plugin, reranker plugin, community PRs  |
 
 Total to OSS launch with plugin support: **4–6 weeks of focused work.**
+Total including the chat/agent integration layer: **5–8 weeks of focused work.**
 
 The single most important task is Phase 0.3 (chunked indexing + sqlite-vec). Everything
 else is documentation, packaging, and interface design — necessary but straightforward.

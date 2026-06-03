@@ -26,6 +26,8 @@
 
 ## Future (v0.4+)
 
+- **Local MCP server:** expose Sahara search/ask as read-only MCP tools for Claude Desktop, OpenClaw, and other agent clients
+- **Chat/agent integrations:** integration guides for OpenClaw, Claude Desktop, and future ChatGPT connector paths
 - **Image search:** CLIP embeddings for photos, EXIF metadata indexing — find images by content description
 - **Audio / video:** Whisper transcription + scene indexing for MP3, MP4, MOV
 - **Plugin marketplace:** `sahara plugins install`, curated list of community parsers and embedders
@@ -37,7 +39,7 @@
 
 - **Cloud SaaS.** Sahara is local-first. There will be no hosted version.
 - **Multi-user / shared storage.** The manifest + SQLite architecture is single-user by design. A multi-user system would require a server process, access control, and a different consistency model.
-- **AI agent framework.** Sahara answers questions about your files. It does not autonomously take actions on your behalf.
+- **AI agent framework.** Sahara may expose read-only MCP tools to agents such as OpenClaw, but it does not autonomously take actions on your behalf.
 - **Web UI or desktop GUI.** The CLI is the product. A web UI requires a server process, auth, and significant frontend work. This is firmly post-v0.4 territory, if ever.
 
 ---
