@@ -5,19 +5,44 @@ from __future__ import annotations
 import hashlib
 import logging
 import struct
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from sahara.storage.state_db import StateDB
 
-__all__ = ["SearchEngine", "TextExtractor"]
+__all__ = ["IndexFileResult", "SearchEngine", "TextExtractor"]
 
 logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 1600       # chars ≈ 400 tokens
 CHUNK_OVERLAP = 320     # chars ≈ 80 tokens overlap between adjacent chunks
 EMBEDDING_DIM = 384     # BAAI/bge-small-en-v1.5 output dimension
+
+
+@dataclass(frozen=True)
+class IndexFileResult:
+    """Result of indexing one file."""
+
+    indexed: bool
+    reason: str
+
+
+@contextmanager
+def _quiet_pdf_logs() -> Any:
+    """Suppress noisy pypdf parser logs while preserving Sahara-level errors."""
+    names = ("pypdf", "pypdf._reader", "pypdf._page", "pypdf._cmap")
+    loggers = [logging.getLogger(name) for name in names]
+    old_levels = [log.level for log in loggers]
+    try:
+        for log in loggers:
+            log.setLevel(logging.CRITICAL)
+        yield
+    finally:
+        for log, level in zip(loggers, old_levels):
+            log.setLevel(level)
 
 
 class TextExtractor:
@@ -52,8 +77,9 @@ class TextExtractor:
     def _extract_pdf(self, file_path: Path) -> str | None:
         try:
             import pypdf  # type: ignore[import]
-            reader = pypdf.PdfReader(str(file_path))
-            parts = [page.extract_text() for page in reader.pages]
+            with _quiet_pdf_logs():
+                reader = pypdf.PdfReader(str(file_path))
+                parts = [page.extract_text() for page in reader.pages]
             text = "\n".join(p for p in parts if p)
             return text or None
         except ImportError:
@@ -151,9 +177,25 @@ class SearchEngine:
         force: bool = False,
     ) -> bool:
         """Index file_path for semantic search. Returns True if (re-)indexed."""
+        return self.index_file_with_result(
+            file_path, storage_prefix, relative_path, force=force
+        ).indexed
+
+    def index_file_with_result(
+        self,
+        file_path: Path,
+        storage_prefix: str,
+        relative_path: str,
+        force: bool = False,
+    ) -> IndexFileResult:
+        """Index file_path and return whether it was indexed plus a reason."""
+        suffix = file_path.suffix.lower()
+        if suffix in TextExtractor.BINARY_EXTENSIONS:
+            return IndexFileResult(indexed=False, reason="unsupported")
+
         text = self._extractor.extract(file_path)
         if not text or not text.strip():
-            return False
+            return IndexFileResult(indexed=False, reason="no_text")
 
         text = text.strip()
         content_hash = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
@@ -161,11 +203,11 @@ class SearchEngine:
         if not force:
             existing_hash = self._db.get_chunk_content_hash(storage_prefix, relative_path)
             if existing_hash == content_hash:
-                return False
+                return IndexFileResult(indexed=False, reason="unchanged")
 
         chunks = _split_chunks(text)
         if not chunks:
-            return False
+            return IndexFileResult(indexed=False, reason="no_text")
 
         # Delete old chunks + vec rows before re-indexing
         old_ids = self._db.delete_chunks_for_file(storage_prefix, relative_path)
@@ -197,7 +239,7 @@ class SearchEngine:
             embedding_json=embedding_json,
             snippet=snippet,
         )
-        return True
+        return IndexFileResult(indexed=True, reason="indexed")
 
     # ------------------------------------------------------------------
     # Search

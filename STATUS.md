@@ -26,6 +26,7 @@ Latest local verification:
 - Artifact inspection: wheel and sdist are version `0.2.0`; installed wheel imports `sahara.__version__ == "0.2.0"`
 - Release rehearsal: built wheel/sdist into `/tmp/sahara-release-rehearsal-dist`, installed the wheel into `/tmp/sahara-release-rehearsal-venv`, and verified `sahara --version` plus `sahara.__version__`
 - MCP implementation checks: `pytest`, focused MCP/search tests, `ruff check`, `mypy src`, `python3 -m build --outdir /tmp/sahara-mcp-build-check`, and `python3 -m pip install --dry-run '.[mcp]'` passed
+- Indexing hardening checks: targeted index/search/MCP tests, `ruff check`, and `mypy src` passed after adding skip reasons and `sahara index-report`
 
 Current CI coverage threshold:
 
@@ -103,8 +104,9 @@ Status: mostly complete.
 2. Expose tools such as `sahara_search`, `sahara_ask`, `sahara_read_chunk`, and `sahara_list_folders`. In progress: first read-only tool set implemented with `sahara_index_status`.
 3. Add Claude Desktop integration docs and example MCP configuration. In progress: first guide added under `docs/integrations/`.
 4. Add OpenClaw integration docs that use Sahara as the local retrieval engine. In progress: first guide explains the recommended read-only retrieval role.
-5. Track ChatGPT connector/MCP support as an optional future client path, with explicit privacy and data-flow warnings.
-6. Keep Sahara out of the autonomous-agent runtime business; clients can act, Sahara retrieves and cites.
+5. Improve index quality visibility. In progress: `sahara index` now labels skips, quiets noisy PDF parser logs, and `sahara index-report` summarizes unindexed files.
+6. Track ChatGPT connector/MCP support as an optional future client path, with explicit privacy and data-flow warnings.
+7. Keep Sahara out of the autonomous-agent runtime business; clients can act, Sahara retrieves and cites.
 
 ### Future Plugin Ecosystem
 

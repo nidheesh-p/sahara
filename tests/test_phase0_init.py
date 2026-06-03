@@ -219,14 +219,18 @@ class TestIndexUnchangedFile:
         db.close()
 
         runner = CliRunner()
+        from sahara.search.search_engine import IndexFileResult
+
         with patch("sahara.storage.state_db.DB_PATH", db_path), \
-             patch("sahara.search.search_engine.SearchEngine.index_file", return_value=False):
+             patch(
+                 "sahara.search.search_engine.SearchEngine.index_file_with_result",
+                 return_value=IndexFileResult(indexed=False, reason="unchanged"),
+             ):
             result = runner.invoke(main, ["--config", str(cfg), "index"])
 
         assert result.exit_code == 0
         assert "Done" in result.output
-        # The '–' unchanged marker should appear
-        assert "–" in result.output or "Done" in result.output
+        assert "[unchanged]" in result.output
 
 
 # ---------------------------------------------------------------------------

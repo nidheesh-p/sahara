@@ -16,6 +16,7 @@ Index files before connecting a chat client:
 ```bash
 sahara init
 sahara index
+sahara index-report
 sahara mcp serve
 ```
 

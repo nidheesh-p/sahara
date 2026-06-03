@@ -1654,6 +1654,12 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
         total_indexed = 0
         total_skipped = 0
         total_failed = 0
+        skip_reasons = {
+            "unchanged": 0,
+            "unsupported": 0,
+            "no_text": 0,
+            "missing": 0,
+        }
 
         for sync_folder, s3_prefix in targets:
             label = s3_prefix or "(primary)"
@@ -1672,17 +1678,24 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
                 if not file_path.exists():
                     click.echo(click.style("  [missing]", fg="yellow"))
                     total_skipped += 1
+                    skip_reasons["missing"] += 1
                     continue
                 try:
-                    reindexed = engine.index_file(
+                    result = engine.index_file_with_result(
                         file_path, s3_prefix, record.relative_path, force=force
                     )
-                    if reindexed:
+                    if result.indexed:
                         click.echo(click.style("  ✓", fg="green"))
                         total_indexed += 1
                     else:
-                        click.echo(click.style("  –", fg="white"))  # unchanged
+                        label = {
+                            "unchanged": "[unchanged]",
+                            "unsupported": "[unsupported]",
+                            "no_text": "[no text]",
+                        }.get(result.reason, f"[{result.reason}]")
+                        click.echo(click.style(f"  {label}", fg="white"))
                         total_skipped += 1
+                        skip_reasons[result.reason] = skip_reasons.get(result.reason, 0) + 1
                 except Exception as exc:
                     click.echo(click.style(f"  ✗ {exc}", fg="red"))
                     total_failed += 1
@@ -1690,9 +1703,58 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
         db.conn.commit()
         click.echo()
         _ok(
-            f"Done — {total_indexed} indexed, {total_skipped} unchanged, {total_failed} failed."
+            f"Done — {total_indexed} indexed, {total_skipped} skipped, {total_failed} failed."
         )
+        if total_skipped:
+            reason_text = ", ".join(
+                f"{reason}={count}" for reason, count in skip_reasons.items() if count
+            )
+            if reason_text:
+                _info(f"Skipped: {reason_text}")
         _info(f"Total in index: {db.count_embeddings()} file(s).")
+    finally:
+        db.close()
+
+
+@main.command("index-report")
+@click.option("--top", default=10, show_default=True, help="Number of extensions to show.")
+@click.option("--sample", default=20, show_default=True, help="Number of unindexed files to list.")
+@click.pass_context
+def index_report_cmd(ctx: click.Context, top: int, sample: int) -> None:
+    """Show indexed/unindexed file counts and sample gaps."""
+    config: SaharaConfig = ctx.obj["config"]
+    _require_config(config)
+
+    from sahara.storage.state_db import StateDB
+
+    db = StateDB().connect()
+    try:
+        tracked = db.count_tracked_files()
+        indexed = db.count_embeddings()
+        chunks = db.count_chunks()
+        unindexed = max(0, tracked - indexed)
+
+        _section("Index Report")
+        _info(f"Tracked files : {tracked}")
+        _info(f"Indexed files : {indexed}")
+        _info(f"Indexed chunks: {chunks}")
+        _info(f"Unindexed     : {unindexed}")
+        _info(f"Vector index  : {'available' if db.has_vec_table() else 'not available'}")
+
+        ext_counts = db.count_unindexed_by_extension()
+        if ext_counts:
+            click.echo()
+            _section("Unindexed by Extension")
+            for ext, count in list(ext_counts.items())[: max(1, top)]:
+                _info(f"{ext}: {count}")
+
+        samples = db.list_unindexed_files(limit=max(0, sample))
+        if samples:
+            click.echo()
+            _section("Sample Unindexed Files")
+            for row in samples:
+                prefix = f"{row['s3_prefix']}/" if row["s3_prefix"] else ""
+                _info(f"{prefix}{row['relative_path']}")
     finally:
         db.close()
 

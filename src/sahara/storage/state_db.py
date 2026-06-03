@@ -750,6 +750,62 @@ class StateDB:
             row = self.conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()
         return row[0] if row else 0
 
+    def count_tracked_files(self, s3_prefix: str | None = None) -> int:
+        """Return the count of tracked non-deleted files."""
+        if s3_prefix is not None:
+            row = self.conn.execute(
+                "SELECT COUNT(*) FROM files WHERE s3_prefix = ? AND is_deleted = 0",
+                (s3_prefix,),
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                "SELECT COUNT(*) FROM files WHERE is_deleted = 0"
+            ).fetchone()
+        return row[0] if row else 0
+
+    def list_unindexed_files(
+        self, limit: int = 25, s3_prefix: str | None = None
+    ) -> list[dict]:
+        """Return tracked non-deleted files that do not have an embedding row."""
+        conditions = ["f.is_deleted = 0", "e.relative_path IS NULL"]
+        params: list[object] = []
+        if s3_prefix is not None:
+            conditions.append("f.s3_prefix = ?")
+            params.append(s3_prefix)
+        params.append(limit)
+        rows = self.conn.execute(
+            "SELECT f.s3_prefix, f.relative_path, f.size_bytes "
+            "FROM files f "
+            "LEFT JOIN embeddings e "
+            "ON e.s3_prefix = f.s3_prefix AND e.relative_path = f.relative_path "
+            f"WHERE {' AND '.join(conditions)} "
+            "ORDER BY f.relative_path LIMIT ?",
+            params,
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def count_unindexed_by_extension(self, s3_prefix: str | None = None) -> dict[str, int]:
+        """Return unindexed tracked files grouped by lowercase file extension."""
+        conditions = ["f.is_deleted = 0", "e.relative_path IS NULL"]
+        params: list[object] = []
+        if s3_prefix is not None:
+            conditions.append("f.s3_prefix = ?")
+            params.append(s3_prefix)
+        rows = self.conn.execute(
+            "SELECT f.relative_path "
+            "FROM files f "
+            "LEFT JOIN embeddings e "
+            "ON e.s3_prefix = f.s3_prefix AND e.relative_path = f.relative_path "
+            f"WHERE {' AND '.join(conditions)}",
+            params,
+        ).fetchall()
+
+        counts: dict[str, int] = {}
+        for row in rows:
+            suffix = Path(row["relative_path"]).suffix.lower() or "(none)"
+            counts[suffix] = counts.get(suffix, 0) + 1
+        return dict(sorted(counts.items(), key=lambda item: item[1], reverse=True))
+
     # ------------------------------------------------------------------
     # chunks table (chunked semantic search)
     # ------------------------------------------------------------------

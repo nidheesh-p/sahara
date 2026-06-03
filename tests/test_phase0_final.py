@@ -173,7 +173,7 @@ class TestIndexCLIErrorPaths:
         runner = CliRunner()
         with patch("sahara.storage.state_db.DB_PATH", db_path), \
              patch(
-                 "sahara.search.search_engine.SearchEngine.index_file",
+                 "sahara.search.search_engine.SearchEngine.index_file_with_result",
                  side_effect=Exception("embedding failure"),
              ):
             result = runner.invoke(main, ["--config", str(cfg), "index"])
