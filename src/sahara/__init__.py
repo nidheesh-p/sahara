@@ -1,4 +1,4 @@
-"""Sahara — personal cloud storage CLI backed by AWS S3."""
+"""Sahara — local-first intelligent storage with semantic search."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = ["__version__"]

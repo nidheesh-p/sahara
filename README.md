@@ -268,6 +268,7 @@ secrets/
 - [ROADMAP.md](ROADMAP.md) — What is built, what is next, explicit non-goals
 - [SECURITY.md](SECURITY.md) — Encryption wire format, threat model, vulnerability reporting
 - [CHANGELOG.md](CHANGELOG.md) — Release history
+- [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) — Pre-release verification and publish checklist
 
 ---
 

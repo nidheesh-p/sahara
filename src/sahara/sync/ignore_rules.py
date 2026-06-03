@@ -48,7 +48,7 @@ class IgnoreRules:
             + self._extra_patterns
             + self._load_ignore_file_patterns()
         )
-        return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
+        return pathspec.PathSpec.from_lines("gitignore", patterns)
 
     def reload(self) -> None:
         """Reload patterns from disk (call after .saharaignore changes)."""
