@@ -27,6 +27,11 @@ class TextExtractor:
         ".txt", ".md", ".rst", ".py", ".js", ".ts", ".json",
         ".yaml", ".yml", ".toml", ".csv", ".html", ".xml",
     }
+    BINARY_EXTENSIONS = {
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".tif", ".tiff",
+        ".bmp", ".ico", ".mp3", ".mp4", ".mov", ".avi", ".mkv", ".zip",
+        ".gz", ".tar", ".7z", ".dmg", ".exe", ".bin",
+    }
 
     def extract(self, file_path: Path) -> str | None:
         suffix = file_path.suffix.lower()
@@ -34,6 +39,8 @@ class TextExtractor:
             return self._extract_pdf(file_path)
         if suffix in (".docx", ".doc"):
             return self._extract_docx(file_path)
+        if suffix in self.BINARY_EXTENSIONS:
+            return None
         if suffix in self.SUPPORTED_EXTENSIONS or self._looks_like_text(file_path):
             try:
                 return file_path.read_text(encoding="utf-8", errors="replace")

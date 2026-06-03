@@ -248,6 +248,12 @@ class TestTextExtractor:
         extractor = TextExtractor()
         assert extractor.extract(f) is None
 
+    def test_extract_image_extension_skipped_even_if_text_like(self, tmp_path):
+        f = tmp_path / "image.png"
+        f.write_text("this fake image has printable bytes", encoding="utf-8")
+        extractor = TextExtractor()
+        assert extractor.extract(f) is None
+
     def test_extract_pdf_no_pypdf(self, tmp_path):
         """If pypdf is absent, PDF extraction returns None without raising."""
         f = tmp_path / "doc.pdf"
