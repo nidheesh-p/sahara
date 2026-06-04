@@ -20,6 +20,18 @@ sahara index-report
 sahara mcp serve
 ```
 
+For remote MCP clients such as Claude mobile, serve MCP over local HTTP and expose it
+through a secure HTTPS tunnel:
+
+```bash
+export SAHARA_MCP_AUTH_TOKEN="$(openssl rand -hex 32)"
+sahara mcp serve --transport http --host 127.0.0.1 --port 8765
+```
+
+Remote HTTP/SSE transports require bearer-token authentication by default. Clients must
+send `Authorization: Bearer <token>`. For temporary local experiments only, use
+`--allow-insecure-http`.
+
 ## MCP Tools
 
 The first MCP surface is read-only:
@@ -64,6 +76,44 @@ With a custom config path:
   }
 }
 ```
+
+## Claude Mobile / Remote MCP
+
+Claude mobile cannot launch Sahara as a local stdio process. To use Sahara from mobile,
+run Sahara's authenticated HTTP MCP transport locally, expose it through a secure tunnel,
+then add the public HTTPS MCP URL as a custom connector from Claude on the web.
+
+```bash
+export SAHARA_MCP_AUTH_TOKEN="$(openssl rand -hex 32)"
+sahara mcp serve --transport http --host 127.0.0.1 --port 8765
+ngrok http 8765
+```
+
+Use the tunnel's HTTPS MCP endpoint, usually:
+
+```text
+https://<your-tunnel-host>/mcp
+```
+
+Keep the Sahara server bound to `127.0.0.1` unless you have a specific network reason
+not to. The tunnel becomes the public entry point. Because Claude connects from
+Anthropic's cloud infrastructure, the tunnel URL must be reachable from the public
+internet.
+
+When exposing Sahara remotely, consider narrowing the tool and folder surface:
+
+```bash
+sahara mcp serve \
+  --transport http \
+  --auth-token "$SAHARA_MCP_AUTH_TOKEN" \
+  --allow-tool sahara_search \
+  --allow-tool sahara_ask \
+  --allow-storage-prefix work \
+  --max-snippet-chars 300
+```
+
+If a client cannot send a static bearer token, use an OAuth-capable bridge or keep the
+integration local until Sahara grows first-class OAuth support.
 
 ## OpenClaw
 

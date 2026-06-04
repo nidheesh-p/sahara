@@ -5,12 +5,22 @@ build-backend = "hatchling.build"
 [project]
 name = "sahara"
 version = "0.2.0"
-description = "Local-first intelligent storage with semantic search"
+description = "Extended storage, searchable memory and instant retrieval"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Sahara Authors" }]
-keywords = ["storage", "sync", "semantic-search", "local-first", "privacy", "s3", "backup"]
+keywords = [
+    "storage",
+    "sync",
+    "semantic-search",
+    "retrieval",
+    "memory",
+    "local-first",
+    "privacy",
+    "s3",
+    "backup",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",

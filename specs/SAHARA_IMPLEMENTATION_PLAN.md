@@ -30,10 +30,10 @@ and the test suite passes with ≥90% coverage.
 
 ### 0.1 Fix the Install Experience
 
-The current `pyproject.toml` describes Sahara as "Personal cloud storage CLI backed by
-AWS S3" with keywords `["s3", "cloud", "storage", "sync", "backup"]`. This is already
-inaccurate — Sahara now supports local drives, MinIO, and semantic search. Update it
-before anything else, because this is the first thing a new user sees.
+The original `pyproject.toml` described Sahara as "Personal cloud storage CLI backed by
+AWS S3" with keywords `["s3", "cloud", "storage", "sync", "backup"]`. Keep the public
+metadata aligned with Sahara's broader positioning: extended storage, searchable memory,
+and instant retrieval across local drives, MinIO, AWS S3, and semantic search.
 
 **File: `pyproject.toml`**
 
@@ -41,8 +41,18 @@ before anything else, because this is the first thing a new user sees.
 [project]
 name = "sahara"
 version = "0.2.0"
-description = "Local-first intelligent storage with semantic search"
-keywords = ["storage", "sync", "semantic-search", "local-first", "privacy", "s3", "backup"]
+description = "Extended storage, searchable memory and instant retrieval"
+keywords = [
+    "storage",
+    "sync",
+    "semantic-search",
+    "retrieval",
+    "memory",
+    "local-first",
+    "privacy",
+    "s3",
+    "backup",
+]
 
 [project.optional-dependencies]
 search = [
@@ -280,16 +290,16 @@ asking you a single question.
 
 ### 1.1 README Rewrite
 
-The current README describes Sahara as an S3 sync tool. Rewrite it to lead with the
-semantic search vision while being honest about current capabilities.
+The README should lead with Sahara's extended storage, searchable memory, and instant
+retrieval positioning while being honest about current capabilities.
 
 **Structure:**
 
 ```markdown
 # Sahara
 
-> A local-first personal storage system with semantic search.
-> Find your files by meaning, not by filename.
+> Sahara: extended storage, searchable memory and instant retrieval.
+> Find the right file by meaning, even when you forget its name.
 
 ## What it does today
 ## What it will do (roadmap)
