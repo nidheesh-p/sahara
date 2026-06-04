@@ -8,6 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+### Changed
+
+- Updated public project positioning to "Sahara: extended storage, searchable memory and instant retrieval."
+- Added HTTP/streamable MCP transport options for remote clients and secure tunnel workflows.
+- Added bearer-token protection, loopback binding warnings, tool/folder allowlists, and text limits for remote MCP.
+
 ---
 
 ## [0.2.0] — 2026-05-27
@@ -28,7 +34,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ### Changed
 
-- `pyproject.toml`: description updated to "Local-first intelligent storage with semantic search"
+- `pyproject.toml`: description moved away from S3-only cloud storage toward local-first storage and semantic search
 - `_require_config` guard: local drive mode no longer requires a bucket to be configured
 - Storage modules reorganised into `src/sahara/storage/`, sync modules into `src/sahara/sync/`
 

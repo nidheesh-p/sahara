@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn, cast
 
 import click
 
@@ -172,7 +172,7 @@ def _require_s3_tiers(config: SaharaConfig, feature: str) -> None:
 )
 @click.pass_context
 def main(ctx: click.Context, config_path: Path | None) -> None:
-    """Sahara — personal cloud storage backed by AWS S3."""
+    """Sahara — extended storage, searchable memory and instant retrieval."""
     ctx.ensure_object(dict)
     ctx.obj["config_path"] = config_path
     ctx.obj["config"] = _load_cfg(config_path)
@@ -1045,13 +1045,119 @@ def mcp() -> None:
 
 
 @mcp.command("serve")
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "http", "streamable-http", "sse"]),
+    default="stdio",
+    show_default=True,
+    help="MCP transport. Use 'http' for remote/mobile clients.",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Host for HTTP/SSE transports.",
+)
+@click.option(
+    "--port",
+    default=8765,
+    show_default=True,
+    type=int,
+    help="Port for HTTP/SSE transports.",
+)
+@click.option(
+    "--auth-token",
+    envvar="SAHARA_MCP_AUTH_TOKEN",
+    default=None,
+    help="Bearer token required by HTTP/SSE transports. Can also be set with SAHARA_MCP_AUTH_TOKEN.",
+)
+@click.option(
+    "--allow-insecure-http",
+    is_flag=True,
+    help="Allow HTTP/SSE transports without a bearer token. For local experiments only.",
+)
+@click.option(
+    "--allow-tool",
+    "allowed_tools",
+    multiple=True,
+    type=click.Choice(
+        [
+            "sahara_search",
+            "sahara_ask",
+            "sahara_read_chunk",
+            "sahara_list_folders",
+            "sahara_index_status",
+        ]
+    ),
+    help="Expose only this MCP tool. Repeat to allow multiple tools.",
+)
+@click.option(
+    "--allow-storage-prefix",
+    "allowed_storage_prefixes",
+    multiple=True,
+    help="Allow only this Sahara storage prefix/folder scope. Repeat to allow multiple prefixes.",
+)
+@click.option(
+    "--max-snippet-chars",
+    default=500,
+    show_default=True,
+    type=click.IntRange(min=0),
+    help="Maximum text characters returned per snippet/chunk by MCP tools.",
+)
 @click.pass_context
-def mcp_serve(ctx: click.Context) -> None:
-    """Serve read-only Sahara search/ask tools over MCP stdio."""
+def mcp_serve(
+    ctx: click.Context,
+    transport: str,
+    host: str,
+    port: int,
+    auth_token: str | None,
+    allow_insecure_http: bool,
+    allowed_tools: tuple[str, ...],
+    allowed_storage_prefixes: tuple[str, ...],
+    max_snippet_chars: int,
+) -> None:
+    """Serve read-only Sahara search/ask tools over MCP."""
     from sahara.mcp_server import serve
 
     config_path = ctx.obj.get("config_path")
-    serve(str(config_path) if config_path else None)
+    mcp_transport = cast(
+        Literal["stdio", "sse", "streamable-http"],
+        "streamable-http" if transport == "http" else transport,
+    )
+    remote_transport = mcp_transport != "stdio"
+    loopback_hosts = {"127.0.0.1", "localhost", "::1"}
+
+    if remote_transport and not auth_token and not allow_insecure_http:
+        raise click.ClickException(
+            "HTTP/SSE MCP transports require --auth-token or SAHARA_MCP_AUTH_TOKEN. "
+            "Use --allow-insecure-http only for temporary local experiments."
+        )
+
+    if remote_transport and host not in loopback_hosts:
+        click.secho(
+            f"WARNING: Sahara MCP is binding to {host}:{port}. "
+            "Use 127.0.0.1 with a secure tunnel unless you intentionally want LAN/public access.",
+            fg="yellow",
+            err=True,
+        )
+
+    if remote_transport and not auth_token and allow_insecure_http:
+        click.secho(
+            "WARNING: HTTP/SSE MCP is running without bearer-token authentication.",
+            fg="yellow",
+            err=True,
+        )
+
+    serve(
+        str(config_path) if config_path else None,
+        transport=mcp_transport,
+        host=host,
+        port=port,
+        auth_token=auth_token,
+        allowed_tools=cast(tuple[Any, ...], allowed_tools) if allowed_tools else None,
+        allowed_storage_prefixes=allowed_storage_prefixes or None,
+        max_snippet_chars=max_snippet_chars,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1654,6 +1760,12 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
         total_indexed = 0
         total_skipped = 0
         total_failed = 0
+        skip_reasons = {
+            "unchanged": 0,
+            "unsupported": 0,
+            "no_text": 0,
+            "missing": 0,
+        }
 
         for sync_folder, s3_prefix in targets:
             label = s3_prefix or "(primary)"
@@ -1672,17 +1784,24 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
                 if not file_path.exists():
                     click.echo(click.style("  [missing]", fg="yellow"))
                     total_skipped += 1
+                    skip_reasons["missing"] += 1
                     continue
                 try:
-                    reindexed = engine.index_file(
+                    result = engine.index_file_with_result(
                         file_path, s3_prefix, record.relative_path, force=force
                     )
-                    if reindexed:
+                    if result.indexed:
                         click.echo(click.style("  ✓", fg="green"))
                         total_indexed += 1
                     else:
-                        click.echo(click.style("  –", fg="white"))  # unchanged
+                        label = {
+                            "unchanged": "[unchanged]",
+                            "unsupported": "[unsupported]",
+                            "no_text": "[no text]",
+                        }.get(result.reason, f"[{result.reason}]")
+                        click.echo(click.style(f"  {label}", fg="white"))
                         total_skipped += 1
+                        skip_reasons[result.reason] = skip_reasons.get(result.reason, 0) + 1
                 except Exception as exc:
                     click.echo(click.style(f"  ✗ {exc}", fg="red"))
                     total_failed += 1
@@ -1690,9 +1809,58 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
         db.conn.commit()
         click.echo()
         _ok(
-            f"Done — {total_indexed} indexed, {total_skipped} unchanged, {total_failed} failed."
+            f"Done — {total_indexed} indexed, {total_skipped} skipped, {total_failed} failed."
         )
+        if total_skipped:
+            reason_text = ", ".join(
+                f"{reason}={count}" for reason, count in skip_reasons.items() if count
+            )
+            if reason_text:
+                _info(f"Skipped: {reason_text}")
         _info(f"Total in index: {db.count_embeddings()} file(s).")
+    finally:
+        db.close()
+
+
+@main.command("index-report")
+@click.option("--top", default=10, show_default=True, help="Number of extensions to show.")
+@click.option("--sample", default=20, show_default=True, help="Number of unindexed files to list.")
+@click.pass_context
+def index_report_cmd(ctx: click.Context, top: int, sample: int) -> None:
+    """Show indexed/unindexed file counts and sample gaps."""
+    config: SaharaConfig = ctx.obj["config"]
+    _require_config(config)
+
+    from sahara.storage.state_db import StateDB
+
+    db = StateDB().connect()
+    try:
+        tracked = db.count_tracked_files()
+        indexed = db.count_embeddings()
+        chunks = db.count_chunks()
+        unindexed = max(0, tracked - indexed)
+
+        _section("Index Report")
+        _info(f"Tracked files : {tracked}")
+        _info(f"Indexed files : {indexed}")
+        _info(f"Indexed chunks: {chunks}")
+        _info(f"Unindexed     : {unindexed}")
+        _info(f"Vector index  : {'available' if db.has_vec_table() else 'not available'}")
+
+        ext_counts = db.count_unindexed_by_extension()
+        if ext_counts:
+            click.echo()
+            _section("Unindexed by Extension")
+            for ext, count in list(ext_counts.items())[: max(1, top)]:
+                _info(f"{ext}: {count}")
+
+        samples = db.list_unindexed_files(limit=max(0, sample))
+        if samples:
+            click.echo()
+            _section("Sample Unindexed Files")
+            for row in samples:
+                prefix = f"{row['s3_prefix']}/" if row["s3_prefix"] else ""
+                _info(f"{prefix}{row['relative_path']}")
     finally:
         db.close()
 

@@ -14,7 +14,7 @@ Last updated: 2026-06-03
 
 Latest local verification:
 
-- `pytest`: 765 passed
+- `pytest`: 780 passed
 - `ruff check .`: passed
 - `mypy src`: passed
 - Clean-venv install: `pip install -e ".[search,dev]"` passed
@@ -26,6 +26,11 @@ Latest local verification:
 - Artifact inspection: wheel and sdist are version `0.2.0`; installed wheel imports `sahara.__version__ == "0.2.0"`
 - Release rehearsal: built wheel/sdist into `/tmp/sahara-release-rehearsal-dist`, installed the wheel into `/tmp/sahara-release-rehearsal-venv`, and verified `sahara --version` plus `sahara.__version__`
 - MCP implementation checks: `pytest`, focused MCP/search tests, `ruff check`, `mypy src`, `python3 -m build --outdir /tmp/sahara-mcp-build-check`, and `python3 -m pip install --dry-run '.[mcp]'` passed
+- Indexing hardening checks: targeted index/search/MCP tests, `ruff check`, and `mypy src` passed after adding skip reasons and `sahara index-report`
+- Branding update: README/package metadata/CLI now position Sahara as "extended storage, searchable memory and instant retrieval"
+- Remote MCP security checks: `pytest tests/test_mcp_server.py -q`, `mypy src/sahara/mcp_server.py src/sahara/cli.py`, `ruff check src/sahara/mcp_server.py src/sahara/cli.py tests/test_mcp_server.py`, and `git diff --check` passed
+- Remote MCP CLI smoke: `sahara mcp serve --transport http` now rejects unauthenticated HTTP/SSE transports unless `--allow-insecure-http` is explicitly set
+- Release artifact verification: built wheel/sdist into `/tmp/sahara-release-pr-dist`, confirmed updated MCP/docs files are included, installed the wheel into `/tmp/sahara-release-pr-venv`, and verified `sahara.__version__ == "0.2.0"`
 
 Current CI coverage threshold:
 
@@ -84,27 +89,37 @@ Status: mostly complete.
 
 Status: mostly complete.
 
-- README rewritten around local-first semantic search.
+- README rewritten around extended storage, searchable memory, and instant retrieval.
 - Architecture, contributing, security, roadmap, and changelog docs exist.
 - GitHub CI workflow exists.
 - Issue and PR templates exist.
 - Package build checks are included in CI.
+
+### Phase 2: MCP / Chat and Agent Integrations
+
+Status: mostly complete on `feat/mcp-chat-agent-integration`.
+
+- Read-only MCP server exists for search, ask, chunk reads, folder listing, and index status.
+- `sahara mcp serve` supports stdio for local clients and authenticated HTTP/streamable transport for remote clients.
+- Remote HTTP/SSE transports require `--auth-token` or `SAHARA_MCP_AUTH_TOKEN` unless `--allow-insecure-http` is explicitly set.
+- The CLI warns when HTTP/SSE transports bind beyond loopback.
+- MCP exposure can be narrowed with `--allow-tool`, `--allow-storage-prefix`, and `--max-snippet-chars`.
+- Claude Desktop docs, Claude mobile/ngrok docs, and OpenClaw guidance exist under `docs/integrations/`.
 
 ## Remaining Work
 
 ### Release Readiness
 
 1. Optional: publish to TestPyPI and install from the published TestPyPI artifact when TestPyPI credentials are available.
-2. Tag the release after public artifact verification.
+2. Tag the release after the PR is merged and public artifact verification is complete.
 
 ### Phase 2: MCP / Chat and Agent Integrations
 
-1. Add a read-only local MCP server for Sahara search and ask. In progress: `sahara mcp serve` exists on the feature branch.
-2. Expose tools such as `sahara_search`, `sahara_ask`, `sahara_read_chunk`, and `sahara_list_folders`. In progress: first read-only tool set implemented with `sahara_index_status`.
-3. Add Claude Desktop integration docs and example MCP configuration. In progress: first guide added under `docs/integrations/`.
-4. Add OpenClaw integration docs that use Sahara as the local retrieval engine. In progress: first guide explains the recommended read-only retrieval role.
-5. Track ChatGPT connector/MCP support as an optional future client path, with explicit privacy and data-flow warnings.
-6. Keep Sahara out of the autonomous-agent runtime business; clients can act, Sahara retrieves and cites.
+1. Confirm Claude Desktop setup end-to-end on a clean machine.
+2. Confirm Claude mobile remote MCP flow end-to-end through ngrok or another HTTPS tunnel with bearer auth.
+3. Track OAuth support for clients that cannot send a static bearer token.
+4. Track ChatGPT connector/MCP support as an optional future client path, with explicit privacy and data-flow warnings.
+5. Keep Sahara out of the autonomous-agent runtime business; clients can act, Sahara retrieves and cites.
 
 ### Future Plugin Ecosystem
 

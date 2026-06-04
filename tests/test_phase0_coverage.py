@@ -556,3 +556,39 @@ class TestIndexCLIWithFiles:
 
         assert result.exit_code == 0
         assert "missing" in result.output.lower() or "Done" in result.output
+
+    def test_index_report_shows_unindexed_files(self, tmp_path):
+        cfg, sync, _ = _write_config(tmp_path)
+        db_path = tmp_path / "state.db"
+
+        import datetime
+
+        from sahara.models import FileRecord
+
+        db = StateDB(db_path).connect()
+        for name in ("indexed.txt", "scan.pdf"):
+            (sync / name).write_text("content")
+            db.upsert_file(
+                FileRecord(
+                    relative_path=name,
+                    sha256_checksum="abc",
+                    size_bytes=100,
+                    tier="STANDARD",
+                    s3_etag="abc",
+                    last_sync_at=datetime.datetime.now(datetime.UTC),
+                    local_modified_at=datetime.datetime.now(datetime.UTC),
+                    remote_modified_at=datetime.datetime.now(datetime.UTC),
+                ),
+                s3_prefix="",
+            )
+        db.upsert_embedding("", "indexed.txt", "hash", "[0.1]", "snippet")
+        db.close()
+
+        runner = CliRunner()
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(main, ["--config", str(cfg), "index-report"])
+
+        assert result.exit_code == 0
+        assert "Index Report" in result.output
+        assert "Unindexed" in result.output
+        assert "scan.pdf" in result.output
