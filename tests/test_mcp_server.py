@@ -148,6 +148,7 @@ def test_search_files_rejects_disallowed_storage_prefix(tmp_path: Path) -> None:
 
 
 def test_static_token_verifier_accepts_only_configured_token() -> None:
+    pytest.importorskip("mcp.server.auth.provider")
     verifier = StaticTokenVerifier("secret")
 
     valid = anyio.run(verifier.verify_token, "secret")
