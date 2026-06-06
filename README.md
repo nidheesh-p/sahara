@@ -300,6 +300,7 @@ secrets/
 - [SECURITY.md](SECURITY.md) — Encryption wire format, threat model, vulnerability reporting
 - [CHANGELOG.md](CHANGELOG.md) — Release history
 - [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) — Pre-release verification and publish checklist
+- [OPEN_SOURCE_READINESS_CHECKLIST.md](OPEN_SOURCE_READINESS_CHECKLIST.md) — Contributor-facing polish and trust checklist
 - [docs/integrations/chat-agents.md](docs/integrations/chat-agents.md) — MCP and Claude integration notes
 
 ---

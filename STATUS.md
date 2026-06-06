@@ -7,8 +7,8 @@ Last updated: 2026-06-06
 - Active local branch: `main`
 - Base branch: `main`
 - Working tree: clean and aligned with `origin/main`
-- Latest merged PR: [#14 Include license and release docs in package](https://github.com/nidheesh-p/sahara/pull/14)
-- Latest `origin/main` state: merge commit `fd9b12c`
+- Latest merged PR: [#16 Align MCP completion status and future integrations](https://github.com/nidheesh-p/sahara/pull/16)
+- Latest `origin/main` state: merge commit `a3bd8ec`
 - Latest release: [`v0.2.0`](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0), published June 6, 2026
 - Next active milestone: Phase 2 client validation and contributor onboarding
 
@@ -22,7 +22,7 @@ Latest local verification:
 - Clean-venv install: `pip install -e ".[search,dev]"` passed
 - Clean-venv CLI smoke: `sahara --version` prints `0.2.0`
 - Backend validation tests: local drive, dual-write, S3, and S3-compatible client behavior passed
-- Live AWS S3 validation: passed using a temporary bucket in account `825502798121`; bucket was deleted after validation
+- Live AWS S3 validation: passed using a temporary bucket; bucket was deleted after validation
 - Live MinIO validation: passed using a temporary Docker container on `127.0.0.1:19000`; bucket and container were deleted after validation
 - Release artifact build: passed with `python3 -m build --outdir /tmp/sahara-dist-check`
 - Artifact inspection: wheel and sdist are version `0.2.0`; installed wheel imports `sahara.__version__ == "0.2.0"`
@@ -123,6 +123,11 @@ Status: complete.
 - Published the first [GitHub release](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0) with the wheel, source distribution, and SHA-256 checksums.
 
 ## Remaining Work
+
+### Open Source Readiness
+
+See [OPEN_SOURCE_READINESS_CHECKLIST.md](OPEN_SOURCE_READINESS_CHECKLIST.md) for the
+audited contributor-facing polish and trust checklist.
 
 ### Distribution Follow-Up
 
