@@ -13,7 +13,7 @@
 - **Parsers:** PDF (pypdf), DOCX (python-docx), plain text, Markdown, code files
 - **MCP:** read-only local stdio and authenticated HTTP transports for Claude Desktop, remote clients, and agent runtimes
 - **MCP security:** bearer-token auth, tool/folder allowlists, snippet limits, and non-loopback binding warnings
-- **Integration guides:** Claude Desktop, Claude mobile via secure tunnel, and OpenClaw
+- **Integration guides:** Claude Desktop and Claude mobile via secure tunnel
 
 ---
 
@@ -36,6 +36,7 @@
 - **Audio / video:** Whisper transcription + scene indexing for MP3, MP4, MOV
 - **Plugin marketplace:** `sahara plugins install`, curated list of community parsers and embedders
 - **Incremental re-indexing:** track which files need re-embedding without scanning all chunks
+- **OpenClaw integration guidance:** validate Sahara's read-only MCP tools with OpenClaw and document the supported setup
 
 ---
 
