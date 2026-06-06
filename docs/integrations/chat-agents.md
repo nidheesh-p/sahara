@@ -49,33 +49,10 @@ filesystem reads.
 
 ## Claude Desktop
 
-Add Sahara as a local MCP server in Claude Desktop's MCP configuration. Use the full
-path to the `sahara` executable if Claude Desktop cannot find it through your shell
-environment.
-
-```json
-{
-  "mcpServers": {
-    "sahara": {
-      "command": "sahara",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
-```
-
-With a custom config path:
-
-```json
-{
-  "mcpServers": {
-    "sahara": {
-      "command": "sahara",
-      "args": ["--config", "/Users/you/.sahara/config.toml", "mcp", "serve"]
-    }
-  }
-}
-```
+Claude Desktop launches Sahara locally over stdio. Use the complete
+[Claude Desktop guide](../CLAUDE_DESKTOP.md) for platform config locations,
+copy-pasteable JSON, verification, the exact tool contract, security boundaries, and
+troubleshooting.
 
 ## Claude Mobile / Remote MCP
 

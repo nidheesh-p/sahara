@@ -37,6 +37,7 @@ Latest local verification:
 - Published artifact checksums: wheel `71d41719279b274bee5c31b421c18f0efe89dd2a220abf1a038a78eb753229b0`; sdist `e596182144223f6066da027c5317ec38d131e85c4bc4a5c0c4ab0138f084ffed`
 - GitHub release assets: wheel, source distribution, and `SHA256SUMS` are attached to [`v0.2.0`](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0)
 - Contributor trust audit: Contributor Covenant 3.0 added, maintainer metadata set to Nidheesh Puthalath, and Gitleaks `v8.30.1` scanned all 34 reachable commits with zero findings
+- Claude Desktop launch docs: exact stdio setup, five-tool contract, security boundary, verification, and troubleshooting documented; clean-machine sub-five-minute acceptance test remains pending
 
 Current CI coverage threshold:
 
