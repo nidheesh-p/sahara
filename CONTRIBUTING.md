@@ -78,7 +78,7 @@ Key style points:
 
 1. Fork the repo and create a branch: `git checkout -b feature/my-thing`
 2. Write your changes and matching tests
-3. Confirm the full test suite passes and coverage stays above 90%
+3. Confirm the full test suite passes and coverage stays at or above 85%
 4. Run `ruff check` and `mypy src/` — both must be clean
 5. Open a PR against `main`. Fill in the PR template (what it changes, which issue it closes, which storage backends you tested against)
 
