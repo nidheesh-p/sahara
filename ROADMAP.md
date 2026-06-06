@@ -17,7 +17,20 @@
 
 ---
 
-## Next (v0.3)
+## Next: Three-Step Product Model
+
+- **Basic indexing:** make local semantic indexing the default with no storage backend required
+- **Optional storage:** let users add either local-drive or AWS storage without rebuilding the index
+- **Content roots:** separate folders that are indexed from folders explicitly enabled for sync
+- **Extended storage:** add verified `sahara offload` and `sahara fetch` workflows that preserve search metadata while freeing local disk space
+- **Migration:** preserve current local-drive, MinIO, AWS, and local+glacier configurations
+
+See [specs/THREE_STEP_PRODUCT_MODEL_PLAN.md](specs/THREE_STEP_PRODUCT_MODEL_PLAN.md)
+for the implementation sequence and compatibility plan.
+
+---
+
+## Later (v0.3+)
 
 - **Hybrid retrieval:** BM25 keyword search (sqlite-fts5, no new dependency) + vector search merged via Reciprocal Rank Fusion
 - **Cross-encoder reranking:** optional future plugin — the top merged results are re-scored by a cross-encoder model for much better precision on ambiguous queries
@@ -51,4 +64,5 @@
 
 ## Contributing to the roadmap
 
-If you want to work on something from the v0.3 or v0.4 list, open an issue first to discuss the approach. Roadmap items represent the intended direction but not necessarily a reserved claim — if you have a working implementation, a PR is welcome regardless of whether an issue exists.
+If you want to work on a roadmap item, open an issue first to discuss the approach.
+Roadmap items represent the intended direction but not necessarily a reserved claim.

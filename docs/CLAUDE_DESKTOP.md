@@ -253,7 +253,7 @@ Before wider promotion, test this guide on a clean macOS or Windows account/mach
 5. Ask one question whose answer is in that document.
 6. Confirm Claude invokes Sahara and returns the cited source path and snippet.
 7. Stop the timer and record the OS, install method, elapsed time, friction, and result
-   in `OPEN_SOURCE_READINESS_CHECKLIST.md`.
+   with the release verification notes.
 
 Target: a new user reaches a cited Claude Desktop answer in under five minutes.
 

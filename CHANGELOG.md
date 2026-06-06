@@ -13,11 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - Contributor Covenant 3.0 code of conduct with private incident reporting
 - Claude Desktop launch guide with platform configuration, exact MCP tool contracts,
   security boundaries, verification, and troubleshooting
+- Three-step product plan for basic indexing with optional local-drive or AWS storage
 
 ### Changed
 
 - Package and license metadata now identify Nidheesh Puthalath as the maintainer
 - README quick start now demonstrates both CLI retrieval and cited Claude Desktop use
+- Documentation consolidated around current user, contributor, release, and architecture
+  guidance; superseded specifications remain available through Git history
 
 ---
 

@@ -1,4 +1,4 @@
-"""Phase 0 tests — covering all changes from SAHARA_IMPLEMENTATION_PLAN.md §0.1–0.4."""
+"""Coverage for installation, configuration, indexing, search, and ask behavior."""
 
 from __future__ import annotations
 

@@ -8,7 +8,21 @@ Use this checklist before publishing a Sahara release.
 - Confirm the working tree is clean.
 - Confirm `pyproject.toml` version and `sahara --version` match.
 - Review `CHANGELOG.md` and add release notes for the target version.
-- Review `README.md`, `STATUS.md`, `ROADMAP.md`, and `SECURITY.md` for stale claims.
+- Review `README.md`, `ROADMAP.md`, `SECURITY.md`, and integration guides for stale claims.
+
+## Launch Readiness
+
+- Test `CONTRIBUTING.md` from a fresh clone and clean virtual environment.
+- Confirm README status, limitations, supported-client claims, and comparison language
+  match the implementation.
+- Record both demo flows:
+  - CLI initialization, indexing, and semantic search.
+  - The same query in Claude Desktop with Sahara-provided citations.
+- Time the clean-machine Claude Desktop setup on macOS or Windows.
+- Confirm a new user reaches one cited answer in under five minutes; revise the guide
+  if the flow takes longer.
+- State unvalidated MCP clients as unvalidated. Do not promise ChatGPT, Claude Code,
+  Cursor, or OpenClaw support until each path has been tested and documented.
 
 ## Verification
 
@@ -26,11 +40,14 @@ Use this checklist before publishing a Sahara release.
 
 ## Backend Validation
 
+- Validate basic/index-only mode without a drive or bucket.
 - Validate local drive mode against a temporary folder.
 - Validate S3 behavior with the moto-backed test suite.
 - Validate MinIO against a local Docker MinIO instance when Docker is available.
 - Validate AWS S3 against a real test bucket before publishing a public release.
 - Validate `local+glacier` dual-write behavior against local storage plus an S3-compatible test target.
+- Validate migration from the previous release without losing sync or index state.
+- When offload/fetch is available, validate search-after-offload and checksum-verified fetch.
 
 ## Release
 
@@ -44,4 +61,4 @@ Use this checklist before publishing a Sahara release.
 
 - Confirm the GitHub release page links to the changelog.
 - Confirm installation instructions still work.
-- Update `STATUS.md` with release outcome and next active milestone.
+- Confirm roadmap and release notes describe the next active milestone.
