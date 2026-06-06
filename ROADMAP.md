@@ -14,16 +14,20 @@
 - **MCP:** read-only local stdio and authenticated HTTP transports for Claude Desktop, remote clients, and agent runtimes
 - **MCP security:** bearer-token auth, tool/folder allowlists, snippet limits, and non-loopback binding warnings
 - **Integration guides:** Claude Desktop and Claude mobile via secure tunnel
+- **Basic indexing:** fresh setups can index and search local folders without storage
+- **Content roots:** indexed folders are tracked separately from sync state
+- **Index inventory:** indexed, unsupported, failed, and missing files are tracked locally
+- **Extended storage:** checksum-verified offload/fetch retains semantic search metadata
+- **Migration:** legacy S3, MinIO, local-drive, and local+glacier configs retain behavior
 
 ---
 
 ## Next: Three-Step Product Model
 
-- **Basic indexing:** make local semantic indexing the default with no storage backend required
-- **Optional storage:** let users add either local-drive or AWS storage without rebuilding the index
-- **Content roots:** separate folders that are indexed from folders explicitly enabled for sync
-- **Extended storage:** add verified `sahara offload` and `sahara fetch` workflows that preserve search metadata while freeing local disk space
-- **Migration:** preserve current local-drive, MinIO, AWS, and local+glacier configurations
+- **Release hardening:** clean-install timing for basic, local-drive, and AWS paths
+- **Live validation:** exercise local-drive and temporary AWS storage end to end
+- **Daemon refinement:** separate the always-local index watcher from the optional sync worker
+- **Prerelease feedback:** publish the three-step model for external migration testing
 
 See [specs/THREE_STEP_PRODUCT_MODEL_PLAN.md](specs/THREE_STEP_PRODUCT_MODEL_PLAN.md)
 for the implementation sequence and compatibility plan.

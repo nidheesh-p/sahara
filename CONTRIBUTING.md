@@ -41,6 +41,9 @@ pytest tests/test_sync_engine.py -v
 
 # Run tests matching a keyword
 pytest -k "test_conflict"
+
+# Run the index-first product-model tests
+pytest tests/test_three_step_model.py -v
 ```
 
 ### Test conventions
@@ -49,6 +52,10 @@ pytest -k "test_conflict"
 - **Fixtures live in `conftest.py`.** Add shared fixtures there rather than duplicating setup code.
 - **Unit tests over integration tests for logic.** Test `DiffResult` computation directly rather than running a full sync.
 - **New feature → new test file.** Don't append unrelated tests to an existing file.
+- **Indexing and sync are separate.** New indexing behavior must work with
+  `storage_mode = "none"` and without rows in the sync `files` table.
+- **Schema changes are migrations.** Preserve old configs, `sync_targets`, chunks, and
+  embeddings when adding content-root or inventory behavior.
 
 ---
 

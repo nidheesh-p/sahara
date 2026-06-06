@@ -7,18 +7,21 @@ This document explains how Sahara is structured so contributors can find their w
 ## System overview
 
 ```
-┌─────────────┐   ┌──────────────┐   ┌──────────────────────┐
-│  CLI (click) │──▶│  SyncEngine  │──▶│  StorageBackend       │
-│  cli.py      │   │  sync_engine │   │  S3Client / LocalDrive│
-└─────────────┘   └──────────────┘   └──────────────────────┘
-       │                  │
-       │           ┌──────────────┐   ┌──────────────────────┐
-       │           │   StateDB    │   │  SearchEngine         │
-       │           │  state.db    │   │  (fastembed + vec)    │
-       │           └──────────────┘   └──────────────────────┘
-       │                                        │
-       └────────────────────────────────────────▶ AskEngine
-                                                 (ollama / OpenAI)
+┌─────────────┐   ┌────────────────┐   ┌──────────────────────┐
+│ CLI (click) │──▶│ IndexingService│──▶│ SearchEngine         │
+│ cli.py      │   │ library.py     │   │ fastembed + vec      │
+└─────────────┘   └────────────────┘   └──────────────────────┘
+       │                   │                      │
+       │                   ▼                      ▼
+       │             ┌──────────┐             AskEngine
+       │             │ StateDB  │             Ollama/OpenAI
+       │             └──────────┘
+       │                   ▲
+       ▼                   │
+┌─────────────┐   ┌──────────────────────┐
+│ SyncEngine  │──▶│ Optional StorageBackend│
+└─────────────┘   │ S3 / LocalDrive      │
+                  └──────────────────────┘
 ```
 
 The CLI is the only public surface. Everything else is an internal library that the CLI composes.
@@ -31,6 +34,7 @@ The CLI is the only public surface. Everything else is an internal library that 
 src/sahara/
 ├── cli.py                  # All Click commands — the public API
 ├── config.py               # SaharaConfig dataclass + TOML I/O
+├── library.py              # Content-root migration and local indexing service
 ├── models.py               # FileRecord, SyncOperation, ManifestEntry, ...
 │
 ├── storage/
@@ -128,16 +132,23 @@ Conflict strategy is set in config (`backup` / `local` / `remote` / `ask`). The 
 
 ## Search pipeline
 
-The search pipeline runs entirely locally in `search/search_engine.py`.
+The search pipeline runs entirely locally. `library.py` scans every registered content
+root directly; it does not depend on sync records or a storage backend.
 
 ```
-1. index_file(path):
+1. IndexingService.index():
+   a. Load content roots from StateDB
+   b. Walk each root with .saharaignore rules
+   c. Maintain index_entries inventory and detect missing files
+   d. Call SearchEngine for supported local files
+
+2. SearchEngine.index_file(path):
    a. Extract text (TextExtractor) — supports .txt, .md, .py, .pdf, .docx, and plain-text heuristic
    b. Chunk text: 1600-char chunks with 320-char overlap
    c. Embed each chunk independently with BAAI/bge-small-en-v1.5 (384-dim) via fastembed
    d. Insert rows into `chunks` table and `vec_chunks` virtual table (sqlite-vec)
 
-2. search(query):
+3. search(query):
    a. Embed the query string
    b. KNN query against vec_chunks (O(log n) ANN, not a Python cosine loop)
    c. Join against `chunks` to get file paths and snippet text
@@ -191,6 +202,9 @@ All state is stored in `~/.sahara/state.db`. WAL mode is enabled on every connec
 | `history` | Append-only log of every sync operation |
 | `pending_multipart` | In-flight multipart upload state (crash recovery) |
 | `sync_targets` | Registered (local_path, s3_prefix) pairs |
+| `content_roots` | Canonical indexed folders with primary and sync-enabled flags |
+| `index_entries` | Local indexing inventory and indexed/unsupported/missing status |
+| `storage_residency` | Explicit present/offloaded/missing state for stored files |
 | `config_kv` | Key-value store for runtime config values |
 | `embeddings` | Legacy single-vector-per-file index (superseded by `chunks`) |
 | `chunks` | One row per text chunk — path, chunk_index, content_hash, chunk_text |
@@ -198,11 +212,23 @@ All state is stored in `~/.sahara/state.db`. WAL mode is enabled on every connec
 
 The `chunks` and `vec_chunks` tables work as a pair. `vec_chunks` stores the raw vectors; `chunks` stores the text and metadata. A JOIN on `rowid = id` links them.
 
+### Offload lifecycle
+
+`StorageLifecycle.offload()` requires a synced, indexed file. It downloads the stored
+object to temporary storage, decrypts it when needed, verifies the plaintext SHA-256,
+marks the file offloaded, and then removes the local source. Chunks and embeddings are
+retained. `fetch()` downloads atomically, verifies the same checksum, and marks the file
+present again. Sync ignores intentional offloads so they cannot be mistaken for local
+deletions.
+
 ---
 
 ## Configuration
 
-Config lives at `~/.sahara/config.toml`. `config.py` defines `SaharaConfig` as a dataclass with typed fields. The CLI reads it at startup and passes it down to every subsystem. There is intentionally no runtime config mutation — the config is a snapshot at process start.
+Config lives at `~/.sahara/config.toml`. `storage_mode = "none"` is the fresh-install
+default. Existing configuration files that predate `storage_mode` are loaded as S3
+configurations for compatibility. The CLI reads configuration at startup and passes a
+snapshot down to each subsystem.
 
 The TOML format is stable and user-editable. Do not add auto-generated comments or machine-managed sections to the config file.
 

@@ -14,6 +14,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - Claude Desktop launch guide with platform configuration, exact MCP tool contracts,
   security boundaries, verification, and troubleshooting
 - Three-step product plan for basic indexing with optional local-drive or AWS storage
+- Basic index-only mode with non-interactive `sahara init --mode basic --folder <path>`
+- Canonical content-root and index-inventory database tables
+- `sahara folder add/list/remove/sync` commands for index and sync scope management
+- `sahara storage configure local/aws` for upgrading an existing basic library
+- Checksum-verified `sahara offload` and `sahara fetch` with retained search metadata
+- Explicit storage residency in CLI search/list/status and MCP results
+- Local indexing that scans content roots without requiring sync records or storage
 
 ### Changed
 
@@ -21,6 +28,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - README quick start now demonstrates both CLI retrieval and cited Claude Desktop use
 - Documentation consolidated around current user, contributor, release, and architecture
   guidance; superseded specifications remain available through Git history
+- Fresh installations default to local indexing; legacy configs without `storage_mode`
+  retain their previous S3 behavior
+- `index-report` now reads the local index inventory rather than the sync file table
 
 ---
 

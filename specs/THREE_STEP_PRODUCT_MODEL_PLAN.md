@@ -343,13 +343,16 @@ CLI compatibility:
 
 ### Milestone A: Index-Only Foundation
 
-- Add `storage_mode = "none"`.
-- Split library and storage validation.
-- Add content-root and index-inventory migrations.
-- Refactor `sahara index` to scan content roots directly.
-- Refactor `index-report` to use index inventory.
-- Make search, ask, and MCP work with no backend.
-- Add basic interactive and non-interactive initialization.
+Status: implemented on June 6, 2026.
+
+- [x] Add `storage_mode = "none"`.
+- [x] Split library and storage validation.
+- [x] Add content-root and index-inventory migrations.
+- [x] Refactor `sahara index` to scan content roots directly.
+- [x] Refactor `index-report` to use index inventory.
+- [x] Make search, ask, and MCP work with no backend.
+- [x] Add basic interactive and non-interactive initialization.
+- [x] Add canonical index-only folder registration.
 
 Exit criterion:
 
@@ -364,32 +367,36 @@ works without a bucket or drive.
 
 ### Milestone B: Optional Storage Upgrade
 
-- Add `sahara storage configure`.
-- Add per-root sync selection.
-- Refactor sync to iterate only sync-enabled roots.
-- Add canonical folder commands and compatibility wrappers.
-- Preserve local, AWS, MinIO, and dual-write backend behavior.
+- [x] Add `sahara storage configure`.
+- [x] Add per-root sync selection.
+- [x] Refactor sync to iterate only sync-enabled roots.
+- [x] Add canonical folder commands and compatibility wrappers.
+- [x] Preserve local, AWS, MinIO, and dual-write backend behavior.
 
 Exit criterion: an existing basic library can add local-drive or AWS storage and sync
 one selected root without rebuilding the index or uploading unrelated roots.
 
 ### Milestone C: True Extended Storage
 
-- Add residency state.
-- Add `sahara offload` and `sahara fetch`.
-- Keep indexed chunks after offload.
-- Show local/offloaded state in search, list, status, and MCP results.
-- Add checksum and failure-recovery guarantees.
+Status: implemented on June 6, 2026.
+
+- [x] Add residency state.
+- [x] Add `sahara offload` and `sahara fetch`.
+- [x] Keep indexed chunks after offload.
+- [x] Show local/offloaded state in search, list, status, and MCP results.
+- [x] Add checksum and failure-recovery guarantees.
 
 Exit criterion: a user can safely free local disk space, still discover the file by
 semantic search, and restore it from local-drive or S3 storage.
 
 ### Milestone D: Onboarding and Release Hardening
 
-- Time all three clean-install paths.
-- Exercise migration from a current `v0.2.0` config and database.
-- Validate local-drive and live AWS behavior.
-- Update package/release metadata and publish a prerelease for external testing.
+- [ ] Time all three clean-install paths.
+- [x] Exercise migration from a current `v0.2.0` config and database in automated tests.
+- [x] Validate local-drive behavior with temporary-drive tests.
+- [ ] Validate live AWS behavior with a temporary bucket.
+- [x] Update package and release documentation.
+- [ ] Publish a prerelease for external testing.
 
 ## Test Plan
 

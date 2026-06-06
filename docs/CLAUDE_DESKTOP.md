@@ -10,7 +10,7 @@ Install Sahara with search and MCP support, initialize it, and build the local i
 
 ```bash
 pip install "sahara[search,mcp]"
-sahara init
+sahara init --mode basic --folder ~/Documents
 sahara index
 sahara index-report
 ```
@@ -134,7 +134,7 @@ Inputs:
 | `storage_prefix` | string or null | no | Restrict search to one configured Sahara prefix |
 
 Output: a list of objects containing `storage_prefix`, `relative_path`, `score`, and
-`snippet`.
+`snippet`, plus `local_state` (`present` or `offloaded`).
 
 ### `sahara_ask`
 
@@ -176,8 +176,8 @@ List the primary and additional folders configured in Sahara.
 
 Inputs: none.
 
-Output: a list containing `local_path`, `storage_prefix`, `role`, and, for additional
-folders, `added_at`.
+Output: a list containing `local_path`, `storage_prefix`, `role`, and `sync_enabled`.
+Index-only folders are included.
 
 ### `sahara_index_status`
 

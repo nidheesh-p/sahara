@@ -14,11 +14,13 @@ pip install "sahara[search,mcp]"
 Index files before connecting a chat client:
 
 ```bash
-sahara init
+sahara init --mode basic --folder ~/Documents
 sahara index
 sahara index-report
 sahara mcp serve
 ```
+
+MCP works in basic index-only mode; no storage backend or sync is required.
 
 For remote MCP clients such as Claude mobile, serve MCP over local HTTP and expose it
 through a secure HTTPS tunnel:
@@ -45,7 +47,8 @@ The first MCP surface is read-only:
 | `sahara_index_status` | Show indexed file/chunk counts and vector-index availability |
 
 The server does not expose sync mutation, file writes, shell execution, or arbitrary
-filesystem reads.
+filesystem reads. Search results identify intentionally offloaded files, but MCP does
+not expose offload or fetch operations.
 
 ## Claude Desktop
 

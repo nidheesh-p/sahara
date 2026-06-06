@@ -242,7 +242,14 @@ class SyncEngine:
                 result.remote_new.append(path)
 
             elif in_db and not in_local and in_manifest:
-                result.local_deleted.append(path)
+                residency = self._db.get_storage_residency(
+                    self._s3_prefix, path
+                )
+                if not (
+                    isinstance(residency, dict)
+                    and residency.get("local_state") == "offloaded"
+                ):
+                    result.local_deleted.append(path)
 
             elif in_db and in_local and not in_manifest:
                 result.remote_deleted.append(path)

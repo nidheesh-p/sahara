@@ -503,7 +503,7 @@ class TestDoctor:
         # Should warn about missing config
         assert "not found" in result.output.lower() or "not configured" in result.output.lower()
 
-    def test_doctor_no_bucket_warns(self, tmp_path: Path):
+    def test_doctor_basic_mode_needs_no_bucket(self, tmp_path: Path):
         runner = _runner()
         no_bucket_config = tmp_path / "cfg.toml"
         save_config(SaharaConfig(sync_folder=str(tmp_path / "sync")), no_bucket_config)
@@ -513,7 +513,7 @@ class TestDoctor:
         with patch("sahara.state_db.StateDB", return_value=mock_db):
             result = runner.invoke(main, ["--config", str(no_bucket_config), "doctor"])
             assert result.exit_code == 0
-            assert "bucket not configured" in result.output.lower() or "issue" in result.output.lower()
+            assert "basic index-only mode" in result.output.lower()
 
 
 # ---------------------------------------------------------------------------

@@ -70,6 +70,41 @@ CREATE TABLE IF NOT EXISTS sync_targets (
     added_at    TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS content_roots (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    local_path      TEXT    NOT NULL UNIQUE,
+    storage_prefix  TEXT    NOT NULL UNIQUE,
+    is_primary      INTEGER NOT NULL DEFAULT 0,
+    sync_enabled    INTEGER NOT NULL DEFAULT 0,
+    added_at        TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS index_entries (
+    storage_prefix  TEXT    NOT NULL DEFAULT '',
+    relative_path   TEXT    NOT NULL,
+    content_hash    TEXT,
+    size_bytes      INTEGER NOT NULL DEFAULT 0,
+    modified_ns     INTEGER NOT NULL DEFAULT 0,
+    status          TEXT    NOT NULL,
+    reason          TEXT,
+    last_seen_at    TEXT    NOT NULL,
+    indexed_at      TEXT,
+    PRIMARY KEY (storage_prefix, relative_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_index_entries_status
+    ON index_entries (storage_prefix, status);
+
+CREATE TABLE IF NOT EXISTS storage_residency (
+    storage_prefix  TEXT NOT NULL DEFAULT '',
+    relative_path   TEXT NOT NULL,
+    local_state     TEXT NOT NULL,
+    remote_state    TEXT NOT NULL,
+    offloaded_at    TEXT,
+    fetched_at      TEXT,
+    PRIMARY KEY (storage_prefix, relative_path)
+);
+
 CREATE TABLE IF NOT EXISTS config_kv (
     key     TEXT    PRIMARY KEY,
     value   TEXT    NOT NULL
@@ -270,6 +305,48 @@ def _migrate_v3(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_v4(conn: sqlite3.Connection) -> None:
+    """Backfill index inventory from existing semantic-search records."""
+    marker = conn.execute(
+        "SELECT value FROM config_kv WHERE key = 'schema_v4_backfilled'"
+    ).fetchone()
+    if marker is not None:
+        return
+
+    conn.execute("""
+        INSERT INTO index_entries (
+            storage_prefix, relative_path, content_hash, size_bytes, modified_ns,
+            status, reason, last_seen_at, indexed_at
+        )
+        SELECT
+            s3_prefix, relative_path, sha256_checksum, size_bytes, 0,
+            'pending', 'migrated_sync_record', last_sync_at, NULL
+        FROM files
+        WHERE is_deleted = 0
+        ON CONFLICT(storage_prefix, relative_path) DO NOTHING
+    """)
+    conn.execute("""
+        INSERT INTO index_entries (
+            storage_prefix, relative_path, content_hash, size_bytes, modified_ns,
+            status, reason, last_seen_at, indexed_at
+        )
+        SELECT
+            s3_prefix, relative_path, content_hash, 0, 0,
+            'indexed', 'migrated', indexed_at, indexed_at
+        FROM embeddings
+        WHERE 1
+        ON CONFLICT(storage_prefix, relative_path) DO UPDATE SET
+            content_hash = excluded.content_hash,
+            status = 'indexed',
+            reason = 'migrated',
+            indexed_at = excluded.indexed_at
+    """)
+    conn.execute(
+        "INSERT INTO config_kv (key, value) VALUES ('schema_v4_backfilled', '1')"
+    )
+    conn.commit()
+
+
 class StateDB:
     """Manages the local SQLite state database for Sahara.
 
@@ -300,6 +377,7 @@ class StateDB:
         conn.executescript(_SCHEMA_SQL)
         conn.commit()
         _migrate_v3(conn)
+        _migrate_v4(conn)
         self._conn = conn
         return self
 
@@ -685,6 +763,384 @@ class StateDB:
             "SELECT * FROM sync_targets WHERE s3_prefix = ?", (s3_prefix,)
         ).fetchone()
         return dict(row) if row else None
+
+    # ------------------------------------------------------------------
+    # content_roots table
+    # ------------------------------------------------------------------
+
+    def upsert_content_root(
+        self,
+        local_path: str,
+        storage_prefix: str,
+        *,
+        is_primary: bool = False,
+        sync_enabled: bool = False,
+    ) -> None:
+        """Register a folder that Sahara indexes, optionally enabling sync."""
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        resolved = str(Path(local_path).expanduser().resolve())
+        with self.transaction():
+            existing = self.conn.execute(
+                "SELECT id, is_primary, sync_enabled FROM content_roots "
+                "WHERE local_path = ? OR storage_prefix = ?",
+                (resolved, storage_prefix.strip("/")),
+            ).fetchone()
+            if existing:
+                self.conn.execute(
+                    "UPDATE content_roots SET local_path = ?, storage_prefix = ?, "
+                    "is_primary = ?, sync_enabled = ? WHERE id = ?",
+                    (
+                        resolved,
+                        storage_prefix.strip("/"),
+                        max(int(is_primary), existing["is_primary"]),
+                        max(int(sync_enabled), existing["sync_enabled"]),
+                        existing["id"],
+                    ),
+                )
+            else:
+                self.conn.execute(
+                    "INSERT INTO content_roots "
+                    "(local_path, storage_prefix, is_primary, sync_enabled, added_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        resolved,
+                        storage_prefix.strip("/"),
+                        int(is_primary),
+                        int(sync_enabled),
+                        now,
+                    ),
+                )
+
+    def remove_content_root(self, local_path: str) -> None:
+        """Remove a non-primary content root registration."""
+        with self.transaction():
+            self.conn.execute(
+                "DELETE FROM content_roots WHERE local_path = ? AND is_primary = 0",
+                (str(Path(local_path).expanduser().resolve()),),
+            )
+
+    def set_content_root_sync(self, local_path: str, enabled: bool) -> None:
+        """Enable or disable storage sync for a content root."""
+        with self.transaction():
+            self.conn.execute(
+                "UPDATE content_roots SET sync_enabled = ? WHERE local_path = ?",
+                (
+                    int(enabled),
+                    str(Path(local_path).expanduser().resolve()),
+                ),
+            )
+
+    def list_content_roots(self, *, sync_enabled: bool | None = None) -> list[dict]:
+        """Return all indexed content roots, with the primary root first."""
+        params: tuple[object, ...] = ()
+        where = ""
+        if sync_enabled is not None:
+            where = "WHERE sync_enabled = ?"
+            params = (int(sync_enabled),)
+        rows = self.conn.execute(
+            "SELECT id, local_path, storage_prefix, is_primary, sync_enabled, added_at "
+            f"FROM content_roots {where} "
+            "ORDER BY is_primary DESC, added_at ASC",
+            params,
+        ).fetchall()
+        return [
+            {
+                **dict(row),
+                "is_primary": bool(row["is_primary"]),
+                "sync_enabled": bool(row["sync_enabled"]),
+            }
+            for row in rows
+        ]
+
+    def get_content_root(self, local_path: str) -> dict | None:
+        """Return a content root by its resolved local path."""
+        row = self.conn.execute(
+            "SELECT id, local_path, storage_prefix, is_primary, sync_enabled, added_at "
+            "FROM content_roots WHERE local_path = ?",
+            (str(Path(local_path).expanduser().resolve()),),
+        ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        result["is_primary"] = bool(result["is_primary"])
+        result["sync_enabled"] = bool(result["sync_enabled"])
+        return result
+
+    # ------------------------------------------------------------------
+    # index_entries table
+    # ------------------------------------------------------------------
+
+    def upsert_index_entry(
+        self,
+        storage_prefix: str,
+        relative_path: str,
+        *,
+        content_hash: str | None,
+        size_bytes: int,
+        modified_ns: int,
+        status: str,
+        reason: str | None = None,
+        indexed_at: str | None = None,
+    ) -> None:
+        """Insert or update one file in the index inventory."""
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        with self.transaction():
+            self.conn.execute(
+                """
+                INSERT INTO index_entries (
+                    storage_prefix, relative_path, content_hash, size_bytes,
+                    modified_ns, status, reason, last_seen_at, indexed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(storage_prefix, relative_path) DO UPDATE SET
+                    content_hash = excluded.content_hash,
+                    size_bytes = excluded.size_bytes,
+                    modified_ns = excluded.modified_ns,
+                    status = excluded.status,
+                    reason = excluded.reason,
+                    last_seen_at = excluded.last_seen_at,
+                    indexed_at = COALESCE(excluded.indexed_at, index_entries.indexed_at)
+                """,
+                (
+                    storage_prefix,
+                    relative_path,
+                    content_hash,
+                    size_bytes,
+                    modified_ns,
+                    status,
+                    reason,
+                    now,
+                    indexed_at,
+                ),
+            )
+
+    def list_index_entries(
+        self,
+        *,
+        storage_prefix: str | None = None,
+        status: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict]:
+        """Return index inventory rows with optional filters."""
+        conditions: list[str] = []
+        params: list[object] = []
+        if storage_prefix is not None:
+            conditions.append("storage_prefix = ?")
+            params.append(storage_prefix)
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        limit_sql = ""
+        if limit is not None:
+            limit_sql = " LIMIT ?"
+            params.append(max(0, limit))
+        rows = self.conn.execute(
+            "SELECT * FROM index_entries "
+            f"{where} ORDER BY storage_prefix, relative_path{limit_sql}",
+            params,
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def count_index_entries(
+        self,
+        *,
+        storage_prefix: str | None = None,
+        status: str | None = None,
+    ) -> int:
+        """Count index inventory rows with optional filters."""
+        conditions: list[str] = []
+        params: list[object] = []
+        if storage_prefix is not None:
+            conditions.append("storage_prefix = ?")
+            params.append(storage_prefix)
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        row = self.conn.execute(
+            f"SELECT COUNT(*) FROM index_entries {where}", params
+        ).fetchone()
+        return row[0] if row else 0
+
+    def mark_unseen_index_entries_missing(
+        self, storage_prefix: str, seen_paths: set[str]
+    ) -> list[str]:
+        """Mark inventory rows absent from the latest scan as missing."""
+        rows = self.conn.execute(
+            "SELECT relative_path FROM index_entries "
+            "WHERE storage_prefix = ? AND status != 'offloaded'",
+            (storage_prefix,),
+        ).fetchall()
+        missing = [row["relative_path"] for row in rows if row["relative_path"] not in seen_paths]
+        if missing:
+            now = datetime.datetime.now(datetime.UTC).isoformat()
+            with self.transaction():
+                self.conn.executemany(
+                    "UPDATE index_entries SET status = 'missing', reason = 'not_found', "
+                    "last_seen_at = ? WHERE storage_prefix = ? AND relative_path = ?",
+                    [(now, storage_prefix, path) for path in missing],
+                )
+        return missing
+
+    def delete_search_index_for_file(
+        self, storage_prefix: str, relative_path: str
+    ) -> None:
+        """Remove all searchable data for a file that was truly deleted."""
+        chunk_ids = self.delete_chunks_for_file(storage_prefix, relative_path)
+        if chunk_ids and self.has_vec_table():
+            self.delete_vec_chunks(chunk_ids)
+        with self.transaction():
+            self.conn.execute(
+                "DELETE FROM embeddings WHERE s3_prefix = ? AND relative_path = ?",
+                (storage_prefix, relative_path),
+            )
+
+    def delete_index_for_prefix(self, storage_prefix: str) -> None:
+        """Remove inventory and searchable data for an entire content root."""
+        entries = self.list_index_entries(storage_prefix=storage_prefix)
+        for entry in entries:
+            self.delete_search_index_for_file(
+                storage_prefix, entry["relative_path"]
+            )
+        with self.transaction():
+            self.conn.execute(
+                "DELETE FROM index_entries WHERE storage_prefix = ?",
+                (storage_prefix,),
+            )
+
+    def count_index_entries_by_status(self) -> dict[str, int]:
+        """Return index inventory counts grouped by status."""
+        rows = self.conn.execute(
+            "SELECT status, COUNT(*) AS count FROM index_entries GROUP BY status "
+            "ORDER BY count DESC"
+        ).fetchall()
+        return {row["status"]: row["count"] for row in rows}
+
+    def count_unindexed_entries_by_extension(self) -> dict[str, int]:
+        """Return non-indexed inventory rows grouped by extension."""
+        rows = self.conn.execute(
+            "SELECT relative_path FROM index_entries WHERE status != 'indexed'"
+        ).fetchall()
+        counts: dict[str, int] = {}
+        for row in rows:
+            suffix = Path(row["relative_path"]).suffix.lower() or "(none)"
+            counts[suffix] = counts.get(suffix, 0) + 1
+        return dict(sorted(counts.items(), key=lambda item: item[1], reverse=True))
+
+    # ------------------------------------------------------------------
+    # storage_residency table
+    # ------------------------------------------------------------------
+
+    def set_storage_residency(
+        self,
+        storage_prefix: str,
+        relative_path: str,
+        *,
+        local_state: str,
+        remote_state: str,
+    ) -> None:
+        """Record whether a stored file is local, offloaded, or missing."""
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        offloaded_at = now if local_state == "offloaded" else None
+        fetched_at = now if local_state == "present" else None
+        with self.transaction():
+            self.conn.execute(
+                """
+                INSERT INTO storage_residency (
+                    storage_prefix, relative_path, local_state, remote_state,
+                    offloaded_at, fetched_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(storage_prefix, relative_path) DO UPDATE SET
+                    local_state = excluded.local_state,
+                    remote_state = excluded.remote_state,
+                    offloaded_at = COALESCE(
+                        excluded.offloaded_at, storage_residency.offloaded_at
+                    ),
+                    fetched_at = COALESCE(
+                        excluded.fetched_at, storage_residency.fetched_at
+                    )
+                """,
+                (
+                    storage_prefix,
+                    relative_path,
+                    local_state,
+                    remote_state,
+                    offloaded_at,
+                    fetched_at,
+                ),
+            )
+
+    def set_storage_lifecycle(
+        self,
+        storage_prefix: str,
+        relative_path: str,
+        *,
+        local_state: str,
+        remote_state: str,
+        index_status: str,
+        reason: str | None,
+    ) -> None:
+        """Update residency and index status in one database transaction."""
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        offloaded_at = now if local_state == "offloaded" else None
+        fetched_at = now if local_state == "present" else None
+        with self.transaction():
+            self.conn.execute(
+                """
+                INSERT INTO storage_residency (
+                    storage_prefix, relative_path, local_state, remote_state,
+                    offloaded_at, fetched_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(storage_prefix, relative_path) DO UPDATE SET
+                    local_state = excluded.local_state,
+                    remote_state = excluded.remote_state,
+                    offloaded_at = COALESCE(
+                        excluded.offloaded_at, storage_residency.offloaded_at
+                    ),
+                    fetched_at = COALESCE(
+                        excluded.fetched_at, storage_residency.fetched_at
+                    )
+                """,
+                (
+                    storage_prefix,
+                    relative_path,
+                    local_state,
+                    remote_state,
+                    offloaded_at,
+                    fetched_at,
+                ),
+            )
+            self.conn.execute(
+                "UPDATE index_entries SET status = ?, reason = ? "
+                "WHERE storage_prefix = ? AND relative_path = ?",
+                (index_status, reason, storage_prefix, relative_path),
+            )
+
+    def get_storage_residency(
+        self, storage_prefix: str, relative_path: str
+    ) -> dict | None:
+        """Return storage residency for one file."""
+        row = self.conn.execute(
+            "SELECT * FROM storage_residency "
+            "WHERE storage_prefix = ? AND relative_path = ?",
+            (storage_prefix, relative_path),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def set_index_entry_status(
+        self,
+        storage_prefix: str,
+        relative_path: str,
+        status: str,
+        reason: str | None = None,
+    ) -> None:
+        """Update status for an existing inventory row."""
+        with self.transaction():
+            self.conn.execute(
+                "UPDATE index_entries SET status = ?, reason = ? "
+                "WHERE storage_prefix = ? AND relative_path = ?",
+                (status, reason, storage_prefix, relative_path),
+            )
 
     # ------------------------------------------------------------------
     # embeddings table (for semantic search)
