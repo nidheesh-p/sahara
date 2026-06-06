@@ -295,6 +295,7 @@ secrets/
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System design, storage protocols, search pipeline, SQLite schema
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Dev setup, test conventions, how to add a storage backend
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Community expectations and private incident reporting
 - [STATUS.md](STATUS.md) — Current project status, completed work, and remaining tasks
 - [ROADMAP.md](ROADMAP.md) — What is built, what is next, explicit non-goals
 - [SECURITY.md](SECURITY.md) — Encryption wire format, threat model, vulnerability reporting
@@ -307,4 +308,4 @@ secrets/
 
 ## License
 
-MIT
+MIT, copyright Nidheesh Puthalath.
