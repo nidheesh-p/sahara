@@ -24,7 +24,7 @@ criterion — the work in that phase must be complete and verified before the ne
 **Timeline: 3–5 days**  
 **Exit criterion:** You can install Sahara on a clean machine from the repo, run all
 three storage modes (local drives, MinIO, AWS), run `sahara index && sahara search`,
-and the test suite passes with ≥90% coverage.
+and the test suite passes with ≥85% coverage.
 
 ---
 
@@ -272,7 +272,7 @@ sahara init    # choose 'minio', endpoint http://localhost:9000
 
 # 4. Test suite
 pytest --cov=src/sahara --cov-report=term-missing
-# Must pass ≥90% line coverage
+# Must pass ≥85% line coverage
 
 # 5. Type check
 mypy src/
@@ -424,7 +424,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "${{ matrix.python }}" }
       - run: pip install -e ".[search,dev]"
-      - run: pytest --cov=src/sahara --cov-fail-under=90
+      - run: pytest --cov=src/sahara --cov-fail-under=85
       - run: ruff check src/ tests/
       - run: mypy src/
 

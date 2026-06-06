@@ -34,7 +34,7 @@ Latest local verification:
 
 Current CI coverage threshold:
 
-- Keep `--cov-fail-under=80` for now. The implementation plan's 90% target remains aspirational until the suite is ready for that stricter gate.
+- Require `--cov-fail-under=85` in CI and the PR checklist.
 
 Warning cleanup:
 
@@ -62,7 +62,7 @@ Warning cleanup:
 ### Phase 0 / Phase 1 Hardening
 
 - Confirmed PR #8 merge CI passed on `main`.
-- Kept CI coverage threshold at 80% by decision.
+- Set the CI coverage threshold to 85% by decision.
 - Fixed `pathspec` deprecation warning noise.
 - Ran a clean virtual-environment install with `[search,dev]` extras.
 - Fixed the CLI/package version mismatch so `sahara --version` reports `0.2.0`.
