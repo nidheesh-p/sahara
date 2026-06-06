@@ -1,14 +1,16 @@
 # Sahara Project Status
 
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 ## Current Repository State
 
-- Active local branch: `release/v0.2.0`
+- Active local branch: `main`
 - Base branch: `main`
-- Working tree: preparing the first tagged GitHub release
-- Latest merged PR: [#12 Secure remote MCP transport](https://github.com/nidheesh-p/sahara/pull/12)
-- Latest `origin/main` state: merge commit `9957ef7`
+- Working tree: clean and aligned with `origin/main`
+- Latest merged PR: [#14 Include license and release docs in package](https://github.com/nidheesh-p/sahara/pull/14)
+- Latest `origin/main` state: merge commit `fd9b12c`
+- Latest release: [`v0.2.0`](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0), published June 6, 2026
+- Next active milestone: Phase 2 client validation and contributor onboarding
 
 ## Verification
 
@@ -31,6 +33,9 @@ Latest local verification:
 - Remote MCP security checks: `pytest tests/test_mcp_server.py -q`, `mypy src/sahara/mcp_server.py src/sahara/cli.py`, `ruff check src/sahara/mcp_server.py src/sahara/cli.py tests/test_mcp_server.py`, and `git diff --check` passed
 - Remote MCP CLI smoke: `sahara mcp serve --transport http` now rejects unauthenticated HTTP/SSE transports unless `--allow-insecure-http` is explicitly set
 - Release artifact verification: built wheel/sdist into `/tmp/sahara-release-pr-dist`, confirmed updated MCP/docs files are included, installed the wheel into `/tmp/sahara-release-pr-venv`, and verified `sahara.__version__ == "0.2.0"`
+- Final `v0.2.0` verification: built artifacts from commit `fd9b12c`, installed the wheel in a fresh virtual environment, and confirmed version and MIT license metadata
+- Published artifact checksums: wheel `71d41719279b274bee5c31b421c18f0efe89dd2a220abf1a038a78eb753229b0`; sdist `e596182144223f6066da027c5317ec38d131e85c4bc4a5c0c4ab0138f084ffed`
+- GitHub release assets: wheel, source distribution, and `SHA256SUMS` are attached to [`v0.2.0`](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0)
 
 Current CI coverage threshold:
 
@@ -106,14 +111,22 @@ Status: implementation complete and merged through PR #12.
 - MCP exposure can be narrowed with `--allow-tool`, `--allow-storage-prefix`, and `--max-snippet-chars`.
 - Claude Desktop docs, Claude mobile/ngrok docs, and OpenClaw guidance exist under `docs/integrations/`.
 
+### First GitHub Release
+
+Status: complete.
+
+- Prepared the `v0.2.0` changelog and roadmap through PR #13.
+- Added the MIT license and complete source-distribution documentation through PR #14.
+- Verified the final wheel and source distribution from commit `fd9b12c`.
+- Created and pushed the annotated `v0.2.0` tag.
+- Published the first [GitHub release](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0) with the wheel, source distribution, and SHA-256 checksums.
+
 ## Remaining Work
 
-### Release Readiness
+### Distribution Follow-Up
 
-1. Merge the `v0.2.0` release-preparation PR after CI passes.
-2. Build and inspect wheel/sdist from the final `main` commit.
-3. Optional: publish to TestPyPI and install from the published artifact when credentials are available.
-4. Create the `v0.2.0` tag and publish the first GitHub release with verified artifacts.
+1. Optional: publish to TestPyPI and install from the published artifact when credentials are available.
+2. Decide when Sahara is ready for its first PyPI publication.
 
 ### Phase 2: MCP / Chat and Agent Integrations
 
