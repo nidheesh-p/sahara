@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+### Added
+
+- Contributor Covenant 3.0 code of conduct with private incident reporting
+
+### Changed
+
+- Package and license metadata now identify Nidheesh Puthalath as the maintainer
+
 ---
 
 ## [0.2.0] — 2026-06-05

@@ -7,14 +7,12 @@ testing, packaging, and the first GitHub release are already complete.
 
 ## Required Before Wider Promotion
 
-- [ ] Add a root `CODE_OF_CONDUCT.md` using Contributor Covenant.
-- [ ] Replace the generic `Sahara Authors` package metadata with the maintainer's name
+- [x] Add a root `CODE_OF_CONDUCT.md` using Contributor Covenant.
+- [x] Replace the generic `Sahara Authors` package metadata with the maintainer's name
       and preferred public contact.
-- [ ] Run a dedicated history scan with `gitleaks` or `trufflehog` and document the
+- [x] Run a dedicated history scan with `gitleaks` or `trufflehog` and document the
       result.
-- [ ] Review scanner findings and distinguish real secrets from test fixtures. The
-      current lightweight scan found only the standard AWS documentation example key
-      used by an S3 client test.
+- [x] Review scanner findings and distinguish real secrets from test fixtures.
 - [ ] Test `CONTRIBUTING.md` from a fresh clone and clean environment as though joining
       the project for the first time.
 
@@ -44,6 +42,7 @@ testing, packaging, and the first GitHub release are already complete.
 
 - [x] Root MIT `LICENSE` file included in source and wheel distributions.
 - [x] `CONTRIBUTING.md` with setup, tests, Ruff, mypy, and PR guidance.
+- [x] Contributor Covenant 3.0 code of conduct with a private reporting path.
 - [x] `SECURITY.md` with threat model and private vulnerability reporting.
 - [x] `CHANGELOG.md` with `v0.1.0` and `v0.2.0` history.
 - [x] CI on Linux and macOS for Python 3.11 and 3.12.
@@ -63,8 +62,13 @@ testing, packaging, and the first GitHub release are already complete.
   missing files and automation now exist.
 - Current measured coverage is 89.40%; the enforced project requirement is 85%, not
   90%.
-- The lightweight history scan found no private-key headers and no unknown AWS access
-  keys. It did find the public AWS documentation example credential pair in a test.
+- Gitleaks `v8.30.1` scanned all 34 reachable commits on 2026-06-06 and reported zero
+  leaks. The downloaded macOS arm64 scanner was verified against its published SHA-256
+  checksum before use.
+- Reproduce the history audit with:
+  `gitleaks git . --log-opts="--all" --redact=100`.
+- A separate lightweight pattern scan found the public AWS documentation example
+  credential pair in a test; Gitleaks correctly did not classify it as a leak.
 - Git commit author emails are public repository metadata by design. Maintainers should
   use a GitHub noreply address if they do not want a personal email exposed in future
   commits.

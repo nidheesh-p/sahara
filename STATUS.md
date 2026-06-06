@@ -7,8 +7,8 @@ Last updated: 2026-06-06
 - Active local branch: `main`
 - Base branch: `main`
 - Working tree: clean and aligned with `origin/main`
-- Latest merged PR: [#16 Align MCP completion status and future integrations](https://github.com/nidheesh-p/sahara/pull/16)
-- Latest `origin/main` state: merge commit `a3bd8ec`
+- Latest merged PR: [#17 Add open source readiness checklist](https://github.com/nidheesh-p/sahara/pull/17)
+- Latest `origin/main` state: merge commit `bb65286`
 - Latest release: [`v0.2.0`](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0), published June 6, 2026
 - Next active milestone: Phase 2 client validation and contributor onboarding
 
@@ -36,6 +36,7 @@ Latest local verification:
 - Final `v0.2.0` verification: built artifacts from commit `fd9b12c`, installed the wheel in a fresh virtual environment, and confirmed version and MIT license metadata
 - Published artifact checksums: wheel `71d41719279b274bee5c31b421c18f0efe89dd2a220abf1a038a78eb753229b0`; sdist `e596182144223f6066da027c5317ec38d131e85c4bc4a5c0c4ab0138f084ffed`
 - GitHub release assets: wheel, source distribution, and `SHA256SUMS` are attached to [`v0.2.0`](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0)
+- Contributor trust audit: Contributor Covenant 3.0 added, maintainer metadata set to Nidheesh Puthalath, and Gitleaks `v8.30.1` scanned all 34 reachable commits with zero findings
 
 Current CI coverage threshold:
 
