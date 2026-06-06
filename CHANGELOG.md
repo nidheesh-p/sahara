@@ -29,6 +29,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - **Authenticated remote MCP** — HTTP/streamable transport with bearer-token protection for secure tunnel and remote-client workflows
 - **MCP exposure controls** — tool and storage-prefix allowlists, snippet-size limits, and warnings for non-loopback bindings
 - **`sahara index-report`** — reports indexed/unindexed file counts, skip reasons, and sample indexing gaps
+- **MIT license file** — included in the repository, wheel metadata, and source distribution
 
 ### Changed
 
