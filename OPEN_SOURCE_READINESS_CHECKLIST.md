@@ -15,6 +15,15 @@ testing, packaging, and the first GitHub release are already complete.
 - [x] Review scanner findings and distinguish real secrets from test fixtures.
 - [ ] Test `CONTRIBUTING.md` from a fresh clone and clean environment as though joining
       the project for the first time.
+- [x] Publish `docs/CLAUDE_DESKTOP.md` with the exact stdio command, macOS and Windows
+      config locations, copy-pasteable JSON, verification steps, and common fixes.
+- [x] Document every MCP tool's inputs and outputs plus the read-only/indexed-corpus
+      security boundary.
+- [ ] Time a cold-start Claude Desktop dry run on a clean macOS or Windows
+      account/machine: install, initialize, index a known document, connect Claude,
+      and receive one cited answer.
+- [ ] Record the cold-start OS, install method, elapsed time, friction, and result.
+      Target: under five minutes end-to-end; revise the guide if it takes longer.
 
 ## README Polish
 
@@ -26,8 +35,10 @@ testing, packaging, and the first GitHub release are already complete.
       do not imply that it replaces mature backup/versioning tools.
 - [ ] Add a short known-limitations section linking to `ARCHITECTURE.md` and
       `ROADMAP.md`.
-- [ ] Record a small terminal demo of `sahara init`, `sahara index`, and
-      `sahara search`. Prefer an asciinema recording or compact screenshot.
+- [ ] Record a two-flow demo:
+      (a) `sahara init` → `sahara index` → `sahara search` in the CLI, and
+      (b) the same query in Claude Desktop with Sahara-provided citations.
+      Prefer an asciinema recording plus a compact Claude Desktop screenshot.
 - [ ] Add a PyPI badge only after the package is actually published to PyPI.
 
 ## Distribution Follow-Up
@@ -72,3 +83,13 @@ testing, packaging, and the first GitHub release are already complete.
 - Git commit author emails are public repository metadata by design. Maintainers should
   use a GitHub noreply address if they do not want a personal email exposed in future
   commits.
+- Supported today: Claude Desktop using a local stdio MCP server. "Supported" means
+  Sahara documents the configuration, exposes a stable read-only tool surface, and
+  covers server behavior with automated tests. The clean-machine timed acceptance test
+  remains pending.
+- Claude mobile remote MCP is documented but still awaiting end-to-end validation.
+- Claude Code and Cursor consume MCP in general, but Sahara has not completed
+  client-specific validation or support documentation for either one.
+- OpenClaw remains on the future roadmap.
+- ChatGPT remains a future client path because MCP availability and configuration vary
+  by ChatGPT mode; do not promise ChatGPT support in launch materials.

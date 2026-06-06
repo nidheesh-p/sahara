@@ -36,7 +36,8 @@ cite where it came from, and avoid broad filesystem access unless you explicitly
 - **Ask** natural language questions: `sahara ask "what is my passport expiry date?"` extracts the answer and cites the source
 - **Expose read-only MCP tools** for chat clients and agent runtimes with `sahara mcp serve`
 
-All search and answer generation runs locally. Your files never leave your machine for indexing purposes.
+Indexing and semantic search run locally. Answer generation uses local Ollama by
+default, but retrieved snippets are sent to OpenAI when that provider is selected.
 
 ## What is coming next
 
@@ -82,13 +83,56 @@ pip install -e ".[search,dev]"
 
 ## Quick start
 
-Three commands to your first semantic search:
+### Flow A: CLI search
 
 ```bash
-pip install "sahara[search]"
+pip install "sahara[search,mcp]"
 sahara init          # 2-minute interactive wizard — choose local, MinIO, or S3
-sahara index && sahara search "my tax return 2024"
+sahara index
+sahara search "my tax return 2024" --snippet
 ```
+
+### Flow B: Ask from Claude Desktop
+
+After connecting Claude Desktop, ask the same question:
+
+```text
+Use Sahara to find my tax return from 2024.
+Include the source path and supporting snippet.
+```
+
+Claude calls Sahara's read-only MCP tools and returns citations from the same local
+index used by the CLI.
+
+---
+
+## Connecting to Claude Desktop in 60 seconds
+
+Prerequisite: Sahara is installed, initialized, and indexed.
+
+1. Find the executable path with `command -v sahara` on macOS or
+   `(Get-Command sahara).Source` in Windows PowerShell.
+2. In Claude Desktop, open **Settings > Developer > Edit Config**.
+3. Add this entry, replacing the command with the absolute path:
+
+```json
+{
+  "mcpServers": {
+    "sahara": {
+      "command": "/absolute/path/to/sahara",
+      "args": ["mcp", "serve", "--transport", "stdio"]
+    }
+  }
+}
+```
+
+4. Fully quit and reopen Claude Desktop.
+5. Click the plus icon in the chat input, open **Connectors**, and confirm **sahara**
+   lists its tools.
+
+Claude Desktop runs Sahara locally over stdio. Do not use HTTP or ngrok for this
+same-computer setup. See [docs/CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) for platform
+config locations, the complete tool contract, security boundaries, and troubleshooting.
 
 ---
 
@@ -302,6 +346,7 @@ secrets/
 - [CHANGELOG.md](CHANGELOG.md) — Release history
 - [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) — Pre-release verification and publish checklist
 - [OPEN_SOURCE_READINESS_CHECKLIST.md](OPEN_SOURCE_READINESS_CHECKLIST.md) — Contributor-facing polish and trust checklist
+- [docs/CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) — Claude Desktop setup, MCP tool contract, security, and troubleshooting
 - [docs/integrations/chat-agents.md](docs/integrations/chat-agents.md) — MCP and Claude integration notes
 
 ---
