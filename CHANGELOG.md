@@ -8,15 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
-### Changed
-
-- Updated public project positioning to "Sahara: extended storage, searchable memory and instant retrieval."
-- Added HTTP/streamable MCP transport options for remote clients and secure tunnel workflows.
-- Added bearer-token protection, loopback binding warnings, tool/folder allowlists, and text limits for remote MCP.
-
 ---
 
-## [0.2.0] — 2026-05-27
+## [0.2.0] — 2026-06-05
 
 ### Added
 
@@ -31,17 +25,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - **PDF and DOCX extraction** — `pypdf` and `python-docx` are optional dependencies under `[search]`
 - **`sahara doctor --repair`** — diagnose and auto-fix common configuration problems
 - **SHA-256 utility** — shared `utils/hash.py` used by both sync and search (previously duplicated)
+- **Read-only MCP server** — exposes search, ask, chunk reads, folder listing, and index status to Claude Desktop and other MCP clients
+- **Authenticated remote MCP** — HTTP/streamable transport with bearer-token protection for secure tunnel and remote-client workflows
+- **MCP exposure controls** — tool and storage-prefix allowlists, snippet-size limits, and warnings for non-loopback bindings
+- **`sahara index-report`** — reports indexed/unindexed file counts, skip reasons, and sample indexing gaps
 
 ### Changed
 
-- `pyproject.toml`: description moved away from S3-only cloud storage toward local-first storage and semantic search
+- Public positioning updated to "Sahara: extended storage, searchable memory and instant retrieval"
 - `_require_config` guard: local drive mode no longer requires a bucket to be configured
 - Storage modules reorganised into `src/sahara/storage/`, sync modules into `src/sahara/sync/`
+- Indexing skips unsupported binary media instead of attempting noisy text extraction
 
 ### Fixed
 
 - Manifest locking race condition under concurrent syncs
 - False abort in local drive mode due to missing bucket check
+- Optional MCP dependency tests now skip cleanly when the `[mcp]` extra is not installed
 
 ---
 

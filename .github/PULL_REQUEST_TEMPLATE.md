@@ -22,7 +22,7 @@ Closes #
 
 - [ ] New tests added for the changed behaviour
 - [ ] Existing tests pass (`pytest`)
-- [ ] Coverage remains ≥ 90% (`pytest --cov=src/sahara --cov-fail-under=90`)
+- [ ] Coverage remains ≥ 85% (`pytest --cov=src/sahara --cov-fail-under=85`)
 - [ ] Linting clean (`ruff check src/ tests/`)
 - [ ] Type check clean (`mypy src/`)
 

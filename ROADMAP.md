@@ -11,17 +11,20 @@
 - **Search:** chunked semantic search via sqlite-vec (BAAI/bge-small-en-v1.5, 384-dim)
 - **Ask:** natural language question answering via local Ollama or OpenAI (optional; degrades gracefully)
 - **Parsers:** PDF (pypdf), DOCX (python-docx), plain text, Markdown, code files
+- **MCP:** read-only local stdio and authenticated HTTP transports for Claude Desktop, remote clients, and agent runtimes
+- **MCP security:** bearer-token auth, tool/folder allowlists, snippet limits, and non-loopback binding warnings
+- **Integration guides:** Claude Desktop, Claude mobile via secure tunnel, and OpenClaw
 
 ---
 
 ## Next (v0.3)
 
-- **Local MCP server:** expose Sahara search/ask as read-only MCP tools for Claude Desktop, OpenClaw, and other agent clients
-- **Chat/agent integrations:** integration guides for OpenClaw, Claude Desktop, and future ChatGPT connector paths
 - **Hybrid retrieval:** BM25 keyword search (sqlite-fts5, no new dependency) + vector search merged via Reciprocal Rank Fusion
 - **Cross-encoder reranking:** optional future plugin — the top merged results are re-scored by a cross-encoder model for much better precision on ambiguous queries
 - **Entity extraction:** structured extraction of dates, names, amounts, and document types from indexed content — enables queries like `sahara ask "invoices over $500 in March"`
 - **Rucksack backend:** Backblaze B2, Cloudflare R2, Wasabi via a thin wrapper (no new SDK dependency)
+- **OAuth for remote MCP:** support clients that cannot provide a static bearer token
+- **ChatGPT connector path:** document only when authentication and local-first privacy expectations can be preserved
 
 ---
 

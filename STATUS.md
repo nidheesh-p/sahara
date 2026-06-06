@@ -1,20 +1,20 @@
 # Sahara Project Status
 
-Last updated: 2026-06-03
+Last updated: 2026-06-05
 
 ## Current Repository State
 
-- Active local branch: `feat/mcp-chat-agent-integration`
+- Active local branch: `release/v0.2.0`
 - Base branch: `main`
-- Working tree: contains Phase 2 MCP/chat-agent implementation updates
-- Latest merged PR: [#9 Document Sahara chat and agent integration plan](https://github.com/nidheesh-p/sahara/pull/9)
-- Latest `main` state: local `main` is aligned with `origin/main` at merge commit `9682140`
+- Working tree: preparing the first tagged GitHub release
+- Latest merged PR: [#12 Secure remote MCP transport](https://github.com/nidheesh-p/sahara/pull/12)
+- Latest `origin/main` state: merge commit `9957ef7`
 
 ## Verification
 
 Latest local verification:
 
-- `pytest`: 780 passed
+- `pytest`: 780 passed with 89.40% coverage
 - `ruff check .`: passed
 - `mypy src`: passed
 - Clean-venv install: `pip install -e ".[search,dev]"` passed
@@ -34,7 +34,7 @@ Latest local verification:
 
 Current CI coverage threshold:
 
-- Keep `--cov-fail-under=80` for now. The implementation plan's 90% target remains aspirational until the suite is ready for that stricter gate.
+- Require `--cov-fail-under=85` in CI and the PR checklist.
 
 Warning cleanup:
 
@@ -62,7 +62,7 @@ Warning cleanup:
 ### Phase 0 / Phase 1 Hardening
 
 - Confirmed PR #8 merge CI passed on `main`.
-- Kept CI coverage threshold at 80% by decision.
+- Set the CI coverage threshold to 85% by decision.
 - Fixed `pathspec` deprecation warning noise.
 - Ran a clean virtual-environment install with `[search,dev]` extras.
 - Fixed the CLI/package version mismatch so `sahara --version` reports `0.2.0`.
@@ -97,7 +97,7 @@ Status: mostly complete.
 
 ### Phase 2: MCP / Chat and Agent Integrations
 
-Status: mostly complete on `feat/mcp-chat-agent-integration`.
+Status: implementation complete and merged through PR #12.
 
 - Read-only MCP server exists for search, ask, chunk reads, folder listing, and index status.
 - `sahara mcp serve` supports stdio for local clients and authenticated HTTP/streamable transport for remote clients.
@@ -110,8 +110,10 @@ Status: mostly complete on `feat/mcp-chat-agent-integration`.
 
 ### Release Readiness
 
-1. Optional: publish to TestPyPI and install from the published TestPyPI artifact when TestPyPI credentials are available.
-2. Tag the release after the PR is merged and public artifact verification is complete.
+1. Merge the `v0.2.0` release-preparation PR after CI passes.
+2. Build and inspect wheel/sdist from the final `main` commit.
+3. Optional: publish to TestPyPI and install from the published artifact when credentials are available.
+4. Create the `v0.2.0` tag and publish the first GitHub release with verified artifacts.
 
 ### Phase 2: MCP / Chat and Agent Integrations
 
