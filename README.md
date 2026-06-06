@@ -340,12 +340,11 @@ secrets/
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System design, storage protocols, search pipeline, SQLite schema
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Dev setup, test conventions, how to add a storage backend
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Community expectations and private incident reporting
-- [STATUS.md](STATUS.md) — Current project status, completed work, and remaining tasks
 - [ROADMAP.md](ROADMAP.md) — What is built, what is next, explicit non-goals
 - [SECURITY.md](SECURITY.md) — Encryption wire format, threat model, vulnerability reporting
 - [CHANGELOG.md](CHANGELOG.md) — Release history
 - [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) — Pre-release verification and publish checklist
-- [OPEN_SOURCE_READINESS_CHECKLIST.md](OPEN_SOURCE_READINESS_CHECKLIST.md) — Contributor-facing polish and trust checklist
+- [specs/THREE_STEP_PRODUCT_MODEL_PLAN.md](specs/THREE_STEP_PRODUCT_MODEL_PLAN.md) — Current indexing and optional-storage implementation plan
 - [docs/CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) — Claude Desktop setup, MCP tool contract, security, and troubleshooting
 - [docs/integrations/chat-agents.md](docs/integrations/chat-agents.md) — MCP and Claude integration notes
 

@@ -84,12 +84,12 @@ packages = ["src/sahara"]
 include = [
     "/src",
     "/docs",
+    "/specs",
     "/ARCHITECTURE.md",
     "/CHANGELOG.md",
     "/CODE_OF_CONDUCT.md",
     "/CONTRIBUTING.md",
     "/LICENSE",
-    "/OPEN_SOURCE_READINESS_CHECKLIST.md",
     "/README.md",
     "/RELEASE_CHECKLIST.md",
     "/ROADMAP.md",
