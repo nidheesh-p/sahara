@@ -77,11 +77,12 @@ class SaharaConfig:
     # Self-hosted / MinIO endpoint (empty = use AWS)
     endpoint_url: str = ""
 
-    # Storage mode: s3 | local | local+glacier
+    # Storage mode: none | s3 | local | local+glacier
+    # none         — local semantic indexing only; no storage backend
     # s3           — AWS S3 or MinIO (via endpoint_url)
     # local        — locally mounted drives (drive_paths); no cloud
     # local+glacier— drives as primary + S3 Glacier Deep Archive as cold backup
-    storage_mode: str = "s3"
+    storage_mode: str = ""
 
     # Absolute paths to mounted drives for local / local+glacier modes
     drive_paths: list[str] = field(default_factory=list)
@@ -131,6 +132,8 @@ class SaharaConfig:
     pid_file: str = ""  # defaults to ~/.sahara/daemon.pid
 
     def __post_init__(self) -> None:
+        if not self.storage_mode:
+            self.storage_mode = "s3" if self.bucket or self.endpoint_url else "none"
         if not self.pid_file:
             self.pid_file = str(Path.home() / ".sahara" / "daemon.pid")
         # Non-S3 modes have no storage tiers; coerce Glacier classes to STANDARD.
@@ -147,6 +150,16 @@ class SaharaConfig:
     def is_local_drive_mode(self) -> bool:
         """True when syncing to locally mounted drives (local or local+glacier modes)."""
         return self.storage_mode in ("local", "local+glacier")
+
+    @property
+    def has_storage_backend(self) -> bool:
+        """True when Sahara is configured to sync to storage."""
+        return self.storage_mode != "none"
+
+    @property
+    def is_index_only_mode(self) -> bool:
+        """True when Sahara is configured only for local semantic indexing."""
+        return not self.has_storage_backend
 
     def get_sync_folder_path(self) -> Path:
         if not self.sync_folder:
@@ -209,6 +222,11 @@ def load_config(path: Path | None = None) -> SaharaConfig:
         kwargs["exclude_patterns"] = raw["exclude_patterns"]
     if "drive_paths" in raw:
         kwargs["drive_paths"] = raw["drive_paths"]
+
+    # Configs written before index-only mode did not contain storage_mode and
+    # always represented an S3 setup. Preserve that behavior during migration.
+    if "storage_mode" not in flat:
+        kwargs["storage_mode"] = "s3"
 
     return SaharaConfig(**kwargs)
 

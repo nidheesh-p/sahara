@@ -230,7 +230,7 @@ class TestIndexUnchangedFile:
 
         assert result.exit_code == 0
         assert "Done" in result.output
-        assert "[unchanged]" in result.output
+        assert "unchanged=1" in result.output
 
 
 # ---------------------------------------------------------------------------

@@ -83,10 +83,12 @@ def test_list_folders_includes_primary_and_additional(tmp_path: Path) -> None:
             "local_path": str(tmp_path / "primary"),
             "storage_prefix": "",
             "role": "primary",
+            "sync_enabled": False,
         }
         assert result[1]["local_path"] == str(tmp_path / "work")
         assert result[1]["storage_prefix"] == "work"
         assert result[1]["role"] == "additional"
+        assert result[1]["sync_enabled"] is True
     finally:
         db.close()
 
@@ -128,6 +130,7 @@ def test_search_files_normalises_results(tmp_path: Path) -> None:
             "relative_path": "notes.txt",
             "score": 0.75,
             "snippet": "hello",
+            "local_state": "present",
         }]
     finally:
         db.close()

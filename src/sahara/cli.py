@@ -103,6 +103,11 @@ def _create_backend(config: SaharaConfig):
     from sahara.storage.local_drive_client import LocalDriveClient
     from sahara.storage.s3_client import S3Client
 
+    if config.storage_mode == "none":
+        raise ValueError(
+            "No storage backend is configured. Sahara can still index and search "
+            "local content in basic mode."
+        )
     if config.storage_mode == "local":
         return LocalDriveClient(config)
     elif config.storage_mode == "local+glacier":
@@ -131,11 +136,44 @@ def _build_engine(
     return SyncEngine(config, db, backend, ignore, sync_folder=folder, s3_prefix=s3_prefix), db, backend
 
 
-def _require_config(config: SaharaConfig) -> None:
+def _require_library_config(config: SaharaConfig) -> None:
     if not config.sync_folder:
         _abort("Sahara is not initialised. Run `sahara init` to set up.")
+
+
+def _require_storage_config(config: SaharaConfig) -> None:
+    _require_library_config(config)
+    if not config.has_storage_backend:
+        _abort(
+            "No storage backend is configured. Basic mode supports indexing, search, "
+            "ask, and MCP. Configure local-drive or AWS storage before syncing."
+        )
     if config.storage_mode == "s3" and not config.bucket:
         _abort("No S3 bucket configured. Run `sahara init` to set up.")
+    if config.is_local_drive_mode and not config.drive_paths:
+        _abort("No local storage drive configured. Run `sahara init` to set up.")
+
+
+def _require_config(config: SaharaConfig) -> None:
+    """Compatibility alias for commands that require a storage backend."""
+    _require_storage_config(config)
+
+
+def _content_roots(config: SaharaConfig, db: Any) -> list[Any]:
+    from sahara.library import ensure_content_roots
+
+    return ensure_content_roots(config, db)
+
+
+def _resolve_content_prefix(config: SaharaConfig, db: Any, folder: str) -> str:
+    resolved = Path(folder).expanduser().resolve()
+    match = next(
+        (root for root in _content_roots(config, db) if root.local_path == resolved),
+        None,
+    )
+    if match is None:
+        _abort(f"'{folder}' is not a registered content root.")
+    return match.storage_prefix
 
 
 def _require_s3_tiers(config: SaharaConfig, feature: str) -> None:
@@ -187,105 +225,185 @@ def main(ctx: click.Context, config_path: Path | None) -> None:
 
 
 @main.command()
+@click.option(
+    "--mode",
+    type=click.Choice(
+        ["basic", "local", "aws", "minio", "local+glacier"],
+        case_sensitive=False,
+    ),
+    default=None,
+    help="Setup mode. Supplying this option runs init non-interactively.",
+)
+@click.option(
+    "--folder",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Primary local folder to index.",
+)
+@click.option(
+    "--storage-drive",
+    type=click.Path(path_type=Path),
+    multiple=True,
+    help="Local storage destination. Repeat for multiple drives.",
+)
+@click.option("--bucket", default=None, help="AWS S3 bucket name.")
+@click.option("--region", default=None, help="AWS region.")
 @click.pass_context
-def init(ctx: click.Context) -> None:
-    """Interactive setup wizard — configure bucket, folder, encryption, etc."""
+def init(
+    ctx: click.Context,
+    mode: str | None,
+    folder: Path | None,
+    storage_drive: tuple[Path, ...],
+    bucket: str | None,
+    region: str | None,
+) -> None:
+    """Set up local indexing with optional local-drive or AWS storage."""
     _section("Sahara Setup Wizard")
-    click.echo("  This wizard will configure Sahara for first use.\n")
+    click.echo("  Configure local indexing first, with storage as an optional extension.\n")
 
     config = SaharaConfig()
-
-    # Sync folder
-    default_folder = str(Path.home() / "Sahara")
-    sync_folder = click.prompt("  Sync folder", default=default_folder)
-    config.sync_folder = str(Path(sync_folder).expanduser())
-    Path(config.sync_folder).mkdir(parents=True, exist_ok=True)
-
-    # Storage backend
-    click.echo()
-    backend_choice = click.prompt(
-        "  Storage backend",
-        type=click.Choice(["aws", "minio", "local", "local+glacier"], case_sensitive=False),
-        default="aws",
-        show_default=True,
-        prompt_suffix="\n"
-        "    aws           — Amazon S3 with Glacier tiering (pay-per-use cloud)\n"
-        "    minio         — Self-hosted MinIO / S3-compatible server\n"
-        "    local         — Locally mounted hard drives (no cloud)\n"
-        "    local+glacier — Drives as primary + S3 Glacier as cold backup\n"
-        "  Choice",
+    non_interactive = any(
+        value is not None and value != ()
+        for value in (mode, folder, storage_drive, bucket, region)
     )
+    default_folder = Path.home() / "Sahara"
+
+    if non_interactive:
+        selected_folder = folder or default_folder
+        backend_choice = (mode or "basic").lower()
+    else:
+        selected_folder = Path(
+            click.prompt("  Primary folder", default=str(default_folder))
+        )
+        click.echo()
+        backend_choice = click.prompt(
+            "  Setup",
+            type=click.Choice(
+                ["basic", "local", "aws", "minio", "local+glacier"],
+                case_sensitive=False,
+            ),
+            default="basic",
+            show_default=True,
+            prompt_suffix="\n"
+            "    basic         — local semantic indexing, no storage required\n"
+            "    local         — indexing plus a local/external drive\n"
+            "    aws           — indexing plus Amazon S3\n"
+            "    minio         — indexing plus self-hosted S3-compatible storage\n"
+            "    local+glacier — local drives plus S3 Glacier cold backup\n"
+            "  Choice",
+        )
+
+    config.sync_folder = str(selected_folder.expanduser().resolve())
+    Path(config.sync_folder).mkdir(parents=True, exist_ok=True)
 
     is_local = backend_choice in ("local", "local+glacier")
     is_minio = backend_choice == "minio"
-    config.storage_mode = "s3" if backend_choice in ("aws", "minio") else backend_choice
+    config.storage_mode = (
+        "none"
+        if backend_choice == "basic"
+        else ("s3" if backend_choice in ("aws", "minio") else backend_choice)
+    )
 
-    # --- Local drive path(s) ---
     if is_local:
-        _info(
-            "Enter the absolute path(s) to your mounted drives. "
-            "Files will be written to ALL drives independently."
-        )
-        drive_paths: list[str] = []
-        while True:
-            default_drive = "" if drive_paths else "/Volumes/Drive1/Sahara"
-            prompt_text = (
-                "  Drive path (press Enter to finish)"
-                if drive_paths
-                else "  Drive path 1"
+        drive_paths: list[str]
+        if non_interactive:
+            if not storage_drive:
+                raise click.UsageError(
+                    "--storage-drive is required for local and local+glacier modes."
+                )
+            drive_paths = [
+                str(path.expanduser().resolve()) for path in storage_drive
+            ]
+        else:
+            _info(
+                "Enter the absolute path(s) to your mounted drives. "
+                "Files will be written to ALL drives independently."
             )
-            dp = click.prompt(prompt_text, default=default_drive if not drive_paths else "")
-            if not dp.strip():
-                if not drive_paths:
-                    _warn("At least one drive path is required.")
-                    continue
-                break
-            drive_paths.append(str(Path(dp.strip()).expanduser()))
+            drive_paths = []
+            while True:
+                default_drive = "" if drive_paths else "/Volumes/Drive1/Sahara"
+                prompt_text = (
+                    "  Drive path (press Enter to finish)"
+                    if drive_paths
+                    else "  Drive path 1"
+                )
+                drive_path = click.prompt(
+                    prompt_text,
+                    default=default_drive if not drive_paths else "",
+                )
+                if not drive_path.strip():
+                    if not drive_paths:
+                        _warn("At least one drive path is required.")
+                        continue
+                    break
+                drive_paths.append(
+                    str(Path(drive_path.strip()).expanduser().resolve())
+                )
         config.drive_paths = drive_paths
-        # Drives are append-only by default — deletions from sync folder do NOT
-        # propagate to drives, keeping them as a complete historical copy.
         config.delete_remote_on_local_delete = False
         _info(
-            "Drives set to append-only mode. "
-            "Deleting a file from your sync folder will NOT remove it from drives. "
-            "(Change delete_remote_on_local_delete in config to override.)"
+            "Drives use append-only deletion behavior by default. "
+            "Deleting a source file will not remove its drive copy."
         )
 
-    # --- MinIO endpoint ---
     if is_minio:
+        if non_interactive:
+            raise click.UsageError(
+                "Non-interactive MinIO setup is not available yet; run `sahara init`."
+            )
         _info("MinIO mode: files will be stored on your self-hosted server.")
-        endpoint_url = click.prompt("  MinIO endpoint URL (e.g. http://100.x.x.1:9000)")
+        endpoint_url = click.prompt(
+            "  MinIO endpoint URL (e.g. http://100.x.x.1:9000)"
+        )
         config.endpoint_url = endpoint_url.strip().rstrip("/")
         config.default_storage_class = "STANDARD"
 
-    # --- S3 / MinIO bucket ---
-    if not is_local or backend_choice == "local+glacier":
+    needs_bucket = backend_choice in ("aws", "minio", "local+glacier")
+    if needs_bucket:
         bucket_prompt = (
             "  Glacier backup bucket name"
             if backend_choice == "local+glacier"
             else ("  Bucket name" if is_minio else "  S3 bucket name")
         )
-        bucket = click.prompt(bucket_prompt, default="sahara" if is_minio else "")
-        config.bucket = bucket.strip()
+        if non_interactive:
+            if not bucket:
+                raise click.UsageError(
+                    "--bucket is required for aws and local+glacier modes."
+                )
+            config.bucket = bucket.strip()
+        else:
+            config.bucket = click.prompt(
+                bucket_prompt, default="sahara" if is_minio else ""
+            ).strip()
 
-        if not is_minio and backend_choice != "local+glacier":
-            region = click.prompt("  AWS region", default="us-east-1")
-            config.region = region.strip()
-        elif backend_choice == "local+glacier":
-            region = click.prompt("  AWS region for Glacier bucket", default="us-east-1")
-            config.region = region.strip()
+        if not is_minio:
+            if non_interactive:
+                config.region = (region or "us-east-1").strip()
+            else:
+                region_prompt = (
+                    "  AWS region for Glacier bucket"
+                    if backend_choice == "local+glacier"
+                    else "  AWS region"
+                )
+                config.region = click.prompt(
+                    region_prompt, default="us-east-1"
+                ).strip()
 
-        prefix = click.prompt("  Key prefix (leave blank for root)", default="")
-        config.prefix = prefix.strip()
+        if not non_interactive:
+            config.prefix = click.prompt(
+                "  Key prefix (leave blank for root)", default=""
+            ).strip()
 
-    # --- Credentials ---
-    click.echo()
-    if is_minio:
-        access_key = click.prompt("  MinIO access key (root user)")
-        secret_key = click.prompt("  MinIO secret key (root password)", hide_input=True)
-        config.aws_access_key_id = access_key.strip()
-        config.aws_secret_access_key = secret_key.strip()
-    elif not is_local or backend_choice == "local+glacier":
+    if is_minio and not non_interactive:
+        click.echo()
+        config.aws_access_key_id = click.prompt(
+            "  MinIO access key (root user)"
+        ).strip()
+        config.aws_secret_access_key = click.prompt(
+            "  MinIO secret key (root password)", hide_input=True
+        ).strip()
+    elif config.storage_mode in ("s3", "local+glacier") and not non_interactive:
+        click.echo()
         label = "Glacier AWS" if backend_choice == "local+glacier" else "AWS"
         cred_method = click.prompt(
             f"  {label} credential method",
@@ -299,78 +417,80 @@ def init(ctx: click.Context) -> None:
             "  Choice",
         )
         if cred_method == "profile":
-            profile = click.prompt("  AWS profile name")
-            config.aws_profile = profile.strip()
+            config.aws_profile = click.prompt("  AWS profile name").strip()
         elif cred_method == "keys":
-            access_key = click.prompt("  AWS access key ID")
-            secret_key = click.prompt("  AWS secret access key", hide_input=True)
-            config.aws_access_key_id = access_key.strip()
-            config.aws_secret_access_key = secret_key.strip()
-            _warn("Access keys saved to config file. Using env vars or a profile is more secure.")
+            config.aws_access_key_id = click.prompt(
+                "  AWS access key ID"
+            ).strip()
+            config.aws_secret_access_key = click.prompt(
+                "  AWS secret access key", hide_input=True
+            ).strip()
+            _warn(
+                "Access keys saved to config file. "
+                "Using env vars or a profile is more secure."
+            )
         else:
-            _info("Make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set before running sahara.")
+            _info(
+                "Make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set "
+                "before running sahara."
+            )
 
-    # --- local+glacier: Glacier keep-deleted ---
-    if backend_choice == "local+glacier":
+    if backend_choice == "local+glacier" and not non_interactive:
         click.echo()
-        keep = click.confirm(
+        config.glacier_keep_deleted = click.confirm(
             "  Keep Glacier copies when files are deleted locally? (recommended)",
             default=True,
         )
-        config.glacier_keep_deleted = keep
-        if keep:
-            _info("Glacier archive is immutable — local deletions will NOT remove Glacier copies.")
 
-    # --- Encryption ---
-    encrypt = click.confirm("\n  Enable client-side encryption (AES-256-GCM)?", default=False)
-    config.encryption_enabled = encrypt
-    if encrypt:
-        passphrase = click.prompt(
-            "  Encryption passphrase", hide_input=True, confirmation_prompt=True
+    if config.has_storage_backend and not non_interactive:
+        config.encryption_enabled = click.confirm(
+            "\n  Enable client-side encryption (AES-256-GCM)?", default=False
         )
-        from sahara.utils.encryption import set_passphrase
-        set_passphrase(passphrase)
-        _ok("Passphrase stored in system keyring.")
+        if config.encryption_enabled:
+            passphrase = click.prompt(
+                "  Encryption passphrase", hide_input=True, confirmation_prompt=True
+            )
+            from sahara.utils.encryption import set_passphrase
 
-    # --- Conflict strategy ---
-    strategy = click.prompt("  Conflict strategy [backup/local/remote]", default="backup")
-    config.conflict_strategy = strategy.strip()
+            set_passphrase(passphrase)
+            _ok("Passphrase stored in system keyring.")
 
-    # --- Upload-only ---
-    click.echo()
-    upload_only = click.confirm(
-        "  Upload-only mode? (this machine only pushes files,\n"
-        "  never pulls files uploaded by other machines)",
-        default=False,
-    )
-    config.upload_only = upload_only
-    if upload_only:
-        _info("Upload-only enabled — this machine will only back up its own files.")
+        config.conflict_strategy = click.prompt(
+            "  Conflict strategy [backup/local/remote]", default="backup"
+        ).strip()
+        click.echo()
+        config.upload_only = click.confirm(
+            "  Upload-only mode? (this machine only pushes files,\n"
+            "  never pulls files uploaded by other machines)",
+            default=False,
+        )
 
     config_path = ctx.obj.get("config_path") or DEFAULT_CONFIG_PATH
     save_config(config, config_path)
     _ok(f"Configuration saved to {config_path}")
 
-    # --- Validate storage access ---
-    click.echo("\n  Validating storage access…")
-    try:
-        backend = _create_backend(config)
-        backend.validate_bucket_access()
-        if is_local:
-            _ok(f"Drive(s) accessible: {', '.join(config.drive_paths)}")
-        else:
-            _ok(f"Connected to bucket '{config.bucket}'")
+    if config.has_storage_backend:
+        click.echo("\n  Validating storage access…")
+        try:
+            backend = _create_backend(config)
+            backend.validate_bucket_access()
+            if is_local:
+                _ok(f"Drive(s) accessible: {', '.join(config.drive_paths)}")
+            else:
+                _ok(f"Connected to bucket '{config.bucket}'")
 
-        manifest, _ = backend.get_manifest()
-        if manifest is None:
-            _info("No existing manifest found. A new one will be created on first sync.")
-        else:
-            _ok(f"Manifest found with {len(manifest)} file(s).")
-    except Exception as exc:
-        _warn(f"Storage validation failed: {exc}")
-        _warn("You can re-run `sahara doctor` after fixing the issue.")
+            manifest, _ = backend.get_manifest()
+            if manifest is None:
+                _info(
+                    "No existing manifest found. "
+                    "A new one will be created on first sync."
+                )
+            else:
+                _ok(f"Manifest found with {len(manifest)} file(s).")
+        except Exception as exc:
+            _warn(f"Storage validation failed: {exc}")
+            _warn("You can re-run `sahara doctor` after fixing the issue.")
 
-    # Create .saharaignore if absent
     ignore_path = Path(config.sync_folder) / ".saharaignore"
     if not ignore_path.exists():
         template = Path(__file__).parent.parent.parent / ".saharaignore.template"
@@ -380,11 +500,16 @@ def init(ctx: click.Context) -> None:
             shutil.copy(str(template), str(ignore_path))
             _ok("Created .saharaignore from template.")
         else:
-            ignore_path.write_text("# Sahara ignore rules (gitignore syntax)\n")
+            ignore_path.write_text(
+                "# Sahara ignore rules (gitignore syntax)\n", encoding="utf-8"
+            )
             _ok("Created empty .saharaignore.")
 
     click.echo()
-    _ok("Sahara initialised! Run `sahara sync` to start.")
+    if config.is_index_only_mode:
+        _ok("Sahara initialised in basic mode! Run `sahara index` to start.")
+    else:
+        _ok("Sahara initialised! Run `sahara sync`, then `sahara index`.")
 
 
 # ---------------------------------------------------------------------------
@@ -426,7 +551,9 @@ def doctor(ctx: click.Context, repair: bool) -> None:
         issues += 1
 
     # Storage connectivity check
-    if config.is_local_drive_mode:
+    if config.is_index_only_mode:
+        _ok("Storage: not configured (basic index-only mode).")
+    elif config.is_local_drive_mode:
         # Check drive paths
         if config.drive_paths:
             click.echo(f"  Checking {len(config.drive_paths)} drive path(s)…")
@@ -518,7 +645,7 @@ def doctor(ctx: click.Context, repair: bool) -> None:
             _warn(f"State DB error: {exc}")
             issues += 1
     else:
-        _info("State DB not yet initialised (will be created on first sync).")
+        _info("State DB not yet initialised (will be created on first index or sync).")
 
     # Stale multipart uploads (AWS only — not applicable for MinIO or local drive modes)
     if config.bucket and not config.is_self_hosted and not config.is_local_drive_mode:
@@ -735,7 +862,271 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Multi-folder management: add / remove / folders
+# Optional storage configuration
+# ---------------------------------------------------------------------------
+
+
+@main.group("storage")
+def storage_group() -> None:
+    """Configure optional storage for an existing Sahara library."""
+
+
+@storage_group.command("configure")
+@click.argument(
+    "backend",
+    type=click.Choice(["local", "aws"], case_sensitive=False),
+)
+@click.option(
+    "--drive",
+    "drives",
+    type=click.Path(path_type=Path),
+    multiple=True,
+    help="Local drive, NAS, or network-share destination. Repeatable.",
+)
+@click.option("--bucket", default=None, help="AWS S3 bucket name.")
+@click.option("--region", default="us-east-1", show_default=True)
+@click.pass_context
+def storage_configure(
+    ctx: click.Context,
+    backend: str,
+    drives: tuple[Path, ...],
+    bucket: str | None,
+    region: str,
+) -> None:
+    """Attach local-drive or AWS storage without rebuilding the index."""
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+
+    if backend == "local":
+        if not drives:
+            raise click.UsageError("At least one --drive is required for local storage.")
+        config.storage_mode = "local"
+        config.drive_paths = [
+            str(path.expanduser().resolve()) for path in drives
+        ]
+        config.bucket = ""
+        config.endpoint_url = ""
+        config.delete_remote_on_local_delete = False
+    else:
+        if not bucket:
+            raise click.UsageError("--bucket is required for AWS storage.")
+        config.storage_mode = "s3"
+        config.bucket = bucket.strip()
+        config.region = region.strip()
+        config.endpoint_url = ""
+        config.drive_paths = []
+
+    try:
+        storage_backend = _create_backend(config)
+        storage_backend.validate_bucket_access()
+    except Exception as exc:
+        raise click.ClickException(
+            f"Storage validation failed; configuration was not changed: {exc}"
+        ) from exc
+
+    config_path = ctx.obj.get("config_path") or DEFAULT_CONFIG_PATH
+    save_config(config, config_path)
+    ctx.obj["config"] = config
+    _ok(f"Configured {backend} storage.")
+    _info(
+        "Indexed folders remain index-only until enabled with "
+        "`sahara folder sync <path> --enable`."
+    )
+
+
+@storage_group.command("status")
+@click.pass_context
+def storage_status(ctx: click.Context) -> None:
+    """Show the active backend, sync roots, and offloaded-file count."""
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+    db = StateDB().connect()
+    try:
+        roots = _content_roots(config, db)
+        _section("Storage Status")
+        _info(f"Mode       : {config.storage_mode}")
+        _info(
+            f"Sync roots : {sum(1 for root in roots if root.sync_enabled)}"
+        )
+        _info(
+            "Offloaded  : "
+            f"{db.count_index_entries(status='offloaded')} file(s)"
+        )
+    finally:
+        db.close()
+
+
+@storage_group.command("disable")
+@click.option("--force", is_flag=True, help="Disable without confirmation.")
+@click.pass_context
+def storage_disable(ctx: click.Context, force: bool) -> None:
+    """Disable storage without deleting any stored objects."""
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+    if config.is_index_only_mode:
+        _info("Storage is already disabled.")
+        return
+    if not force and not click.confirm(
+        "  Disable storage sync? Existing stored data will be retained.",
+        default=False,
+    ):
+        return
+
+    db = StateDB().connect()
+    try:
+        for root in _content_roots(config, db):
+            db.set_content_root_sync(str(root.local_path), False)
+            if not root.is_primary:
+                db.remove_sync_target(str(root.local_path))
+    finally:
+        db.close()
+
+    config.storage_mode = "none"
+    config_path = ctx.obj.get("config_path") or DEFAULT_CONFIG_PATH
+    save_config(config, config_path)
+    ctx.obj["config"] = config
+    _ok("Storage disabled. Existing stored data was not deleted.")
+
+
+# ---------------------------------------------------------------------------
+# Canonical content-root management
+# ---------------------------------------------------------------------------
+
+
+@main.group("folder")
+def folder_group() -> None:
+    """Manage folders Sahara indexes and optionally syncs."""
+
+
+@folder_group.command("add")
+@click.argument("path", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option(
+    "--name",
+    default=None,
+    help="Stable storage prefix (defaults to the folder name).",
+)
+@click.pass_context
+def folder_add(ctx: click.Context, path: Path, name: str | None) -> None:
+    """Add a folder to the local semantic index."""
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+    resolved = path.expanduser().resolve()
+    storage_prefix = (name or resolved.name).strip("/")
+    if not storage_prefix:
+        _abort("Folder name cannot be empty.")
+
+    db = StateDB().connect()
+    try:
+        roots = _content_roots(config, db)
+        if any(root.local_path == resolved for root in roots):
+            _abort(f"Folder already registered: {resolved}")
+        if any(root.storage_prefix == storage_prefix for root in roots):
+            _abort(f"Storage prefix '{storage_prefix}' is already registered.")
+        db.upsert_content_root(
+            str(resolved),
+            storage_prefix,
+            sync_enabled=False,
+        )
+        _ok(f"Added content root: {resolved}")
+        _info("Mode: index only")
+        _info("Run `sahara index` to add its contents to search.")
+    finally:
+        db.close()
+
+
+@folder_group.command("list")
+@click.pass_context
+def folder_list(ctx: click.Context) -> None:
+    """List indexed folders and their sync state."""
+    ctx.invoke(folders_cmd)
+
+
+@folder_group.command("remove")
+@click.argument("path", type=click.Path(path_type=Path))
+@click.option("--force", is_flag=True, help="Remove without confirmation.")
+@click.pass_context
+def folder_remove(
+    ctx: click.Context,
+    path: Path,
+    force: bool,
+) -> None:
+    """Remove a non-primary folder from Sahara's library."""
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+    resolved = path.expanduser().resolve()
+
+    db = StateDB().connect()
+    try:
+        _content_roots(config, db)
+        root = db.get_content_root(str(resolved))
+        if root is None:
+            _abort(f"Folder not registered: {resolved}")
+        if root["is_primary"]:
+            _abort("The primary folder cannot be removed.")
+        if not force and not click.confirm(
+            "  Remove this folder from Sahara's index?", default=False
+        ):
+            return
+        db.delete_index_for_prefix(root["storage_prefix"])
+        db.remove_sync_target(str(resolved))
+        db.remove_content_root(str(resolved))
+        _ok(f"Removed content root: {resolved}")
+    finally:
+        db.close()
+
+
+@folder_group.command("sync")
+@click.argument("path", type=click.Path(path_type=Path))
+@click.option(
+    "--enable/--disable",
+    default=None,
+    help="Enable or disable storage sync for this indexed folder.",
+)
+@click.pass_context
+def folder_sync(
+    ctx: click.Context,
+    path: Path,
+    enable: bool | None,
+) -> None:
+    """Change whether an indexed folder participates in storage sync."""
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+    if enable is None:
+        raise click.UsageError("Choose either --enable or --disable.")
+    if enable:
+        _require_storage_config(config)
+
+    resolved = path.expanduser().resolve()
+    db = StateDB().connect()
+    try:
+        _content_roots(config, db)
+        root = db.get_content_root(str(resolved))
+        if root is None:
+            _abort(f"Folder not registered: {resolved}")
+        db.set_content_root_sync(str(resolved), enable)
+        if enable and not root["is_primary"]:
+            db.add_sync_target(str(resolved), root["storage_prefix"])
+        elif not enable:
+            db.remove_sync_target(str(resolved))
+        _ok(
+            f"Sync {'enabled' if enable else 'disabled'} for: {resolved}"
+        )
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Legacy multi-folder sync commands: add / remove / folders
 # ---------------------------------------------------------------------------
 
 
@@ -835,32 +1226,28 @@ def remove_folder(ctx: click.Context, path: Path, force: bool) -> None:
 @main.command("folders")
 @click.pass_context
 def folders_cmd(ctx: click.Context) -> None:
-    """List all folders registered for sync."""
+    """List all folders registered for indexing and optional sync."""
     from sahara.storage.state_db import StateDB
 
     config: SaharaConfig = ctx.obj["config"]
-    _require_config(config)
-
-    _section("Sync Folders")
-    primary = config.get_sync_folder_path()
-    exists_mark = "" if primary.exists() else " (missing)"
-    click.echo(
-        click.style(f"  * {primary}", fg="green", bold=True)
-        + f"  →  s3://{config.bucket}/{config.prefix or '(root)'}  [primary]{exists_mark}"
-    )
+    _require_library_config(config)
 
     db = StateDB().connect()
     try:
-        additional = db.list_sync_targets()
-        if not additional:
-            _info("No additional folders registered.")
-            _info("Use `sahara add <path>` to register one.")
-        else:
-            for t in additional:
-                p = Path(t["local_path"])
-                exists_mark = "" if p.exists() else " (missing)"
-                s3_url = f"s3://{config.bucket}/{t['s3_prefix']}/"
-                click.echo(f"  + {p}  →  {s3_url}{exists_mark}")
+        roots = _content_roots(config, db)
+        _section("Content Roots")
+        for root in roots:
+            exists_mark = "" if root.local_path.exists() else " (missing)"
+            role = "primary" if root.is_primary else "additional"
+            sync_state = "sync enabled" if root.sync_enabled else "index only"
+            click.echo(
+                click.style(
+                    f"  {'*' if root.is_primary else '+'} {root.local_path}",
+                    fg="green" if root.is_primary else "white",
+                    bold=root.is_primary,
+                )
+                + f"  [{role}, {sync_state}]{exists_mark}"
+            )
     finally:
         db.close()
 
@@ -883,7 +1270,7 @@ def _run_sync(
     from sahara.storage.state_db import StateDB
 
     config: SaharaConfig = ctx.obj["config"]
-    _require_config(config)
+    _require_storage_config(config)
 
     if dry_run:
         click.echo(click.style("  [DRY RUN — no changes will be made]", fg="yellow"))
@@ -891,9 +1278,15 @@ def _run_sync(
     # Build target list: primary folder + all registered additional targets
     db_main = StateDB().connect()
     try:
-        all_targets: list[tuple[Path, str]] = [(config.get_sync_folder_path(), "")]
-        for row in db_main.list_sync_targets():
-            all_targets.append((Path(row["local_path"]), row["s3_prefix"]))
+        all_targets = [
+            (root.local_path, root.storage_prefix)
+            for root in _content_roots(config, db_main)
+            if root.sync_enabled
+        ]
+        if not all_targets:
+            # Compatibility fallback for older databases and lightweight test
+            # doubles that do not expose the content_roots API yet.
+            all_targets = [(config.get_sync_folder_path(), "")]
     finally:
         db_main.close()
 
@@ -1247,7 +1640,7 @@ def ls_cmd(
             for t in db.list_sync_targets():
                 s3_prefixes.append((t["s3_prefix"] + "/", t["s3_prefix"]))
 
-        all_rows: list[tuple[str, Any]] = []  # (display_path, FileRecord)
+        all_rows: list[tuple[str, Any, str]] = []
         for display_prefix, s3_pref in s3_prefixes:
             if tier:
                 files = db.list_files_by_tier(tier, s3_prefix=s3_pref)  # type: ignore[arg-type]
@@ -1257,7 +1650,7 @@ def ls_cmd(
             for f in files:
                 display_path = display_prefix + f.relative_path
                 if not prefix or display_path.startswith(prefix):
-                    all_rows.append((display_path, f))
+                    all_rows.append((display_path, f, s3_pref))
 
         if not all_rows:
             _info("No files found.")
@@ -1269,7 +1662,7 @@ def ls_cmd(
                 f"  {'Path':<50} {'Size':>10} {'Tier':<15} {'SHA256':>12}  {'Modified'}"
             )
             click.echo("  " + "─" * 110)
-            for display_path, f in sorted(all_rows, key=lambda x: x[0]):
+            for display_path, f, s3_pref in sorted(all_rows, key=lambda x: x[0]):
                 size_str = _human_size(f.size_bytes)
                 sha_short = f.sha256_checksum[:8] + "…" if f.sha256_checksum else "—"
                 mtime = f.local_modified_at.strftime("%Y-%m-%d %H:%M")
@@ -1284,12 +1677,31 @@ def ls_cmd(
                 }.get(f.tier, "white")
                 tier_label = TIER_LABELS.get(f.tier, f.tier)
                 tier_str = click.style(tier_label, fg=tier_color)
+                residency = db.get_storage_residency(
+                    s3_pref, f.relative_path
+                )
+                state = (
+                    " offloaded"
+                    if residency and residency["local_state"] == "offloaded"
+                    else ""
+                )
                 click.echo(
-                    f"  {display_path:<50} {size_str:>10} {tier_str:<24}  {sha_short}  {mtime}"
+                    f"  {display_path:<50} {size_str:>10} {tier_str:<24}  "
+                    f"{sha_short}  {mtime}{state}"
                 )
         else:
-            for display_path, _ in sorted(all_rows, key=lambda x: x[0]):
-                click.echo(f"  {display_path}")
+            for display_path, file_record, s3_pref in sorted(
+                all_rows, key=lambda x: x[0]
+            ):
+                residency = db.get_storage_residency(
+                    s3_pref, file_record.relative_path
+                )
+                marker = (
+                    " [offloaded]"
+                    if residency and residency["local_state"] == "offloaded"
+                    else ""
+                )
+                click.echo(f"  {display_path}{marker}")
     finally:
         db.close()
 
@@ -1733,90 +2145,36 @@ def history(ctx: click.Context, path: str | None, limit: int) -> None:
 def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
     """Index file contents for semantic search."""
     config: SaharaConfig = ctx.obj["config"]
-    _require_config(config)
+    _require_library_config(config)
 
-    from pathlib import Path as _Path
-
-    from sahara.search.search_engine import SearchEngine
+    from sahara.library import IndexingService
     from sahara.storage.state_db import StateDB
 
     db = StateDB().connect()
-    engine = SearchEngine(db)
-
     try:
-        # Build list of (local_folder, s3_prefix) to index
-        all_targets: list[tuple[_Path, str]] = [(config.get_sync_folder_path(), "")]
-        for row in db.list_sync_targets():
-            all_targets.append((_Path(row["local_path"]), row["s3_prefix"]))
+        service = IndexingService(config, db)
+        root_path = Path(folder) if folder else None
+        try:
+            result = service.index(root_path=root_path, force=force)
+        except ValueError as exc:
+            _abort(str(exc))
 
-        if folder:
-            resolved = str(_Path(folder).expanduser().resolve())
-            targets = [(f, p) for f, p in all_targets if str(f) == resolved]
-            if not targets:
-                _abort(f"'{folder}' is not a registered sync folder.")
-        else:
-            targets = all_targets
-
-        total_indexed = 0
-        total_skipped = 0
-        total_failed = 0
-        skip_reasons = {
-            "unchanged": 0,
-            "unsupported": 0,
-            "no_text": 0,
-            "missing": 0,
-        }
-
-        for sync_folder, s3_prefix in targets:
-            label = s3_prefix or "(primary)"
-            files = db.list_files(s3_prefix=s3_prefix)
-            if not files:
-                continue
-
-            _section(f"Indexing {label} — {len(files)} file(s)")
-
-            for i, record in enumerate(files, 1):
-                file_path = sync_folder / record.relative_path
-                click.echo(
-                    f"  [{i:>4}/{len(files)}] {record.relative_path[:60]}",
-                    nl=False,
-                )
-                if not file_path.exists():
-                    click.echo(click.style("  [missing]", fg="yellow"))
-                    total_skipped += 1
-                    skip_reasons["missing"] += 1
-                    continue
-                try:
-                    result = engine.index_file_with_result(
-                        file_path, s3_prefix, record.relative_path, force=force
-                    )
-                    if result.indexed:
-                        click.echo(click.style("  ✓", fg="green"))
-                        total_indexed += 1
-                    else:
-                        label = {
-                            "unchanged": "[unchanged]",
-                            "unsupported": "[unsupported]",
-                            "no_text": "[no text]",
-                        }.get(result.reason, f"[{result.reason}]")
-                        click.echo(click.style(f"  {label}", fg="white"))
-                        total_skipped += 1
-                        skip_reasons[result.reason] = skip_reasons.get(result.reason, 0) + 1
-                except Exception as exc:
-                    click.echo(click.style(f"  ✗ {exc}", fg="red"))
-                    total_failed += 1
-
-        db.conn.commit()
         click.echo()
         _ok(
-            f"Done — {total_indexed} indexed, {total_skipped} skipped, {total_failed} failed."
+            f"Done — {result.indexed} indexed, {result.skipped} skipped, "
+            f"{result.failed} failed."
         )
-        if total_skipped:
-            reason_text = ", ".join(
-                f"{reason}={count}" for reason, count in skip_reasons.items() if count
-            )
-            if reason_text:
-                _info(f"Skipped: {reason_text}")
+        reasons = {
+            "unchanged": result.unchanged,
+            "unsupported": result.unsupported,
+            "no_text": result.no_text,
+            "missing": result.missing,
+        }
+        reason_text = ", ".join(
+            f"{reason}={count}" for reason, count in reasons.items() if count
+        )
+        if reason_text:
+            _info(f"Details: {reason_text}")
         _info(f"Total in index: {db.count_embeddings()} file(s).")
     finally:
         db.close()
@@ -1829,14 +2187,16 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
 def index_report_cmd(ctx: click.Context, top: int, sample: int) -> None:
     """Show indexed/unindexed file counts and sample gaps."""
     config: SaharaConfig = ctx.obj["config"]
-    _require_config(config)
+    _require_library_config(config)
 
     from sahara.storage.state_db import StateDB
 
     db = StateDB().connect()
     try:
-        tracked = db.count_tracked_files()
-        indexed = db.count_embeddings()
+        _content_roots(config, db)
+        tracked = db.count_index_entries()
+        statuses = db.count_index_entries_by_status()
+        indexed = statuses.get("indexed", 0)
         chunks = db.count_chunks()
         unindexed = max(0, tracked - indexed)
 
@@ -1847,19 +2207,31 @@ def index_report_cmd(ctx: click.Context, top: int, sample: int) -> None:
         _info(f"Unindexed     : {unindexed}")
         _info(f"Vector index  : {'available' if db.has_vec_table() else 'not available'}")
 
-        ext_counts = db.count_unindexed_by_extension()
+        if statuses:
+            click.echo()
+            _section("Inventory Status")
+            for status_name, count in statuses.items():
+                _info(f"{status_name}: {count}")
+
+        ext_counts = db.count_unindexed_entries_by_extension()
         if ext_counts:
             click.echo()
             _section("Unindexed by Extension")
             for ext, count in list(ext_counts.items())[: max(1, top)]:
                 _info(f"{ext}: {count}")
 
-        samples = db.list_unindexed_files(limit=max(0, sample))
+        samples = [
+            row
+            for row in db.list_index_entries(limit=None)
+            if row["status"] != "indexed"
+        ][: max(0, sample)]
         if samples:
             click.echo()
             _section("Sample Unindexed Files")
             for row in samples:
-                prefix = f"{row['s3_prefix']}/" if row["s3_prefix"] else ""
+                prefix = (
+                    f"{row['storage_prefix']}/" if row["storage_prefix"] else ""
+                )
                 _info(f"{prefix}{row['relative_path']}")
     finally:
         db.close()
@@ -1881,9 +2253,7 @@ def search_cmd(
 ) -> None:
     """Search files by content using natural language."""
     config: SaharaConfig = ctx.obj["config"]
-    _require_config(config)
-
-    from pathlib import Path as _Path
+    _require_library_config(config)
 
     from sahara.search.search_engine import SearchEngine
     from sahara.storage.state_db import StateDB
@@ -1895,14 +2265,7 @@ def search_cmd(
         # Resolve optional folder filter to s3_prefix
         s3_prefix_filter: str | None = None
         if folder:
-            resolved = str(_Path(folder).expanduser().resolve())
-            all_targets: list[tuple[_Path, str]] = [(config.get_sync_folder_path(), "")]
-            for row in db.list_sync_targets():
-                all_targets.append((_Path(row["local_path"]), row["s3_prefix"]))
-            match = [(f, p) for f, p in all_targets if str(f) == resolved]
-            if not match:
-                _abort(f"'{folder}' is not a registered sync folder.")
-            s3_prefix_filter = match[0][1]
+            s3_prefix_filter = _resolve_content_prefix(config, db, folder)
 
         total = db.count_embeddings(s3_prefix=s3_prefix_filter)
         if total == 0:
@@ -1923,7 +2286,10 @@ def search_cmd(
             score_pct = int(r["score"] * 100)
             score_color = "green" if score_pct >= 70 else "yellow" if score_pct >= 50 else "white"
             score_str = click.style(f"{score_pct}%", fg=score_color)
-            click.echo(f"  {i}. [{score_str}] {display}")
+            residency = (
+                " [offloaded]" if r.get("local_state") == "offloaded" else ""
+            )
+            click.echo(f"  {i}. [{score_str}] {display}{residency}")
             if snippet and r["snippet"]:
                 # Print first 150 chars of snippet, indented
                 snip = r["snippet"].replace("\n", " ")[:150].strip()
@@ -1989,9 +2355,7 @@ def ask_cmd(
     question_str = " ".join(question)
 
     config: SaharaConfig = ctx.obj["config"]
-    _require_config(config)
-
-    from pathlib import Path as _Path
+    _require_library_config(config)
 
     from sahara.search.ask_engine import AskEngine
     from sahara.search.search_engine import SearchEngine
@@ -2011,14 +2375,7 @@ def ask_cmd(
         # Resolve folder filter
         storage_prefix_filter: str | None = None
         if folder:
-            resolved = str(_Path(folder).expanduser().resolve())
-            all_targets: list[tuple[_Path, str]] = [(config.get_sync_folder_path(), "")]
-            for row in db.list_sync_targets():
-                all_targets.append((_Path(row["local_path"]), row["s3_prefix"]))
-            match = [(f, p) for f, p in all_targets if str(f) == resolved]
-            if not match:
-                _abort(f"'{folder}' is not a registered sync folder.")
-            storage_prefix_filter = match[0][1]
+            storage_prefix_filter = _resolve_content_prefix(config, db, folder)
 
         total = db.count_embeddings(s3_prefix=storage_prefix_filter)
         if total == 0:
@@ -2057,11 +2414,66 @@ def ask_cmd(
                 score_pct = int(r.get("score", 0) * 100)
                 score_color = "green" if score_pct >= 70 else "yellow" if score_pct >= 50 else "white"
                 score_str = click.style(f"{score_pct}%", fg=score_color)
-                click.echo(f"  {i}. [{score_str}] {display}")
+                residency = (
+                    " [offloaded]"
+                    if r.get("local_state") == "offloaded"
+                    else ""
+                )
+                click.echo(f"  {i}. [{score_str}] {display}{residency}")
                 snip = r.get("snippet", "")
                 if snip:
                     snip_display = snip.replace("\n", " ")[:200].strip()
                     click.echo(click.style(f'       "{snip_display}..."', fg="bright_black"))
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# offload / fetch
+# ---------------------------------------------------------------------------
+
+
+@main.command("offload")
+@click.argument("path")
+@click.pass_context
+def offload_cmd(ctx: click.Context, path: str) -> None:
+    """Verify a stored copy, then remove the local source file."""
+    from sahara.storage.lifecycle import StorageLifecycle
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_storage_config(config)
+    db = StateDB().connect()
+    try:
+        lifecycle = StorageLifecycle(config, db, _create_backend(config))
+        try:
+            item = lifecycle.offload(path)
+        except (OSError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        _ok(f"Offloaded: {item.local_path}")
+        _info("Search metadata was retained. Use `sahara fetch` to restore it.")
+    finally:
+        db.close()
+
+
+@main.command("fetch")
+@click.argument("path")
+@click.pass_context
+def fetch_cmd(ctx: click.Context, path: str) -> None:
+    """Restore an offloaded file and verify its checksum."""
+    from sahara.storage.lifecycle import StorageLifecycle
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_storage_config(config)
+    db = StateDB().connect()
+    try:
+        lifecycle = StorageLifecycle(config, db, _create_backend(config))
+        try:
+            item = lifecycle.fetch(path)
+        except (OSError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        _ok(f"Fetched: {item.local_path}")
     finally:
         db.close()
 

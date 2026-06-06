@@ -425,8 +425,9 @@ def test_dual_conditional_put_support_from_primary(dual_write, mock_primary):
 
 def test_config_default_storage_mode():
     c = SaharaConfig()
-    assert c.storage_mode == "s3"
+    assert c.storage_mode == "none"
     assert c.is_local_drive_mode is False
+    assert c.is_index_only_mode is True
 
 
 def test_config_local_drive_mode():

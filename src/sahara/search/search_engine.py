@@ -260,8 +260,17 @@ class SearchEngine:
             return []
 
         if self._db.has_vec_table():
-            return self._search_vec(query_embs[0], top_k, storage_prefix)
-        return self._search_cosine(query_embs[0], top_k, storage_prefix)
+            results = self._search_vec(query_embs[0], top_k, storage_prefix)
+        else:
+            results = self._search_cosine(query_embs[0], top_k, storage_prefix)
+        for result in results:
+            residency = self._db.get_storage_residency(
+                result["storage_prefix"], result["relative_path"]
+            )
+            result["local_state"] = (
+                residency["local_state"] if residency else "present"
+            )
+        return results
 
     def _search_vec(
         self,

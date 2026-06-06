@@ -581,6 +581,15 @@ class TestIndexCLIWithFiles:
                 ),
                 s3_prefix="",
             )
+            db.upsert_index_entry(
+                "",
+                name,
+                content_hash="hash" if name == "indexed.txt" else None,
+                size_bytes=100,
+                modified_ns=0,
+                status="indexed" if name == "indexed.txt" else "pending",
+                reason="test_fixture",
+            )
         db.upsert_embedding("", "indexed.txt", "hash", "[0.1]", "snippet")
         db.close()
 

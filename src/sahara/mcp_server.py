@@ -70,6 +70,7 @@ def _normalise_result(result: dict[str, Any], *, max_snippet_chars: int = 500) -
         "relative_path": result.get("relative_path", ""),
         "score": float(result.get("score", 0.0)),
         "snippet": _truncate(result.get("snippet", ""), max_snippet_chars),
+        "local_state": result.get("local_state", "present"),
     }
 
 
@@ -172,29 +173,25 @@ def list_folders(
     allowed_storage_prefixes: tuple[str, ...] | None = None,
     db: StateDB | None = None,
 ) -> list[dict[str, Any]]:
-    """Return the primary sync folder plus additional registered folders."""
+    """Return folders Sahara indexes, including their sync state."""
+    from sahara.library import ensure_content_roots
+
     config = config or load_config(DEFAULT_CONFIG_PATH)
     allowed = _normalise_allowed_prefixes(allowed_storage_prefixes)
-    folders: list[dict[str, Any]] = []
-    if config.sync_folder and (allowed is None or "" in allowed):
-        folders.append({
-            "local_path": config.sync_folder,
-            "storage_prefix": "",
-            "role": "primary",
-        })
 
     should_close = db is None
     db = db or StateDB().connect()
     try:
-        for target in db.list_sync_targets():
-            prefix = target["s3_prefix"].strip("/")
+        folders: list[dict[str, Any]] = []
+        for root in ensure_content_roots(config, db):
+            prefix = root.storage_prefix
             if allowed is not None and prefix not in allowed:
                 continue
             folders.append({
-                "local_path": target["local_path"],
+                "local_path": str(root.local_path),
                 "storage_prefix": prefix,
-                "role": "additional",
-                "added_at": target["added_at"],
+                "role": "primary" if root.is_primary else "additional",
+                "sync_enabled": root.sync_enabled,
             })
         return folders
     finally:
@@ -210,6 +207,7 @@ def index_status(db: StateDB | None = None) -> dict[str, Any]:
         return {
             "indexed_files": db.count_embeddings(),
             "indexed_chunks": db.count_chunks(),
+            "offloaded_files": db.count_index_entries(status="offloaded"),
             "latest_indexed_at": db.latest_chunk_indexed_at(),
             "vector_index_available": db.has_vec_table(),
             "embedding_model": "BAAI/bge-small-en-v1.5",

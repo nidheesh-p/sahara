@@ -14,11 +14,11 @@ answer questions, but they usually cannot see your local files, cannot maintain 
 durable index of your computer, and often require sending private documents to a cloud
 service.
 
-Sahara turns extended personal storage into searchable memory. It syncs and protects
-your files, extracts their text, chunks long documents, embeds those chunks into a local
-vector database, and lets you search or ask questions with citations. The goal is to
-give you the same kind of instant knowledge retrieval companies get from enterprise AI
-connectors, but for your own machine and under your control.
+Sahara turns your files into searchable memory. Local semantic indexing is the basic
+mode and requires no cloud account or extra drive. Optional local-drive and S3 storage
+can then sync and protect selected indexed folders. Sahara extracts text, chunks long
+documents, embeds those chunks into a local vector database, and lets you search or ask
+questions with citations.
 
 Sahara is not trying to be a general autonomous agent. Claude Desktop can act as a
 local chat front end today; OpenClaw and ChatGPT connectors are possible future client
@@ -29,7 +29,10 @@ cite where it came from, and avoid broad filesystem access unless you explicitly
 
 ## What it does today
 
-- **Sync** a local folder to S3, MinIO, or a locally mounted drive — bidirectional, with three-way diff conflict resolution
+- **Index locally without storage setup** using basic mode
+- **Add multiple content folders** and keep them index-only unless sync is explicitly enabled
+- **Optionally sync** selected folders to S3, MinIO, or a locally mounted drive
+- **Offload and fetch** verified stored files while keeping them discoverable in search
 - **Encrypt** files client-side with AES-256-GCM before they leave your machine
 - **Index** your documents — PDF, DOCX, Markdown, code, plain text — into a local vector database
 - **Search** by meaning: `sahara search "tax return 2024"` finds the right file even if none of those words appear in the filename
@@ -41,6 +44,8 @@ default, but retrieved snippets are sent to OpenAI when that provider is selecte
 
 ## What is coming next
 
+- Configure storage after starting in basic mode without rebuilding the index
+- Explicitly offload and fetch files while preserving searchable metadata
 - Validate Claude mobile access through authenticated remote MCP
 - Future OpenClaw and ChatGPT connector guidance
 - Hybrid retrieval: BM25 keyword + vector search with cross-encoder reranking
@@ -55,7 +60,7 @@ See [ROADMAP.md](ROADMAP.md) for the full plan.
 ## Installation
 
 ```bash
-# Minimal — sync only, no search
+# Core CLI and storage sync, without semantic search dependencies
 pip install sahara
 
 # With semantic search (downloads ~200 MB embedding model on first use)
@@ -87,9 +92,33 @@ pip install -e ".[search,dev]"
 
 ```bash
 pip install "sahara[search,mcp]"
-sahara init          # 2-minute interactive wizard — choose local, MinIO, or S3
+sahara init --mode basic --folder ~/Documents
 sahara index
 sahara search "my tax return 2024" --snippet
+```
+
+No bucket, drive, credentials, or additional prompts are required. Add another local
+folder at any time:
+
+```bash
+sahara folder add ~/Projects
+sahara index
+```
+
+Attach storage later without rebuilding the index:
+
+```bash
+sahara storage configure local --drive /Volumes/Archive/Sahara
+sahara folder sync ~/Documents --enable
+sahara sync
+```
+
+After syncing and indexing a file, free its local disk space while retaining search:
+
+```bash
+sahara offload Documents/archive/report.pdf
+sahara search "quarterly forecast"   # result is marked [offloaded]
+sahara fetch Documents/archive/report.pdf
 ```
 
 ### Flow B: Ask from Claude Desktop
@@ -138,10 +167,11 @@ config locations, the complete tool contract, security boundaries, and troublesh
 
 ## Storage backends
 
-Sahara supports four storage modes, selected during `sahara init`:
+Storage is optional. Sahara supports basic indexing plus four storage-backed modes:
 
 | Mode | Use case |
 |------|----------|
+| `basic` | Local indexing and semantic search with no storage destination |
 | `local` | Second drive, NAS, or network share — no cloud account needed |
 | `local+glacier` | Local drives as primary + S3 Glacier as cold backup |
 | `minio` | Self-hosted S3-compatible object storage |
@@ -152,7 +182,8 @@ Sahara supports four storage modes, selected during `sahara init`:
 Files are written to one or more mounted drives independently — no RAID required. Drives are append-only by default (deleting a file locally does not remove it from drives).
 
 ```bash
-sahara init   # choose 'local', point at /Volumes/MyDrive/Backup
+sahara init --mode local --folder ~/Sahara \
+  --storage-drive /Volumes/MyDrive/Backup
 sahara sync
 ```
 
@@ -174,7 +205,8 @@ export AWS_ACCESS_KEY_ID=AKIAxxxxxxxx
 export AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxx
 export AWS_DEFAULT_REGION=us-east-1
 
-sahara init   # choose 'aws'
+sahara init --mode aws --folder ~/Sahara \
+  --bucket my-sahara-bucket --region us-east-1
 sahara sync
 ```
 
@@ -205,7 +237,7 @@ Minimum IAM policy:
 ### Index your files
 
 ```bash
-sahara index                    # index all synced files
+sahara index                    # scan and index all registered content roots
 sahara index --force            # re-index everything (ignores content hash)
 sahara index --folder ~/Docs    # index a specific registered folder
 ```
@@ -250,7 +282,8 @@ Note: Answer generated by local model mistral via Ollama.
 
 | Command | Description |
 |---|---|
-| `sahara init` | Interactive setup wizard |
+| `sahara init` | Interactive basic/local/AWS setup wizard |
+| `sahara init --mode basic --folder <path>` | Non-interactive local indexing setup |
 | `sahara doctor [--repair]` | Diagnose config and storage connectivity |
 | `sahara sync [--dry-run]` | Bidirectional sync |
 | `sahara push [--dry-run]` | Upload local changes only |
@@ -265,6 +298,12 @@ Note: Answer generated by local model mistral via Ollama.
 | `sahara add <path>` | Register an additional sync folder |
 | `sahara remove <path>` | Unregister a folder |
 | `sahara folders` | List all registered folders |
+| `sahara folder add/list/remove` | Manage indexed content roots |
+| `sahara folder sync <path> --enable/--disable` | Select whether a content root syncs |
+| `sahara storage configure local/aws` | Attach storage to an existing basic library |
+| `sahara storage status/disable` | Inspect or disable storage without deleting stored data |
+| `sahara offload <path>` | Verify storage, retain search data, and remove the local file |
+| `sahara fetch <path>` | Restore an offloaded file with checksum verification |
 | `sahara index [--force]` | Index file contents for search |
 | `sahara index-report` | Show indexed/unindexed counts and sample gaps |
 | `sahara search <query>` | Semantic search |
@@ -290,7 +329,7 @@ Config file: `~/.sahara/config.toml`
 
 ```toml
 sync_folder        = "/Users/you/Sahara"
-storage_mode       = "s3"         # s3 | local | local+glacier
+storage_mode       = "none"       # none | s3 | local | local+glacier
 bucket             = "my-bucket"
 region             = "us-east-1"
 prefix             = ""
@@ -324,7 +363,7 @@ See [SECURITY.md](SECURITY.md) for the wire format and threat model.
 
 ## Ignore rules
 
-Create `.saharaignore` in your sync folder (gitignore syntax):
+Create `.saharaignore` in any indexed content root (gitignore syntax):
 
 ```
 *.tmp
@@ -346,6 +385,7 @@ secrets/
 - [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) — Pre-release verification and publish checklist
 - [specs/THREE_STEP_PRODUCT_MODEL_PLAN.md](specs/THREE_STEP_PRODUCT_MODEL_PLAN.md) — Current indexing and optional-storage implementation plan
 - [docs/CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) — Claude Desktop setup, MCP tool contract, security, and troubleshooting
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — Basic, local-drive, and AWS setup paths
 - [docs/integrations/chat-agents.md](docs/integrations/chat-agents.md) — MCP and Claude integration notes
 
 ---

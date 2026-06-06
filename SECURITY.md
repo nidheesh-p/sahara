@@ -2,6 +2,35 @@
 
 ---
 
+## Basic Index-Only Mode
+
+With `storage_mode = "none"`, Sahara scans and indexes configured content roots on the
+local computer. No storage backend is constructed and no file is uploaded by Sahara.
+Semantic embeddings, extracted chunks, paths, and inventory state are stored in
+`~/.sahara/state.db`.
+
+`sahara search` stays local. `sahara ask` stays local when Ollama is used; when OpenAI
+is selected, the retrieved snippets needed to answer the question are sent to OpenAI.
+The read-only MCP server returns indexed snippets to the connected MCP client.
+
+Storage encryption applies only after a local-drive, MinIO, or AWS backend is
+configured. It does not encrypt the local source files or local semantic index.
+
+---
+
+## Offload Verification
+
+`sahara offload` does not trust an object listing or ETag alone. Before removing a local
+source, Sahara downloads the stored object to temporary storage, decrypts it when
+necessary, and compares its plaintext SHA-256 with the local file and last sync record.
+A missing object, stale local file, unavailable passphrase, download failure, or
+checksum mismatch leaves the source file untouched.
+
+`sahara fetch` also verifies the recovered plaintext checksum. A mismatched fetch is
+removed rather than exposed as a valid restored file.
+
+---
+
 ## Encryption model
 
 Sahara encrypts files client-side before upload. The storage backend (S3, MinIO, local drive) receives only ciphertext.
