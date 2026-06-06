@@ -697,9 +697,8 @@ The implementation:
 
 ## Phase 2 — MCP / Chat and Agent Integrations
 **Timeline: 1–2 weeks after Phase 1**  
-**Exit criterion:** A user can connect a chat/agent client such as Claude Desktop or
-OpenClaw to Sahara and ask questions about local files through Sahara's local index,
-without granting the agent broad filesystem write access.
+**Exit criterion:** A user can connect Claude Desktop to Sahara and ask questions about
+local files through Sahara's local index without granting broad filesystem write access.
 
 ---
 
@@ -711,17 +710,17 @@ at question time. The important distinction is that Sahara does this for a user'
 machine, with a local SQLite/sqlite-vec index, rather than relying on cloud document
 stores such as Google Drive, SharePoint, or GitHub.
 
-OpenClaw, Claude Desktop, ChatGPT connectors, and similar systems are useful chat or
-agent front ends. They are not, by themselves, a replacement for Sahara's local
-retrieval layer. Without a durable local index, an agent usually falls back to ad hoc
-filesystem reads, shell searches, or manual file inspection. That works for small
-folders, but not for a whole computer with long PDFs, source trees, notes, and archived
-documents.
+Claude Desktop and similar systems are useful chat front ends. OpenClaw and ChatGPT
+connectors are possible future client paths. These clients are not, by themselves, a
+replacement for Sahara's local retrieval layer. Without a durable local index, a client
+usually falls back to ad hoc filesystem reads, shell searches, or manual file inspection.
+That works for small folders, but not for a whole computer with long PDFs, source trees,
+notes, and archived documents.
 
 The intended architecture is:
 
 ```text
-OpenClaw / Claude Desktop / other MCP client
+Claude Desktop / other MCP client
         │
         │ calls read-only tools
         ▼
@@ -764,55 +763,24 @@ modify them through Sahara."
 
 ---
 
-### 2.3 OpenClaw Integration
-
-OpenClaw is best treated as a personal agent runtime: it provides the chat surface,
-tool routing, automation loop, and optional access to OpenAI, Claude, or local models.
-Sahara should integrate with it by exposing a narrow MCP tool server.
-
-Recommended OpenClaw flow:
-
-```text
-User asks OpenClaw:
-  "Find the document where I discussed the kitchen renovation budget."
-
-OpenClaw calls:
-  sahara_search("kitchen renovation budget", top_k=8)
-
-Sahara returns:
-  ranked chunks, paths, scores, and snippets
-
-OpenClaw answers:
-  a conversational answer with Sahara citations
-```
-
-Security posture:
-
-- Prefer read-only Sahara tools over broad OpenClaw filesystem access.
-- Let Sahara enforce indexed-folder boundaries.
-- Return citations and snippets, not arbitrary full-file dumps by default.
-- Add explicit opt-in for any future write/action tools.
-
----
-
-### 2.4 Claude Desktop Integration
+### 2.3 Claude Desktop Integration
 
 Claude Desktop supports local MCP servers and is likely the easiest first chat client
 for Sahara's local-first use case.
 
-Deliverables:
+Completed deliverables:
 
-- `docs/integrations/claude-desktop.md`
-- Example Claude Desktop MCP config
-- Smoke test using a temporary indexed folder
-- Troubleshooting notes for Python environment paths and permissions
+- Claude Desktop MCP configuration
+- Read-only search, ask, chunk, folder, and index-status tools
+- Local stdio MCP server support
+- Setup and environment-path guidance in `docs/integrations/chat-agents.md`
 
 The goal is to let a user run Sahara locally, add one MCP server entry to Claude
 Desktop, and ask questions about indexed local files with citations.
 
 ---
 
-### 2.5 ChatGPT Integration
+### 2.4 ChatGPT Integration
 
 ChatGPT's built-in connector model is strongest for cloud document stores and
 enterprise-managed data sources. Sahara should not depend on ChatGPT for local-first
@@ -831,17 +799,17 @@ This keeps Sahara useful even if the preferred chat front end changes.
 
 ---
 
-### 2.6 Integration Documentation
+### 2.5 Integration Documentation
 
-Add an integration guide:
+Completed integration guide:
 
 **File: `docs/integrations/chat-agents.md`**
 
-It should explain:
+It explains:
 
 - Sahara as the local retrieval/index layer
-- OpenClaw as an agent/runtime front end
 - Claude Desktop as the easiest local MCP client
+- OpenClaw as a future integration after end-to-end validation
 - ChatGPT as a possible future or remote connector client
 - Threat model: read-only tools first, least privilege, indexed-folder boundaries
 - Example queries and expected cited output
@@ -899,7 +867,7 @@ These are tempting but will slow down the OSS launch if included:
 |-------------|-------------|---------------------------------------------------------------|
 | Phase 0     | 3–5 days    | Fixed install, chunked indexing, sqlite-vec, `sahara ask`     |
 | Phase 1     | 1 week      | README, ARCHITECTURE.md, CONTRIBUTING.md, CI, templates       |
-| Phase 2     | 1–2 weeks   | Local MCP server, Claude Desktop/OpenClaw integration docs    |
+| Phase 2     | 1–2 weeks   | Local MCP server and Claude Desktop integration               |
 | Future      | 2–3 weeks   | Plugin interfaces, registry, built-ins as plugins, PLUGIN_SYSTEM.md |
 | Post-launch | Ongoing     | Hybrid retrieval, OCR plugin, reranker plugin, community PRs  |
 

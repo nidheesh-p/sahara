@@ -115,27 +115,14 @@ sahara mcp serve \
 If a client cannot send a static bearer token, use an OAuth-capable bridge or keep the
 integration local until Sahara grows first-class OAuth support.
 
-## OpenClaw
-
-Treat OpenClaw as the agent runtime and Sahara as the retrieval layer. Prefer calling
-Sahara's read-only MCP tools over giving an agent broad filesystem access.
-
-Example flow:
-
-```text
-User asks OpenClaw:
-  Find the document where I discussed the kitchen renovation budget.
-
-OpenClaw calls:
-  sahara_search("kitchen renovation budget", top_k=8)
-
-Sahara returns:
-  ranked local snippets, paths, scores, and citations
-```
-
 ## ChatGPT
 
 ChatGPT connector support should remain optional until the integration can preserve
 Sahara's local-first privacy expectations. If a remote bridge is used, document the
 authentication scope, indexed folders, data flow, and which snippets leave the local
 machine.
+
+## Future Clients
+
+OpenClaw integration guidance remains on the future roadmap. It should be published
+after Sahara's read-only MCP tools have been validated with OpenClaw end-to-end.

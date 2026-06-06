@@ -20,10 +20,10 @@ vector database, and lets you search or ask questions with citations. The goal i
 give you the same kind of instant knowledge retrieval companies get from enterprise AI
 connectors, but for your own machine and under your control.
 
-Sahara is not trying to be a general autonomous agent. Tools like Claude Desktop,
-OpenClaw, or future ChatGPT connectors can become chat front ends. Sahara's job is to
-be the trusted local index: retrieve the right local context, cite where it came from,
-and avoid broad filesystem access unless you explicitly opt in.
+Sahara is not trying to be a general autonomous agent. Claude Desktop can act as a
+local chat front end today; OpenClaw and ChatGPT connectors are possible future client
+paths. Sahara's job is to be the trusted local index: retrieve the right local context,
+cite where it came from, and avoid broad filesystem access unless you explicitly opt in.
 
 ---
 
@@ -40,7 +40,8 @@ All search and answer generation runs locally. Your files never leave your machi
 
 ## What is coming next
 
-- Chat/agent integration docs for Claude Desktop, OpenClaw, and future ChatGPT connector paths
+- Validate Claude mobile access through authenticated remote MCP
+- Future OpenClaw and ChatGPT connector guidance
 - Hybrid retrieval: BM25 keyword + vector search with cross-encoder reranking
 - Entity extraction: dates, names, amounts, document types
 - OCR support via a plugin (opt-in, not default)
@@ -299,7 +300,7 @@ secrets/
 - [SECURITY.md](SECURITY.md) — Encryption wire format, threat model, vulnerability reporting
 - [CHANGELOG.md](CHANGELOG.md) — Release history
 - [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) — Pre-release verification and publish checklist
-- [docs/integrations/chat-agents.md](docs/integrations/chat-agents.md) — MCP, Claude Desktop, and agent integration notes
+- [docs/integrations/chat-agents.md](docs/integrations/chat-agents.md) — MCP and Claude integration notes
 
 ---
 

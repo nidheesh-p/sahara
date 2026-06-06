@@ -105,11 +105,12 @@ Status: mostly complete.
 Status: implementation complete and merged through PR #12.
 
 - Read-only MCP server exists for search, ask, chunk reads, folder listing, and index status.
+- Claude Desktop configuration is complete for Sahara's local stdio MCP server.
 - `sahara mcp serve` supports stdio for local clients and authenticated HTTP/streamable transport for remote clients.
 - Remote HTTP/SSE transports require `--auth-token` or `SAHARA_MCP_AUTH_TOKEN` unless `--allow-insecure-http` is explicitly set.
 - The CLI warns when HTTP/SSE transports bind beyond loopback.
 - MCP exposure can be narrowed with `--allow-tool`, `--allow-storage-prefix`, and `--max-snippet-chars`.
-- Claude Desktop docs, Claude mobile/ngrok docs, and OpenClaw guidance exist under `docs/integrations/`.
+- Claude Desktop and Claude mobile/ngrok documentation exists under `docs/integrations/`.
 
 ### First GitHub Release
 
@@ -130,11 +131,10 @@ Status: complete.
 
 ### Phase 2: MCP / Chat and Agent Integrations
 
-1. Confirm Claude Desktop setup end-to-end on a clean machine.
-2. Confirm Claude mobile remote MCP flow end-to-end through ngrok or another HTTPS tunnel with bearer auth.
-3. Track OAuth support for clients that cannot send a static bearer token.
-4. Track ChatGPT connector/MCP support as an optional future client path, with explicit privacy and data-flow warnings.
-5. Keep Sahara out of the autonomous-agent runtime business; clients can act, Sahara retrieves and cites.
+1. Confirm Claude mobile remote MCP flow end-to-end through ngrok or another HTTPS tunnel with bearer auth.
+2. Track OAuth support for clients that cannot send a static bearer token.
+3. Track ChatGPT connector/MCP support as an optional future client path, with explicit privacy and data-flow warnings.
+4. Keep Sahara out of the autonomous-agent runtime business; clients can act, Sahara retrieves and cites.
 
 ### Future Plugin Ecosystem
 
@@ -175,6 +175,7 @@ Status: complete.
 2. Audio/video transcription and indexing with Whisper.
 3. Plugin marketplace or curated plugin install flow.
 4. Incremental re-indexing improvements.
+5. Add and validate OpenClaw integration guidance for Sahara's read-only MCP tools.
 
 ## Non-Goals
 
