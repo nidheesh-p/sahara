@@ -27,6 +27,10 @@ sahara --version
 pytest --tb=short
 ```
 
+Ollama is not required to run the test suite. To exercise `sahara ask` manually,
+follow [docs/ANSWER_PROVIDERS.md](docs/ANSWER_PROVIDERS.md); Sahara uses local
+Ollama unless OpenAI is explicitly selected.
+
 ---
 
 ## Running tests

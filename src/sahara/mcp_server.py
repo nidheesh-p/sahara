@@ -125,17 +125,25 @@ def ask_question(
     top_k: int = 5,
     storage_prefix: str | None = None,
     provider: str | None = None,
+    config: SaharaConfig | None = None,
     allowed_storage_prefixes: tuple[str, ...] | None = None,
     max_snippet_chars: int = 500,
     db: StateDB | None = None,
 ) -> dict[str, Any]:
     """Answer a question over indexed files and return cited sources."""
     storage_prefix = _validate_storage_prefix(storage_prefix, allowed_storage_prefixes)
+    config = config or load_config(DEFAULT_CONFIG_PATH)
+    selected_provider = provider or config.answer_provider
+    selected_model = (
+        config.answer_model
+        if selected_provider == config.answer_provider and config.answer_model
+        else None
+    )
     should_close = db is None
     db = db or StateDB().connect()
     try:
         search = SearchEngine(db)
-        ask = AskEngine(search, provider=provider)
+        ask = AskEngine(search, provider=selected_provider, model=selected_model)
         result = ask.ask(question, top_k=_clamp_top_k(top_k), storage_prefix=storage_prefix)
         payload = asdict(result)
         payload["sources"] = [
@@ -286,6 +294,7 @@ def build_mcp_server(
                 top_k=top_k,
                 storage_prefix=storage_prefix,
                 provider=provider,
+                config=config,
                 allowed_storage_prefixes=allowed_storage_prefixes,
                 max_snippet_chars=max_snippet_chars,
             )

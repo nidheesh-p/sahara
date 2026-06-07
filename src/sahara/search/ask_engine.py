@@ -1,9 +1,8 @@
 """AskEngine — natural language question answering over local files.
 
 Uses SearchEngine to find relevant chunks, then calls an LLM to generate a
-grounded answer.  Supports OpenAI (ChatGPT) and local Ollama; auto-selects
-OpenAI when OPENAI_API_KEY is set.  Degrades gracefully to search snippets
-when no LLM is available.
+grounded answer. Supports local Ollama by default and OpenAI when explicitly
+selected. Degrades gracefully to search snippets when no LLM is available.
 """
 
 from __future__ import annotations
@@ -64,13 +63,9 @@ class AskEngine:
         self._openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
         self._openai_model = openai_model
 
-        # Auto-detect provider: explicit > env var availability > ollama default
-        if provider:
-            self._provider = provider
-        elif self._openai_api_key:
-            self._provider = "openai"
-        else:
-            self._provider = "ollama"
+        self._provider = provider or "ollama"
+        if self._provider not in ("ollama", "openai"):
+            raise ValueError("provider must be 'ollama' or 'openai'")
 
         if self._provider == "openai":
             self._model = model or self._openai_model

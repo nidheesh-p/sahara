@@ -28,6 +28,27 @@ rate limits.
 This command is non-interactive. It requires no bucket, credentials, drive, or storage
 validation.
 
+Semantic search is now ready. To also generate answers locally, install and launch
+[Ollama](https://ollama.com/download), then download Sahara's default model:
+
+```bash
+ollama pull mistral
+ollama run mistral "Reply with only: Ollama is ready"
+sahara ask "what does this folder say about the project deadline?"
+```
+
+The model download is approximately 4.4 GB. OpenAI is an optional, explicit alternative;
+setting `OPENAI_API_KEY` does not silently move Sahara away from local Ollama. Follow
+[Answer provider setup](ANSWER_PROVIDERS.md) for platform-specific Ollama installation,
+OpenAI setup, and troubleshooting.
+
+To use only OpenAI and skip Ollama, set `OPENAI_API_KEY`, then run:
+
+```bash
+sahara config set answer_provider openai
+sahara ask "what does this folder say about the project deadline?"
+```
+
 Connect the indexed library to Claude Desktop:
 
 ```bash

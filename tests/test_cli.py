@@ -179,6 +179,23 @@ class TestConfigSetGet:
         # Exit code non-zero or shows error
         assert result.exit_code != 0 or "Unknown" in result.output
 
+    def test_config_set_rejects_unknown_answer_provider(self, tmp_path: Path):
+        _, config_path = _make_config(tmp_path)
+        result = _runner().invoke(
+            main,
+            [
+                "--config",
+                str(config_path),
+                "config",
+                "set",
+                "answer_provider",
+                "unknown",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "ollama" in result.output
+        assert "openai" in result.output
+
     def test_config_get_unknown_key_aborts(self, tmp_path: Path):
         cfg, config_path = _make_config(tmp_path)
         runner = _runner()

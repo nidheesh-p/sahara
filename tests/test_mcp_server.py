@@ -11,12 +11,14 @@ from sahara.cli import main
 from sahara.config import SaharaConfig
 from sahara.mcp_server import (
     StaticTokenVerifier,
+    ask_question,
     index_status,
     list_folders,
     read_chunk,
     search_files,
     serve,
 )
+from sahara.search.ask_engine import AskResult
 from sahara.storage.state_db import StateDB
 
 
@@ -146,6 +148,30 @@ def test_search_files_rejects_disallowed_storage_prefix(tmp_path: Path) -> None:
                 allowed_storage_prefixes=("work",),
                 db=db,
             )
+    finally:
+        db.close()
+
+
+def test_ask_question_uses_configured_provider(tmp_path: Path) -> None:
+    db = StateDB(tmp_path / "state.db").connect()
+    config = SaharaConfig(answer_provider="openai", answer_model="gpt-configured")
+    try:
+        with patch("sahara.mcp_server.AskEngine") as engine_cls:
+            engine_cls.return_value.ask.return_value = AskResult(
+                answer="answer",
+                sources=[],
+                model_used="gpt-configured",
+                provider_used="openai",
+            )
+
+            payload = ask_question("question", config=config, db=db)
+
+        engine_cls.assert_called_once()
+        assert engine_cls.call_args.kwargs == {
+            "provider": "openai",
+            "model": "gpt-configured",
+        }
+        assert payload["provider_used"] == "openai"
     finally:
         db.close()
 

@@ -841,6 +841,10 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
 
     if not hasattr(config, key):
         _abort(f"Unknown config key: {key!r}")
+    if key == "answer_provider" and value.lower() not in ("ollama", "openai"):
+        _abort("answer_provider must be 'ollama' or 'openai'.")
+    if key == "answer_provider":
+        value = value.lower()
 
     # Type coerce
     existing = getattr(config, key)
@@ -2370,7 +2374,7 @@ def search_cmd(
 @click.option(
     "--provider", default=None,
     type=click.Choice(["openai", "ollama"], case_sensitive=False),
-    help="LLM provider: openai or ollama (auto-detected from OPENAI_API_KEY if not set).",
+    help="LLM provider: ollama (default) or openai (explicit opt-in).",
 )
 @click.option(
     "--ollama-url", default=None,
@@ -2390,10 +2394,11 @@ def ask_cmd(
 ) -> None:
     """Answer a natural language question about your files.
 
-    Automatically uses OpenAI (ChatGPT) when OPENAI_API_KEY is set, otherwise
-    falls back to a local Ollama instance.
+    Uses the configured answer provider, which defaults to local Ollama. To use
+    OpenAI once, set OPENAI_API_KEY and pass --provider openai. To make OpenAI
+    the default, run: sahara config set answer_provider openai
 
-    Prefix with 'local' to force Ollama regardless of API key:
+    The legacy 'local' prefix also selects Ollama:
 
         sahara ask "what is my passport expiry date?"
 
@@ -2419,11 +2424,21 @@ def ask_cmd(
 
     db = StateDB().connect()
     search_engine = SearchEngine(db)
+    selected_provider = provider or config.answer_provider
+    selected_model = model
+    if (
+        selected_model is None
+        and selected_provider == config.answer_provider
+        and config.answer_model
+    ):
+        selected_model = config.answer_model
+    if selected_model is None and selected_provider == "openai":
+        selected_model = _os.environ.get("OPENAI_MODEL")
     ask_engine = AskEngine(
         search_engine,
         ollama_url=ollama_url or _os.environ.get("OLLAMA_URL", "http://localhost:11434"),
-        model=model or (_os.environ.get("OPENAI_MODEL") if provider != "ollama" else None),
-        provider=provider,
+        model=selected_model,
+        provider=selected_provider,
         openai_api_key=_os.environ.get("OPENAI_API_KEY"),
     )
 
