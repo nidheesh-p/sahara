@@ -1,161 +1,148 @@
 # Sahara
 
+[![CI](https://github.com/nidheesh-p/sahara/actions/workflows/ci.yml/badge.svg)](https://github.com/nidheesh-p/sahara/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/nidheesh-p/sahara?display_name=tag&sort=semver)](https://github.com/nidheesh-p/sahara/releases/latest)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-> Sahara: extended storage, searchable memory and instant retrieval.
-> Find the right file by meaning, even when you forget its name.
+> Extended storage, searchable memory and instant retrieval.
+
+Sahara turns folders on your computer into searchable memory. Find files by meaning,
+ask questions with cited sources, and expose the same local index to MCP clients.
+External drives, MinIO, and AWS storage are optional extensions, not prerequisites.
+
+**Local-first:** indexing and semantic search run on your computer. No account, API
+key, storage bucket, or additional drive is required for the core search experience.
 
 **Latest release:** [v0.2.0](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0)
-(June 6, 2026) adds semantic search, cited Q&A, read-only MCP integration, and
-optional local-drive and MinIO storage. [See what changed](CHANGELOG.md).
+(June 6, 2026). See the [changelog](CHANGELOG.md).
 
----
+![Fictional Sahara retrieval examples: timeline reconstruction, vendor lookup, and honest missing-data handling](docs/images/sahara-memory-demo.svg)
 
-## The problem
+<sub>Fictional documents shown in a generic MCP client. Sahara retrieves from the
+configured local index, cites its sources, and reports when a requested detail is
+absent.</sub>
 
-Most people now have years of important context scattered across PDFs, notes, code,
-invoices, screenshots, folders, drives, and cloud buckets. Traditional file search only
-works when you remember the exact filename or keyword. General chat assistants can
-answer questions, but they usually cannot see your local files, cannot maintain a
-durable index of your computer, and often require sending private documents to a cloud
-service.
+## What Sahara Does
 
-Sahara turns your files into searchable memory. Local semantic indexing is the basic
-mode and requires no cloud account or extra drive. Optional local-drive and S3 storage
-can then sync and protect selected indexed folders. Sahara extracts text, chunks long
-documents, embeds those chunks into a local vector database, and lets you search or ask
-questions with citations.
+- Searches PDFs, DOCX files, notes, code, and other text documents by meaning
+- Answers questions over indexed files with source paths and supporting snippets
+- Indexes multiple folders without copying them to a storage backend
+- Exposes read-only search and Q&A tools through MCP
+- Optionally syncs selected folders to a drive, NAS, MinIO, or AWS S3
+- Can offload verified stored files while keeping their indexed content searchable
 
-Sahara is not trying to be a general autonomous agent. Claude Desktop can act as a
-local chat front end today; OpenClaw and ChatGPT connectors are possible future client
-paths. Sahara's job is to be the trusted local index: retrieve the right local context,
-cite where it came from, and avoid broad filesystem access unless you explicitly opt in.
+Sahara is a single-user CLI and local retrieval service. It is not a hosted cloud
+service, autonomous agent, or general filesystem access layer.
 
----
+## Quick Start
 
-## What it does today
+Sahara requires Python 3.11 or newer.
 
-- **Index locally without storage setup** using basic mode
-- **Add multiple content folders** and keep them index-only unless sync is explicitly enabled
-- **Optionally sync** selected folders to S3, MinIO, or a locally mounted drive
-- **Offload and fetch** verified stored files while keeping them discoverable in search
-- **Encrypt** files client-side with AES-256-GCM before they leave your machine
-- **Index** your documents — PDF, DOCX, Markdown, code, plain text — into a local vector database
-- **Search** by meaning: `sahara search "tax return 2024"` finds the right file even if none of those words appear in the filename
-- **Ask** natural language questions: `sahara ask "what is my passport expiry date?"` extracts the answer and cites the source
-- **Expose read-only MCP tools** for chat clients and agent runtimes with `sahara mcp serve`
+The Python distribution is named **`sahara-memory`**, but it installs the `sahara`
+command. Do not run `pip install sahara`; that name belongs to the unrelated OpenStack
+project.
 
-Indexing and semantic search run locally. Answer generation uses local Ollama by
-default, but retrieved snippets are sent to OpenAI when that provider is selected.
-
-## What is coming next
-
-- Configure storage after starting in basic mode without rebuilding the index
-- Explicitly offload and fetch files while preserving searchable metadata
-- Validate Claude mobile access through authenticated remote MCP
-- Future OpenClaw and ChatGPT connector guidance
-- Hybrid retrieval: BM25 keyword + vector search with cross-encoder reranking
-- Entity extraction: dates, names, amounts, document types
-- OCR support via a plugin (opt-in, not default)
-- Plugin marketplace for parsers, embedders, and rerankers
-
-See [ROADMAP.md](ROADMAP.md) for the full plan.
-
----
-
-## Installation
-
-Sahara requires **Python 3.11 or newer**. Check with `python3 --version` before
-installing; Python 3.9 and 3.10 are not supported. On Windows, use
-`py -3.11` anywhere these examples use `python3`.
-
-The Python distribution is named **`sahara-memory`**. It still installs the
-`sahara` command and `sahara` Python package. Do not run `pip install sahara`:
-that name belongs to the unrelated OpenStack data-processing project.
-
-Until the first `sahara-memory` release is published to PyPI, install Sahara
-directly from GitHub:
+Until `sahara-memory` is published to PyPI, install it directly from GitHub:
 
 ```bash
 python3 -m pip install \
   "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
-```
 
-After the PyPI release, these shorter commands will be available:
-
-```bash
-# Local semantic search
-python3 -m pip install "sahara-memory[search]"
-
-# Semantic search plus MCP support for Claude Desktop
-python3 -m pip install "sahara-memory[search,mcp]"
-
-# Everything, including optional storage, MCP, and OCR dependencies
-python3 -m pip install "sahara-memory[all]"
-```
-
-### Developer setup
-
-```bash
-git clone https://github.com/nidheesh-p/sahara
-cd sahara
-python3 -m pip install -e ".[search,dev]"
-```
-
----
-
-## Quick start
-
-### Flow A: CLI search
-
-```bash
-python3 -m pip install \
-  "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
 sahara init --mode basic --folder ~/Documents
 sahara index
-sahara search "my tax return 2024" --snippet
+sahara search "my tax return from 2024" --snippet
 ```
 
-No bucket, drive, credentials, or additional prompts are required. Add another local
-folder at any time:
+On Windows, use `py -3.11 -m pip` instead of `python3 -m pip`.
+
+The first `sahara index` downloads a local embedding model of roughly 200 MB.
+Hugging Face may show an unauthenticated-download warning; no account or token is
+required.
+
+Add more folders whenever you need them:
 
 ```bash
 sahara folder add ~/Projects
 sahara index
 ```
 
-### Enable local answers with Ollama
+Every folder added this way remains index-only unless you explicitly enable storage
+sync for it.
 
-`sahara search` works immediately after indexing and does not need an LLM. For
-generated answers, install [Ollama](https://ollama.com/download), launch it, and
-download Sahara's default model:
+## Ask Questions
+
+Semantic search does not require an LLM. `sahara ask` adds an optional answer-generation
+step after Sahara retrieves the relevant local passages.
+
+### Local answers with Ollama
+
+Install [Ollama](https://ollama.com/download), then download Sahara's default model:
 
 ```bash
 ollama pull mistral
-ollama run mistral "Reply with only: Ollama is ready"
-sahara ask "what is my tax filing status?"
+sahara ask --snippet "what does the lease say about pets?"
 ```
 
-The Mistral download is approximately 4.4 GB. Ollama starts automatically after
-installation on macOS and Windows. Most Linux installations run it as a system
-service; otherwise, start `ollama serve` in another terminal.
+The current Mistral download is approximately 4.4 GB. New Sahara installations use
+Ollama as the answer provider.
 
-New installations use local Ollama by default. OpenAI is optional and must be selected
-deliberately. See [Answer provider setup](docs/ANSWER_PROVIDERS.md) for platform
-installation, verification, OpenAI configuration, privacy notes, and troubleshooting.
+### OpenAI without Ollama
 
-Prefer OpenAI and do not want to install Ollama? Skip the steps above:
+Ollama is not required when you prefer OpenAI:
 
 ```bash
 export OPENAI_API_KEY="your-api-key"
 sahara config set answer_provider openai
-sahara ask "what is my tax filing status?"
+sahara ask --snippet "what does the lease say about pets?"
 ```
 
-On Windows PowerShell, use `$env:OPENAI_API_KEY = "your-api-key"`. The key remains
-in the environment and is not saved in Sahara's configuration.
+Windows PowerShell:
 
-Attach storage later without rebuilding the index:
+```powershell
+$env:OPENAI_API_KEY = "your-api-key"
+sahara config set answer_provider openai
+sahara ask --snippet "what does the lease say about pets?"
+```
+
+Sahara stores the provider preference, not the API key. When OpenAI is selected, the
+question and retrieved snippets needed to answer it are sent to OpenAI. OpenAI API
+billing is separate from a ChatGPT subscription.
+
+See [Answer Provider Setup](docs/ANSWER_PROVIDERS.md) for installation, model selection,
+privacy details, and troubleshooting.
+
+## Connect an MCP Client
+
+Sahara exposes five read-only MCP tools for search, cited Q&A, chunk reads, folder
+listing, and index status. These tools operate only on Sahara's indexed corpus; they
+cannot browse arbitrary files or modify your data.
+
+Claude Desktop is the first tested client:
+
+```bash
+sahara mcp install-claude
+```
+
+Fully quit and reopen Claude Desktop, then confirm **sahara** appears under
+**Connectors**. The installer preserves existing settings and MCP servers, uses Sahara's
+absolute executable path, and creates a backup before changing an existing config.
+
+See [Claude Desktop Setup](docs/CLAUDE_DESKTOP.md) for verification and troubleshooting,
+or [MCP Integrations](docs/integrations/chat-agents.md) for the tool surface and
+authenticated remote transport.
+
+## Optional Storage
+
+Start with local indexing. Add storage later without rebuilding the semantic index.
+
+| Setup | What it provides | Status |
+|---|---|---|
+| Basic | Local indexing across one or more folders | Core mode |
+| Local drive | Copies selected folders to an external drive, NAS, or network share | Optional |
+| AWS | Copies selected folders to S3, with optional Glacier features | Optional |
+
+Attach a local drive:
 
 ```bash
 sahara storage configure local --drive /Volumes/Archive/Sahara
@@ -163,313 +150,105 @@ sahara folder sync ~/Documents --enable
 sahara sync
 ```
 
-After syncing and indexing a file, free its local disk space while retaining search:
+Attach AWS:
+
+```bash
+sahara storage configure aws \
+  --bucket my-sahara-bucket \
+  --region us-east-1
+sahara folder sync ~/Documents --enable
+sahara sync
+```
+
+MinIO and local-plus-Glacier modes are available through the interactive
+`sahara init` wizard. See [Getting Started](docs/GETTING_STARTED.md) for storage
+credentials, content-root behavior, deletion semantics, and migration paths.
+
+After a file has been synced and indexed, Sahara can free its source disk space while
+retaining search metadata:
 
 ```bash
 sahara offload Documents/archive/report.pdf
-sahara search "quarterly forecast"   # result is marked [offloaded]
 sahara fetch Documents/archive/report.pdf
 ```
 
-### Flow B: Ask from Claude Desktop
+Offload verifies the stored copy before removing the local source. Ordinary filesystem
+deletion is not treated as offload.
 
-After connecting Claude Desktop, ask the same question:
+## Privacy and Security
 
-```text
-Use Sahara to find my tax return from 2024.
-Include the source path and supporting snippet.
-```
+- The semantic index is stored locally in `~/.sahara/state.db`.
+- Indexing, embeddings, and `sahara search` stay local.
+- Ollama answer generation stays local.
+- OpenAI receives the question and retrieved snippets when explicitly selected.
+- MCP is read-only and scoped to indexed content.
+- Remote MCP requires authentication by default and supports tool, folder, and snippet
+  limits.
+- Optional storage encryption uses client-side AES-256-GCM.
 
-Claude calls Sahara's read-only MCP tools and returns citations from the same local
-index used by the CLI.
+Review [SECURITY.md](SECURITY.md) before exposing MCP remotely or relying on encrypted
+storage.
 
-![Fictional Sahara retrieval examples: timeline reconstruction, vendor lookup, and honest missing-data handling](docs/images/sahara-memory-demo.svg)
+## Supported Content
 
-<sub>Fictional household documents shown in a generic MCP client. Sahara retrieves from
-the local index, cites the source, and does not invent a detail that is absent.</sub>
+Sahara extracts text from:
 
----
+- PDF and DOCX documents
+- Markdown, reStructuredText, and plain text
+- Python, JavaScript, TypeScript, JSON, YAML, TOML, CSV, HTML, and XML
+- Other files that can be safely detected as UTF-8 text
 
-## Connecting to Claude Desktop in 60 seconds
+Current limitations:
 
-Prerequisite: Sahara is installed, initialized, and indexed.
+- Scanned PDFs and images are not searchable because OCR is not implemented yet.
+- Audio and video transcription are not supported.
+- Sahara is designed for one user and one local index.
+- The project is beta; keep independent backups of important files.
 
-```bash
-sahara mcp install-claude
-```
+Use `sahara index-report` to inspect indexed files, unsupported content, and failures.
 
-Fully quit and reopen Claude Desktop. Click the plus icon in the chat input, open
-**Connectors**, and confirm **sahara** lists its tools.
+## Core Commands
 
-The installer detects the Claude Desktop config location, preserves existing settings
-and MCP servers, adds Sahara using its absolute executable path, and creates a backup
-before changing an existing file. Claude Desktop runs Sahara locally over stdio. Do not
-use HTTP or ngrok for this same-computer setup.
-
-See [docs/CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) for manual configuration,
-platform-specific paths, the complete tool contract, security boundaries, and
-troubleshooting.
-
----
-
-## Storage backends
-
-Storage is optional. Sahara supports basic indexing plus four storage-backed modes:
-
-| Mode | Use case |
-|------|----------|
-| `basic` | Local indexing and semantic search with no storage destination |
-| `local` | Second drive, NAS, or network share — no cloud account needed |
-| `local+glacier` | Local drives as primary + S3 Glacier as cold backup |
-| `minio` | Self-hosted S3-compatible object storage |
-| `s3` (aws) | AWS S3 with optional Glacier archiving |
-
-### Local drive
-
-Files are written to one or more mounted drives independently — no RAID required. Drives are append-only by default (deleting a file locally does not remove it from drives).
-
-```bash
-sahara init --mode local --folder ~/Sahara \
-  --storage-drive /Volumes/MyDrive/Backup
-sahara sync
-```
-
-### MinIO (self-hosted)
-
-```bash
-docker run -p 9000:9000 -p 9001:9001 \
-  -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=password \
-  minio/minio server /data --console-address :9001
-
-sahara init   # choose 'minio', endpoint http://localhost:9000
-sahara sync
-```
-
-### AWS S3
-
-```bash
-export AWS_ACCESS_KEY_ID=AKIAxxxxxxxx
-export AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxx
-export AWS_DEFAULT_REGION=us-east-1
-
-sahara init --mode aws --folder ~/Sahara \
-  --bucket my-sahara-bucket --region us-east-1
-sahara sync
-```
-
-Minimum IAM policy:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": [
-      "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
-      "s3:ListBucket", "s3:GetBucketLocation",
-      "s3:RestoreObject", "s3:GetObjectAttributes"
-    ],
-    "Resource": [
-      "arn:aws:s3:::YOUR-BUCKET-NAME",
-      "arn:aws:s3:::YOUR-BUCKET-NAME/*"
-    ]
-  }]
-}
-```
-
----
-
-## Search & ask
-
-### Index your files
-
-```bash
-sahara index                    # scan and index all registered content roots
-sahara index --force            # re-index everything (ignores content hash)
-sahara index --folder ~/Docs    # index a specific registered folder
-```
-
-The first indexing run downloads the local embedding model (roughly 200 MB).
-Hugging Face may print an unauthenticated-request warning during this download;
-it is informational and no account or token is required. Setting `HF_TOKEN` is
-optional and only improves download rate limits.
-
-**Supported file types:** PDF, DOCX, Markdown, plain text, code (`.py`, `.js`, `.ts`, etc.), YAML, TOML, CSV, HTML, XML.
-
-Files are split into 1600-character chunks with 320-character overlap so specific passages — including page 30 of a long PDF — are independently retrievable.
-
-### Search by meaning
-
-```bash
-sahara search "tax return 2024"
-sahara search "kitchen renovation quote" --top 10
-sahara search "passport expiry" --snippet
-```
-
-### Ask a question
-
-```bash
-sahara ask "what is my passport expiry date?"
-sahara ask "find the invoice from Amazon last month" --top 10
-```
-
-```
-Answer: Your passport expires on Aug 14, 2032.
-
-Source: Documents/Personal/passport_scan.pdf  (score: 94%)
-  "…passport valid until 14 AUG 2032. Issued by Government of India…"
-
-Note: Answer generated by local model mistral via Ollama.
-```
-
-**Provider selection:**
-- Default: local Ollama (`mistral` at `http://localhost:11434`)
-- `sahara config set answer_provider openai` makes OpenAI the persistent choice
-- `OPENAI_API_KEY` alone does not change the saved provider
-- `--provider openai` explicitly selects OpenAI (`gpt-4o-mini` by default)
-- `--model <name>` selects another model from the chosen provider
-
----
-
-## Command reference
-
-### Core: searchable memory
-
-Start here. These commands create and search a local semantic index; they do not
-require an external drive, cloud account, or storage backend.
-
-| Command | Description |
+| Command | Purpose |
 |---|---|
-| `sahara init --mode basic --folder <path>` | Create a local searchable library |
-| `sahara folder add/list/remove` | Manage indexed content roots |
-| `sahara index [--force]` | Index file contents for semantic search |
-| `sahara index-report` | Show indexed/unindexed counts and sample gaps |
-| `sahara search <query>` | Find relevant files and passages by meaning |
-| `sahara ask <question>` | Answer a question over indexed files with citations |
-| `sahara mcp install-claude` | Add Sahara to Claude Desktop without editing JSON |
-| `sahara mcp serve` | Expose read-only search and Q&A tools over MCP stdio |
+| `sahara init --mode basic --folder PATH` | Create an index-only local library |
+| `sahara folder add/list/remove` | Manage indexed folders |
+| `sahara index [--force]` | Build or refresh the semantic index |
+| `sahara index-report` | Inspect indexing coverage and failures |
+| `sahara search QUERY` | Find files and passages by meaning |
+| `sahara ask --snippet QUESTION` | Generate an answer and show supporting sources |
+| `sahara mcp install-claude` | Connect Sahara to Claude Desktop |
+| `sahara mcp serve` | Run the read-only MCP server |
 
 <details>
-<summary><strong>Optional storage and sync commands</strong></summary>
+<summary><strong>Storage and operational command groups</strong></summary>
 
-Use these commands only when you want to sync, protect, or offload indexed files to
-another drive, MinIO, or AWS S3.
-
-| Command | Description |
+| Command group | Purpose |
 |---|---|
-| `sahara init` | Interactive basic/local/AWS setup wizard |
-| `sahara storage configure local/aws` | Attach storage to an existing basic library |
-| `sahara storage status/disable` | Inspect or disable storage without deleting stored data |
-| `sahara folder sync <path> --enable/--disable` | Select whether an indexed content root syncs |
-| `sahara sync [--dry-run]` | Bidirectional sync |
-| `sahara push [--dry-run]` | Upload local changes only |
-| `sahara pull [--dry-run]` | Download remote changes only |
-| `sahara status` | Show pending sync changes |
-| `sahara diff` | Alias for `status` |
-| `sahara ls [-l] [--tier]` | List tracked files |
-| `sahara rm <path>` | Remove a tracked file |
-| `sahara mv <src> <dst>` | Rename or move a tracked file |
-| `sahara conflicts` | List unresolved sync conflicts |
-| `sahara resolve` | Resolve a sync conflict |
-| `sahara add <path>` | Register an additional sync folder |
-| `sahara remove <path>` | Unregister a sync folder |
-| `sahara folders` | List registered sync folders |
-| `sahara offload <path>` | Verify storage, retain search data, and remove the local file |
-| `sahara fetch <path>` | Restore an offloaded file with checksum verification |
-| `sahara archive [paths]` | Move files to Glacier (AWS only) |
-| `sahara restore <path>` | Initiate a Glacier restore |
-| `sahara restore-status` | Check Glacier restore progress |
-| `sahara restore-download <path>` | Download a restored file |
-| `sahara usage [--simulate]` | Show storage usage and estimated cost |
-| `sahara history` | Show sync history |
-| `sahara encryption setup` | Enable AES-256-GCM encryption |
-| `sahara encryption rotate` | Rotate the encryption passphrase |
+| `sahara storage ...` | Configure, inspect, or disable optional storage |
+| `sahara folder sync ...` | Choose which indexed folders also sync |
+| `sahara sync/push/pull/status` | Inspect and execute storage synchronization |
+| `sahara offload/fetch` | Free and restore local space with verification |
+| `sahara encryption ...` | Configure or rotate storage encryption |
+| `sahara doctor` | Diagnose configuration and connectivity |
+| `sahara daemon ...` | Manage background watching and synchronization |
+| `sahara config ...` | Inspect or change configuration |
+
+Run `sahara --help` or `sahara COMMAND --help` for the complete CLI reference.
 
 </details>
-
-<details>
-<summary><strong>Configuration, diagnostics, and background operation</strong></summary>
-
-| Command | Description |
-|---|---|
-| `sahara doctor [--repair]` | Diagnose configuration and storage connectivity |
-| `sahara config show/get/set` | Manage configuration |
-| `sahara daemon start/stop/status/pause/resume/logs` | Manage the background daemon |
-| `sahara mcp serve --transport http --auth-token <token>` | Serve authenticated MCP over local HTTP for a secure tunnel or remote connector |
-
-</details>
-
----
-
-## Configuration
-
-Config file: `~/.sahara/config.toml`
-
-```toml
-sync_folder        = "/Users/you/Sahara"
-storage_mode       = "none"       # none | s3 | local | local+glacier
-bucket             = "my-bucket"
-region             = "us-east-1"
-prefix             = ""
-endpoint_url       = ""           # set for MinIO, e.g. http://192.168.1.10:9000
-encryption_enabled = false
-conflict_strategy  = "backup"     # backup | local | remote | ask
-upload_only        = false        # this machine only pushes, never pulls
-max_workers        = 8
-```
-
-```bash
-sahara config show
-sahara config get conflict_strategy
-sahara config set conflict_strategy local
-```
-
----
-
-## Encryption
-
-Client-side AES-256-GCM encryption. The passphrase is stored in the system keyring (macOS Keychain, libsecret on Linux, Windows Credential Store) — never written to disk.
-
-```bash
-sahara encryption setup    # enable and store passphrase
-sahara encryption rotate   # re-encrypt all files with a new passphrase
-```
-
-See [SECURITY.md](SECURITY.md) for the wire format and threat model.
-
----
-
-## Ignore rules
-
-Create `.saharaignore` in any indexed content root (gitignore syntax):
-
-```
-*.tmp
-.DS_Store
-node_modules/
-secrets/
-```
-
----
 
 ## Documentation
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — System design, storage protocols, search pipeline, SQLite schema
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Dev setup, test conventions, how to add a storage backend
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Community expectations and private incident reporting
-- [ROADMAP.md](ROADMAP.md) — What is built, what is next, explicit non-goals
-- [SECURITY.md](SECURITY.md) — Encryption wire format, threat model, vulnerability reporting
-- [CHANGELOG.md](CHANGELOG.md) — Release history
-- [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) — Pre-release verification and publish checklist
-- [specs/THREE_STEP_PRODUCT_MODEL_PLAN.md](specs/THREE_STEP_PRODUCT_MODEL_PLAN.md) — Current indexing and optional-storage implementation plan
-- [docs/CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) — Claude Desktop setup, MCP tool contract, security, and troubleshooting
-- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — Basic, local-drive, and AWS setup paths
-- [docs/ANSWER_PROVIDERS.md](docs/ANSWER_PROVIDERS.md) — Ollama-first local answers and optional OpenAI setup
-- [docs/integrations/chat-agents.md](docs/integrations/chat-agents.md) — MCP and Claude integration notes
-- [docs/demo/README.md](docs/demo/README.md) — Fictional README, social, and terminal demo assets
-
----
+- [Getting Started](docs/GETTING_STARTED.md): index-only, local-drive, and AWS paths
+- [Answer Providers](docs/ANSWER_PROVIDERS.md): Ollama and OpenAI setup
+- [Claude Desktop](docs/CLAUDE_DESKTOP.md): installation, MCP contract, and troubleshooting
+- [Security](SECURITY.md): threat model, encryption, and vulnerability reporting
+- [Roadmap](ROADMAP.md): current scope, planned work, and non-goals
+- [Architecture](ARCHITECTURE.md): system design and extension points
+- [Contributing](CONTRIBUTING.md): development setup, tests, and pull requests
+- [Changelog](CHANGELOG.md): release history
 
 ## License
 
-MIT, copyright Nidheesh Puthalath.
+Sahara is available under the [MIT License](LICENSE).
