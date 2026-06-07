@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import datetime
+import importlib
 import logging
 import os
 import platform
 import signal
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, cast
 
 from sahara.config import load_config
 
@@ -45,6 +47,21 @@ _LAUNCHD_PLIST_PATH = (
 _SYSTEMD_SERVICE_PATH = (
     Path.home() / ".config" / "systemd" / "user" / "sahara.service"
 )
+
+
+class _WinregProtocol(Protocol):
+    HKEY_CURRENT_USER: object
+    KEY_SET_VALUE: int
+    REG_SZ: int
+    OpenKey: Callable[[object, str, int, int], object]
+    SetValueEx: Callable[[object, str, int, int, str], None]
+    DeleteValue: Callable[[object, str], None]
+    CloseKey: Callable[[object], None]
+
+
+def _load_winreg() -> _WinregProtocol:
+    """Load the Windows-only registry module behind a typed boundary."""
+    return cast(_WinregProtocol, importlib.import_module("winreg"))
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +376,7 @@ def poll_restores(db: StateDB, s3: S3Client) -> None:
                         pass
 
                 record.restore_job_id = None
-                record.tier = "HOT_TEMP"  # type: ignore[assignment]
+                record.tier = "HOT_TEMP"
                 if expiry:
                     record.restore_expires_at = expiry
                 db.upsert_file(record)
@@ -486,7 +503,7 @@ WantedBy=default.target
 def _install_windows_startup(sahara_bin: str) -> str:
     """Add Sahara to Windows startup via the registry."""
     try:
-        import winreg  # type: ignore[import]
+        winreg = _load_winreg()
 
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
@@ -503,7 +520,7 @@ def _install_windows_startup(sahara_bin: str) -> str:
 
 def _uninstall_windows_startup() -> None:
     try:
-        import winreg  # type: ignore[import]
+        winreg = _load_winreg()
 
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,

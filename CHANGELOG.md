@@ -26,6 +26,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ### Changed
 
+- Restored full mypy checking for the daemon and filesystem watcher
 - Renamed the Python distribution from `sahara` to `sahara-memory` to avoid the
   unrelated OpenStack Sahara project on PyPI; the product name, `sahara` CLI,
   and `sahara` import package are unchanged
