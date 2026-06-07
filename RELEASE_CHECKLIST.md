@@ -57,17 +57,21 @@ Use this checklist before publishing a Sahara release.
 
 ## Release
 
-- Build the package with `python3 -m build`.
-- Inspect the generated sdist and wheel.
-- Confirm the built metadata reports `Name: sahara-memory` and still provides the
-  `sahara` console command.
-- Publish to TestPyPI first if this is the first release in a line.
+- Confirm pending Trusted Publishers exist on TestPyPI and PyPI for repository
+  `nidheesh-p/sahara`, workflow `publish.yml`, and the matching `testpypi` or
+  `pypi` GitHub environment.
+- Run the **Publish** workflow manually from `main` to upload the verified wheel and
+  source distribution to TestPyPI.
 - Install `sahara-memory[search,mcp]` from the published artifact in a fresh
   environment and confirm `pip show sahara-memory` reports this repository.
-- Tag the release after artifacts are verified.
+- Create and publish a GitHub release whose tag is exactly `v<pyproject version>`.
+  The release event builds, verifies, and publishes to PyPI through OIDC.
+- Never publish the production package manually or with a long-lived API token.
 
 ## Post-Release
 
 - Confirm the GitHub release page links to the changelog.
+- Confirm `https://pypi.org/project/sahara-memory/` shows the expected version,
+  files, metadata, and Trusted Publisher attestations.
 - Confirm installation instructions still work.
 - Confirm roadmap and release notes describe the next active milestone.
