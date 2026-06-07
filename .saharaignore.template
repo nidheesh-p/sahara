@@ -4,11 +4,11 @@
 # Lines beginning with # are comments.
 # Blank lines are ignored.
 #
-# Patterns are evaluated relative to the sync folder.
+# Patterns are evaluated relative to the indexed content root.
 #
 # Examples:
 #   *.log            — ignore all .log files anywhere
-#   /tmp/            — ignore the "tmp" folder at the root of the sync folder
+#   /tmp/            — ignore the "tmp" folder at the root of the content root
 #   build/           — ignore any folder named "build"
 #   docs/**/*.pdf    — ignore all PDFs inside docs/ recursively
 #   !important.log   — un-ignore important.log (exception to a broader rule)

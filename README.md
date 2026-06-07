@@ -15,7 +15,8 @@ External drives, MinIO, and AWS storage are optional extensions, not prerequisit
 key, storage bucket, or additional drive is required for the core search experience.
 
 **Latest release:** [v0.2.0](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0)
-(June 6, 2026). See the [changelog](CHANGELOG.md).
+(June 6, 2026) adds semantic search, cited Q&A, read-only MCP integration, and
+optional local-drive and MinIO storage. See the [changelog](CHANGELOG.md).
 
 ![Fictional Sahara retrieval examples: timeline reconstruction, vendor lookup, and honest missing-data handling](docs/images/sahara-memory-demo.svg)
 
@@ -85,7 +86,8 @@ sahara ask --snippet "what does the lease say about pets?"
 ```
 
 The current Mistral download is approximately 4.4 GB. New Sahara installations use
-Ollama as the answer provider.
+Ollama as the answer provider. If Ollama is not already running, launch the application
+or run `ollama serve` in another terminal.
 
 ### OpenAI without Ollama
 
@@ -206,6 +208,19 @@ Current limitations:
 - The project is beta; keep independent backups of important files.
 
 Use `sahara index-report` to inspect indexed files, unsupported content, and failures.
+
+Create a `.saharaignore` file in any indexed folder to exclude content using
+gitignore-style patterns:
+
+```gitignore
+.env*
+secrets/
+node_modules/
+*.tmp
+```
+
+Start from the [example ignore file](.saharaignore.template) for common operating-system,
+editor, build, and credential exclusions.
 
 ## Core Commands
 
