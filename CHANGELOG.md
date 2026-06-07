@@ -21,6 +21,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - Checksum-verified `sahara offload` and `sahara fetch` with retained search metadata
 - Explicit storage residency in CLI search/list/status and MCP results
 - Local indexing that scans content roots without requiring sync records or storage
+- `sahara mcp install-claude` for merge-safe, one-command Claude Desktop setup on
+  macOS and Windows
 
 ### Changed
 

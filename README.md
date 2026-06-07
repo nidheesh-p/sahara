@@ -152,29 +152,21 @@ index used by the CLI.
 
 Prerequisite: Sahara is installed, initialized, and indexed.
 
-1. Find the executable path with `command -v sahara` on macOS or
-   `(Get-Command sahara).Source` in Windows PowerShell.
-2. In Claude Desktop, open **Settings > Developer > Edit Config**.
-3. Add this entry, replacing the command with the absolute path:
-
-```json
-{
-  "mcpServers": {
-    "sahara": {
-      "command": "/absolute/path/to/sahara",
-      "args": ["mcp", "serve", "--transport", "stdio"]
-    }
-  }
-}
+```bash
+sahara mcp install-claude
 ```
 
-4. Fully quit and reopen Claude Desktop.
-5. Click the plus icon in the chat input, open **Connectors**, and confirm **sahara**
-   lists its tools.
+Fully quit and reopen Claude Desktop. Click the plus icon in the chat input, open
+**Connectors**, and confirm **sahara** lists its tools.
 
-Claude Desktop runs Sahara locally over stdio. Do not use HTTP or ngrok for this
-same-computer setup. See [docs/CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) for platform
-config locations, the complete tool contract, security boundaries, and troubleshooting.
+The installer detects the Claude Desktop config location, preserves existing settings
+and MCP servers, adds Sahara using its absolute executable path, and creates a backup
+before changing an existing file. Claude Desktop runs Sahara locally over stdio. Do not
+use HTTP or ngrok for this same-computer setup.
+
+See [docs/CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) for manual configuration,
+platform-specific paths, the complete tool contract, security boundaries, and
+troubleshooting.
 
 ---
 
@@ -311,6 +303,7 @@ require an external drive, cloud account, or storage backend.
 | `sahara index-report` | Show indexed/unindexed counts and sample gaps |
 | `sahara search <query>` | Find relevant files and passages by meaning |
 | `sahara ask <question>` | Answer a question over indexed files with citations |
+| `sahara mcp install-claude` | Add Sahara to Claude Desktop without editing JSON |
 | `sahara mcp serve` | Expose read-only search and Q&A tools over MCP stdio |
 
 <details>

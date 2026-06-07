@@ -18,59 +18,59 @@ sahara index
 sahara index-report
 ```
 
-Find the absolute path to the Sahara executable:
+## Install in Claude Desktop
 
 ```bash
-# macOS
-command -v sahara
+sahara mcp install-claude
 ```
 
-```powershell
-# Windows PowerShell
-(Get-Command sahara).Source
-```
+The installer:
 
-The server command Claude Desktop will run is:
+- detects the supported macOS or Windows Claude Desktop config location
+- detects the absolute path to the current Sahara executable
+- preserves existing Claude preferences and other MCP servers
+- adds or updates only `mcpServers.sahara`
+- creates `claude_desktop_config.json.sahara-backup` before changing an existing file
+- keeps a non-default Sahara config when invoked as
+  `sahara --config /path/to/config.toml mcp install-claude`
+
+Fully quit and reopen Claude Desktop. Closing only the window is not enough after an
+MCP configuration change.
+
+### Path overrides
+
+Automatic detection covers standard macOS installs, standard Windows installs, and
+known Windows MSIX package locations. For an unusual installation, provide explicit
+paths:
 
 ```bash
-sahara mcp serve --transport stdio
+sahara mcp install-claude \
+  --claude-config "/custom/path/claude_desktop_config.json" \
+  --executable "/absolute/path/to/sahara"
 ```
 
-`stdio` is the default transport, but keeping it explicit in the Claude configuration
-makes the intended local connection clear. The process may appear silent when run in a
-terminal because it is waiting for MCP messages on standard input.
+## Manual Configuration
 
-## Claude Desktop Configuration
+Use this fallback when automatic installation is not appropriate. Find the executable
+with `command -v sahara` on macOS or `(Get-Command sahara).Source` in Windows
+PowerShell.
 
-Open Claude Desktop, then use **Settings > Developer > Edit Config**, or edit the file
-directly:
+Standard config locations:
 
 | Platform | Configuration file |
 |---|---|
 | macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
 | Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Windows MSIX | Under `%LOCALAPPDATA%\Packages\<Claude package>\LocalCache\Roaming\Claude\claude_desktop_config.json` |
 | Linux | Claude Desktop is not officially available, so there is no supported Linux config location |
 
-Use the absolute executable path returned above. A macOS example:
+Merge this entry into the existing JSON rather than replacing the whole file:
 
 ```json
 {
   "mcpServers": {
     "sahara": {
       "command": "/Users/you/.local/bin/sahara",
-      "args": ["mcp", "serve", "--transport", "stdio"]
-    }
-  }
-}
-```
-
-A Windows example:
-
-```json
-{
-  "mcpServers": {
-    "sahara": {
-      "command": "C:\\Users\\you\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\sahara.exe",
       "args": ["mcp", "serve", "--transport", "stdio"]
     }
   }
@@ -97,8 +97,9 @@ For a non-default Sahara config, add the global `--config` option before `mcp`:
 }
 ```
 
-Save the JSON, fully quit Claude Desktop, and reopen it. Closing only the window is not
-enough after an MCP configuration change.
+The server command is `sahara mcp serve --transport stdio`. The process may appear
+silent when run directly in a terminal because it is waiting for MCP messages on
+standard input.
 
 ## Verify the Connection
 
@@ -210,7 +211,11 @@ or reduce `--max-snippet-chars` in the Claude configuration.
 
 ### Sahara does not appear in Claude Desktop
 
-- Validate the JSON syntax and fully quit and reopen Claude Desktop.
+- Re-run `sahara mcp install-claude` and fully quit and reopen Claude Desktop.
+- If the installer reports invalid JSON, repair the existing Claude config first; it
+  deliberately leaves malformed files unchanged.
+- On unusual Windows installations, use **Settings > Developer > Edit Config** to
+  identify the active path, then pass it with `--claude-config`.
 - Confirm MCP support is installed. Before the first PyPI release, use
   `python3 -m pip install "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"`.
 - Run `/absolute/path/to/sahara mcp serve --help` in a terminal.
@@ -253,7 +258,7 @@ Before wider promotion, test this guide on a clean macOS or Windows account/mach
 1. Start a timer before installation.
 2. Install Sahara and its search/MCP extras.
 3. Run `sahara init`, add a small known document, and run `sahara index`.
-4. Configure Claude Desktop using this guide.
+4. Run `sahara mcp install-claude` and restart Claude Desktop.
 5. Ask one question whose answer is in that document.
 6. Confirm Claude invokes Sahara and returns the cited source path and snippet.
 7. Stop the timer and record the OS, install method, elapsed time, friction, and result

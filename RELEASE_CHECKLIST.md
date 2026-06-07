@@ -22,6 +22,8 @@ Use this checklist before publishing a Sahara release.
   - CLI initialization, indexing, and semantic search.
   - The same query in Claude Desktop with Sahara-provided citations.
 - Time the clean-machine Claude Desktop setup on macOS or Windows.
+- Confirm `sahara mcp install-claude` preserves existing Claude preferences and MCP
+  servers, then successfully reconnects after a full Claude Desktop restart.
 - Confirm a new user reaches one cited answer in under five minutes; revise the guide
   if the flow takes longer.
 - State unvalidated MCP clients as unvalidated. Do not promise ChatGPT, Claude Code,
