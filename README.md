@@ -152,6 +152,11 @@ Include the source path and supporting snippet.
 Claude calls Sahara's read-only MCP tools and returns citations from the same local
 index used by the CLI.
 
+![Fictional Sahara retrieval examples: timeline reconstruction, vendor lookup, and honest missing-data handling](docs/images/sahara-memory-demo.svg)
+
+<sub>Fictional household documents shown in a generic MCP client. Sahara retrieves from
+the local index, cites the source, and does not invent a detail that is absent.</sub>
+
 ---
 
 ## Connecting to Claude Desktop in 60 seconds
@@ -428,6 +433,7 @@ secrets/
 - [docs/CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) — Claude Desktop setup, MCP tool contract, security, and troubleshooting
 - [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — Basic, local-drive, and AWS setup paths
 - [docs/integrations/chat-agents.md](docs/integrations/chat-agents.md) — MCP and Claude integration notes
+- [docs/demo/README.md](docs/demo/README.md) — Fictional README, social, and terminal demo assets
 
 ---
 
