@@ -4,12 +4,16 @@ Sahara starts as a local semantic index. Storage is optional and can be selected
 initial setup. Local-drive and AWS modes index the source folder on the computer; Sahara
 does not index the storage copy as a second source.
 
+Sahara requires Python 3.11 or newer. The PyPI distribution is `sahara-memory`;
+the distribution named `sahara` is an unrelated OpenStack project.
+
 ## Basic: Local Indexing
 
 Use this when you only need semantic search and MCP access:
 
 ```bash
-pip install "sahara[search,mcp]"
+python -m pip install \
+  "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
 sahara init --mode basic --folder ~/Documents
 sahara index
 sahara search "known phrase" --snippet

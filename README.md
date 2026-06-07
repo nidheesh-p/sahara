@@ -59,21 +59,32 @@ See [ROADMAP.md](ROADMAP.md) for the full plan.
 
 ## Installation
 
+Sahara requires **Python 3.11 or newer**. Check with `python3 --version` before
+installing; Python 3.9 and 3.10 are not supported.
+
+The Python distribution is named **`sahara-memory`**. It still installs the
+`sahara` command and `sahara` Python package. Do not run `pip install sahara`:
+that name belongs to the unrelated OpenStack data-processing project.
+
+Until the first `sahara-memory` release is published to PyPI, install Sahara
+directly from GitHub:
+
 ```bash
-# Core CLI and storage sync, without semantic search dependencies
-pip install sahara
+python -m pip install \
+  "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
+```
 
-# With semantic search (downloads ~200 MB embedding model on first use)
-pip install "sahara[search]"
+After the PyPI release, these shorter commands will be available:
 
-# With MCP server support for chat/agent clients
-pip install "sahara[search,mcp]"
+```bash
+# Local semantic search
+python -m pip install "sahara-memory[search]"
 
-# With OCR support
-pip install "sahara[search,ocr]"
+# Semantic search plus MCP support for Claude Desktop
+python -m pip install "sahara-memory[search,mcp]"
 
-# Everything
-pip install "sahara[all]"
+# Everything, including optional storage, MCP, and OCR dependencies
+python -m pip install "sahara-memory[all]"
 ```
 
 ### Developer setup
@@ -81,7 +92,7 @@ pip install "sahara[all]"
 ```bash
 git clone https://github.com/nidheesh-p/sahara
 cd sahara
-pip install -e ".[search,dev]"
+python -m pip install -e ".[search,dev]"
 ```
 
 ---
@@ -91,7 +102,8 @@ pip install -e ".[search,dev]"
 ### Flow A: CLI search
 
 ```bash
-pip install "sahara[search,mcp]"
+python -m pip install \
+  "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
 sahara init --mode basic --folder ~/Documents
 sahara index
 sahara search "my tax return 2024" --snippet

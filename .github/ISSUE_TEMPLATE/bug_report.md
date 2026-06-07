@@ -31,7 +31,7 @@ paste output here
 - OS: (e.g. macOS 14.5, Ubuntu 24.04, Windows 11)
 - Python version: (`python --version`)
 - Sahara version: (`sahara --version`)
-- Install method: (`pip install sahara` / `pip install -e .` / other)
+- Install method: (`pip install sahara-memory` / `pip install -e .` / other)
 - Storage backend: (local / minio / s3)
 
 ## Configuration (sanitised)

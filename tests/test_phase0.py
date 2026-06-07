@@ -61,11 +61,18 @@ def config_s3():
 
 
 def test_pyproject_version():
-    # The installed package version should be ≥ 0.2.0 after our change.
+    # The distribution rename ships as the 0.2.1 patch release.
     # We test the source directly since the package may not be reinstalled yet.
     toml_path = Path(__file__).parent.parent / "pyproject.toml"
     content = toml_path.read_text()
-    assert 'version = "0.2.0"' in content
+    assert 'version = "0.2.1"' in content
+
+
+def test_pyproject_distribution_name():
+    toml_path = Path(__file__).parent.parent / "pyproject.toml"
+    content = toml_path.read_text()
+    assert 'name = "sahara-memory"' in content
+    assert 'all = ["sahara-memory[search,ocr,mcp]"]' in content
 
 
 def test_pyproject_description():
