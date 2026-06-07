@@ -265,5 +265,9 @@ Releases are cut by the maintainers. If you are proposing a change that requires
 
 1. Update `version` in `pyproject.toml`
 2. Add an entry to `CHANGELOG.md` under a new `## [x.y.z]` heading
-3. Tag: `git tag vx.y.z && git push --tags`
-4. CI publishes to PyPI on tag push (once the publish workflow is configured)
+3. Run the **Publish** workflow manually from `main` and verify the release on TestPyPI
+4. Create a GitHub release with tag `vx.y.z`
+5. The published-release workflow verifies the tag and artifacts, then publishes to
+   PyPI through Trusted Publishing
+
+See [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for the complete maintainer process.

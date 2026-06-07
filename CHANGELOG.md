@@ -10,6 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ### Added
 
+- Trusted Publishing workflows for verified TestPyPI and PyPI releases
 - Contributor Covenant 3.0 code of conduct with private incident reporting
 - Claude Desktop launch guide with platform configuration, exact MCP tool contracts,
   security boundaries, verification, and troubleshooting
