@@ -113,10 +113,6 @@ ignore_missing_imports = true
 warn_unused_ignores = false
 no_implicit_optional = true
 
-[[tool.mypy.overrides]]
-module = ["sahara.sync.daemon", "sahara.sync.file_watcher"]
-ignore_errors = true
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"

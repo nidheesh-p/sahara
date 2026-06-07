@@ -7,16 +7,14 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 
-from watchdog.events import (  # type: ignore[import]
-    FileCreatedEvent,
-    FileDeletedEvent,
-    FileModifiedEvent,
-    FileMovedEvent,
+from watchdog.events import (
     FileSystemEvent,
     FileSystemEventHandler,
+    FileSystemMovedEvent,
 )
-from watchdog.observers import Observer  # type: ignore[import]
+from watchdog.observers import Observer
 
 __all__ = [
     "SaharaEventHandler",
@@ -25,6 +23,26 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class ObserverProtocol(Protocol):
+    """Observer behavior used by Sahara, independent of watchdog's platform alias."""
+
+    def schedule(
+        self,
+        event_handler: FileSystemEventHandler,
+        path: str,
+        *,
+        recursive: bool = False,
+    ) -> object: ...
+
+    def start(self) -> None: ...
+
+    def stop(self) -> None: ...
+
+    def join(self, timeout: float | None = None) -> None: ...
+
+    def is_alive(self) -> bool: ...
 
 
 # ---------------------------------------------------------------------------
@@ -134,16 +152,16 @@ class SaharaEventHandler(FileSystemEventHandler):
         logger.debug("File event: %s %s", event.event_type, path)
         self._debouncer.touch(path)
 
-    def on_created(self, event: FileCreatedEvent) -> None:  # type: ignore[override]
+    def on_created(self, event: FileSystemEvent) -> None:
         self._handle(event)
 
-    def on_modified(self, event: FileModifiedEvent) -> None:  # type: ignore[override]
+    def on_modified(self, event: FileSystemEvent) -> None:
         self._handle(event)
 
-    def on_deleted(self, event: FileDeletedEvent) -> None:  # type: ignore[override]
+    def on_deleted(self, event: FileSystemEvent) -> None:
         self._handle(event)
 
-    def on_moved(self, event: FileMovedEvent) -> None:  # type: ignore[override]
+    def on_moved(self, event: FileSystemMovedEvent) -> None:
         if event.is_directory:
             return
         if self._is_paused():
@@ -167,8 +185,8 @@ class SaharaEventHandler(FileSystemEventHandler):
 def start_watching(
     folders: list[tuple[Path, SaharaEventHandler]],
     recursive: bool = True,
-    observer_factory: Callable[[], Observer] = Observer,
-) -> Observer:
+    observer_factory: Callable[[], ObserverProtocol] = Observer,
+) -> ObserverProtocol:
     """Start a watchdog Observer for one or more folders.
 
     Args:
