@@ -29,7 +29,7 @@ Use this checklist before publishing a Sahara release.
 
 ## Verification
 
-- Run `pip install -e ".[search,dev]"` in a clean virtual environment.
+- Run `python3 -m pip install -e ".[search,dev]"` in a clean virtual environment.
 - Run `sahara --version` from the clean virtual environment.
 - Run `pytest`.
 - Run `ruff check .`.
@@ -54,7 +54,7 @@ Use this checklist before publishing a Sahara release.
 
 ## Release
 
-- Build the package with `python -m build`.
+- Build the package with `python3 -m build`.
 - Inspect the generated sdist and wheel.
 - Confirm the built metadata reports `Name: sahara-memory` and still provides the
   `sahara` console command.

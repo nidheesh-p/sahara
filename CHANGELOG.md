@@ -27,6 +27,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - Renamed the Python distribution from `sahara` to `sahara-memory` to avoid the
   unrelated OpenStack Sahara project on PyPI; the product name, `sahara` CLI,
   and `sahara` import package are unchanged
+- First-time indexing now explains the local embedding-model download and clarifies
+  that Hugging Face authentication warnings do not require user action
 - Package and license metadata now identify Nidheesh Puthalath as the maintainer
 - README quick start now demonstrates both CLI retrieval and cited Claude Desktop use
 - Documentation consolidated around current user, contributor, release, and architecture
