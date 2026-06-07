@@ -76,6 +76,11 @@ class TestSaharaConfigDefaults:
         cfg = SaharaConfig()
         assert cfg.restore_tier == "Bulk"
 
+    def test_default_answer_provider(self):
+        cfg = SaharaConfig()
+        assert cfg.answer_provider == "ollama"
+        assert cfg.answer_model == ""
+
 
 # ---------------------------------------------------------------------------
 # get_sync_folder_path
@@ -242,6 +247,8 @@ class TestSaveConfig:
             max_workers=4,
             encryption_enabled=True,
             conflict_strategy="local",
+            answer_provider="openai",
+            answer_model="gpt-4o-mini",
             exclude_patterns=["*.log", "build/"],
         )
         config_path = tmp_path / "cfg.toml"
@@ -254,6 +261,8 @@ class TestSaveConfig:
         assert loaded.max_workers == original.max_workers
         assert loaded.encryption_enabled == original.encryption_enabled
         assert loaded.conflict_strategy == original.conflict_strategy
+        assert loaded.answer_provider == "openai"
+        assert loaded.answer_model == "gpt-4o-mini"
         assert "*.log" in loaded.exclude_patterns
         assert "build/" in loaded.exclude_patterns
 

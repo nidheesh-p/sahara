@@ -151,15 +151,18 @@ Inputs:
 | `question` | string | yes | Question to answer from indexed content |
 | `top_k` | integer | no | Retrieval count; defaults to 5 and is clamped to 1–20 |
 | `storage_prefix` | string or null | no | Restrict retrieval to one configured Sahara prefix |
-| `provider` | string or null | no | `ollama` for local generation or `openai` for OpenAI |
+| `provider` | string or null | no | Override with `ollama` or `openai`; null uses the saved `answer_provider` |
 
 Output: an object containing `answer`, `sources`, `degraded`, `model_used`,
 `provider_used`, and `error`. Each source contains `storage_prefix`, `relative_path`,
 `score`, and `snippet`.
 
-Search and indexing stay local. `sahara_ask` uses local Ollama by default when no
-OpenAI key is available. If OpenAI is selected or available through `OPENAI_API_KEY`,
-the retrieved snippets used as context are sent to OpenAI.
+Search and indexing stay local. `sahara_ask` uses the saved answer provider, which
+defaults to local Ollama even when `OPENAI_API_KEY` exists in the environment.
+Users who intentionally choose OpenAI can run
+`sahara config set answer_provider openai`; when selected, the retrieved snippets
+used as context are sent to OpenAI. The key must be available to the MCP process and
+is never stored in Sahara's configuration.
 
 ### `sahara_read_chunk`
 

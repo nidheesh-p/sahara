@@ -122,6 +122,10 @@ class SaharaConfig:
     # Notifications
     notifications_enabled: bool = True
 
+    # Answer generation (API keys remain in environment variables)
+    answer_provider: str = "ollama"  # ollama | openai
+    answer_model: str = ""  # empty = provider default
+
     # Exclude patterns (appended to DEFAULT_EXCLUDES)
     exclude_patterns: list[str] = field(default_factory=list)
 

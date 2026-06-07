@@ -34,6 +34,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - Package and license metadata now identify Nidheesh Puthalath as the maintainer
 - README quick start now demonstrates both CLI retrieval and cited Claude Desktop use
 - Added fictional, privacy-safe README, social, and reproducible terminal demo assets
+- Ollama is the initial answer provider; OpenAI can be selected explicitly or saved
+  as the user's default without installing Ollama
+- Added first-run Ollama and optional OpenAI setup guidance
 - Documentation consolidated around current user, contributor, release, and architecture
   guidance; superseded specifications remain available through Git history
 - Fresh installations default to local indexing; legacy configs without `storage_mode`

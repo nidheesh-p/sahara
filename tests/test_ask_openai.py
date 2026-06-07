@@ -26,18 +26,18 @@ def _make_engine(provider=None, openai_api_key=None, model=None, **kw):
     )
 
 
-class TestProviderAutoDetect:
+class TestProviderSelection:
     def test_defaults_to_ollama_without_key(self):
         with patch.dict("os.environ", {}, clear=True):
             engine = _make_engine()
         assert engine._provider == "ollama"
         assert engine._model == DEFAULT_OLLAMA_MODEL
 
-    def test_defaults_to_openai_when_key_in_env(self):
+    def test_openai_key_does_not_change_ollama_default(self):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}):
             engine = _make_engine()
-        assert engine._provider == "openai"
-        assert engine._model == DEFAULT_OPENAI_MODEL
+        assert engine._provider == "ollama"
+        assert engine._model == DEFAULT_OLLAMA_MODEL
 
     def test_explicit_provider_overrides_env(self):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}):
@@ -48,10 +48,10 @@ class TestProviderAutoDetect:
         engine = _make_engine(provider="openai", openai_api_key="sk-test", model="gpt-4o")
         assert engine._model == "gpt-4o"
 
-    def test_openai_key_passed_directly(self):
+    def test_openai_key_passed_directly_requires_explicit_provider(self):
         with patch.dict("os.environ", {}, clear=True):
             engine = _make_engine(openai_api_key="sk-direct")
-        assert engine._provider == "openai"
+        assert engine._provider == "ollama"
         assert engine._openai_api_key == "sk-direct"
 
 
@@ -297,7 +297,53 @@ class TestCLIProviderFlag:
         assert result.exit_code == 0
         assert "OpenAI" in result.output or "42" in result.output
 
-    def test_cli_ask_defaults_to_openai_from_env(self, tmp_path):
+    def test_cli_ask_uses_configured_openai_provider(self, tmp_path):
+        import numpy as np
+        from click.testing import CliRunner
+
+        from sahara.cli import main
+        from sahara.storage.state_db import StateDB
+
+        cfg, _ = self._write_config(tmp_path)
+        cfg.write_text(
+            cfg.read_text() + 'answer_provider = "openai"\nanswer_model = "gpt-configured"\n'
+        )
+        db_path = tmp_path / "state.db"
+        db = StateDB(db_path).connect()
+        db.upsert_embedding("", "doc.txt", "h", json.dumps([0.5] * 384), "snippet")
+        db.close()
+
+        body = json.dumps({"choices": [{"message": {"content": "Configured OpenAI"}}]}).encode()
+
+        class FakeResp:
+            def read(self):
+                return body
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                pass
+
+        captured_payloads = []
+
+        def fake_urlopen(req, timeout=None):
+            captured_payloads.append(json.loads(req.data.decode()))
+            return FakeResp()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), \
+             patch("sahara.search.search_engine.SearchEngine._embed") as mock_embed, \
+             patch("urllib.request.urlopen", side_effect=fake_urlopen), \
+             patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}):
+            mock_embed.return_value = [np.array([0.5] * 384, dtype=np.float32)]
+            result = CliRunner().invoke(
+                main,
+                ["--config", str(cfg), "ask", "what is the answer?"],
+            )
+
+        assert result.exit_code == 0
+        assert "Configured OpenAI" in result.output
+        assert captured_payloads[0]["model"] == "gpt-configured"
+
+    def test_cli_ask_defaults_to_ollama_with_openai_key_in_env(self, tmp_path):
         import numpy as np
         from click.testing import CliRunner
 
@@ -310,7 +356,7 @@ class TestCLIProviderFlag:
         db.upsert_embedding("", "doc.txt", "h", json.dumps([0.5] * 384), "snippet")
         db.close()
 
-        body = json.dumps({"choices": [{"message": {"content": "Answer from ChatGPT"}}]}).encode()
+        body = json.dumps({"response": "Answer from local Ollama"}).encode()
 
         class FakeResp:
             def read(self):
@@ -321,14 +367,28 @@ class TestCLIProviderFlag:
                 pass
 
         runner = CliRunner()
+        captured_urls = []
+        captured_models = []
+
+        def fake_urlopen(req, timeout=None):
+            captured_urls.append(req.full_url)
+            captured_models.append(json.loads(req.data.decode())["model"])
+            return FakeResp()
+
         with patch("sahara.storage.state_db.DB_PATH", db_path), \
              patch("sahara.search.search_engine.SearchEngine._embed") as mock_embed, \
-             patch("urllib.request.urlopen", return_value=FakeResp()), \
-             patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}):
+             patch("urllib.request.urlopen", side_effect=fake_urlopen), \
+             patch.dict(
+                 "os.environ",
+                 {"OPENAI_API_KEY": "sk-test", "OPENAI_MODEL": "gpt-test"},
+             ):
             mock_embed.return_value = [np.array([0.5] * 384, dtype=np.float32)]
             result = runner.invoke(
                 main,
                 ["--config", str(cfg), "ask", "what is the answer?"],
             )
         assert result.exit_code == 0
-        assert "OpenAI" in result.output or "ChatGPT" in result.output or "Answer" in result.output
+        assert "Answer from local Ollama" in result.output
+        assert any("11434/api/generate" in url for url in captured_urls)
+        assert not any("openai.com" in url for url in captured_urls)
+        assert captured_models == [DEFAULT_OLLAMA_MODEL]
