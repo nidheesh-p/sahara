@@ -20,10 +20,13 @@ can then sync and protect selected indexed folders. Sahara extracts text, chunks
 documents, embeds those chunks into a local vector database, and lets you search or ask
 questions with citations.
 
-Sahara is not trying to be a general autonomous agent. Claude Desktop can act as a
-local chat front end today; OpenClaw and ChatGPT connectors are possible future client
-paths. Sahara's job is to be the trusted local index: retrieve the right local context,
-cite where it came from, and avoid broad filesystem access unless you explicitly opt in.
+Sahara is not trying to be a general autonomous agent. It exposes a client-neutral MCP
+interface so compatible chat clients and agent runtimes can use the same local index.
+Claude Desktop is the first tested client today; other MCP clients can use the same
+stdio command or authenticated HTTP endpoint after their client-specific configuration
+has been validated. Sahara's job is to be the trusted local index: retrieve the right
+local context, cite where it came from, and avoid broad filesystem access unless you
+explicitly opt in.
 
 ---
 
@@ -46,8 +49,8 @@ default, but retrieved snippets are sent to OpenAI when that provider is selecte
 
 - Configure storage after starting in basic mode without rebuilding the index
 - Explicitly offload and fetch files while preserving searchable metadata
-- Validate Claude mobile access through authenticated remote MCP
-- Future OpenClaw and ChatGPT connector guidance
+- Validate additional local and remote MCP clients
+- Publish OpenClaw and ChatGPT guidance only after end-to-end validation
 - Hybrid retrieval: BM25 keyword + vector search with cross-encoder reranking
 - Entity extraction: dates, names, amounts, document types
 - OCR support via a plugin (opt-in, not default)
@@ -81,7 +84,7 @@ After the PyPI release, these shorter commands will be available:
 # Local semantic search
 python3 -m pip install "sahara-memory[search]"
 
-# Semantic search plus MCP support for Claude Desktop
+# Semantic search plus MCP support for compatible clients
 python3 -m pip install "sahara-memory[search,mcp]"
 
 # Everything, including optional storage, MCP, and OCR dependencies
@@ -134,21 +137,35 @@ sahara search "quarterly forecast"   # result is marked [offloaded]
 sahara fetch Documents/archive/report.pdf
 ```
 
-### Flow B: Ask from Claude Desktop
+### Flow B: Ask from an MCP client
 
-After connecting Claude Desktop, ask the same question:
+Claude Desktop is the currently tested example. After connecting it, ask the same
+question:
 
 ```text
 Use Sahara to find my tax return from 2024.
 Include the source path and supporting snippet.
 ```
 
-Claude calls Sahara's read-only MCP tools and returns citations from the same local
+The client calls Sahara's read-only MCP tools and returns citations from the same local
 index used by the CLI.
 
 ---
 
-## Connecting to Claude Desktop in 60 seconds
+## Connecting to an MCP client
+
+Sahara exposes the same read-only tool contract over local stdio and authenticated
+streamable HTTP. The portable local server definition is:
+
+```text
+command: /absolute/path/to/sahara
+args: mcp serve --transport stdio
+```
+
+Each MCP client wraps that command in its own configuration format; Claude Desktop's
+JSON should not be assumed to work unchanged in another client.
+
+### Claude Desktop: tested local setup
 
 Prerequisite: Sahara is installed, initialized, and indexed.
 
@@ -166,7 +183,8 @@ use HTTP or ngrok for this same-computer setup.
 
 See [docs/CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) for manual configuration,
 platform-specific paths, the complete tool contract, security boundaries, and
-troubleshooting.
+troubleshooting. See [docs/integrations/chat-agents.md](docs/integrations/chat-agents.md)
+for the client-neutral MCP contract, remote transport, and current validation status.
 
 ---
 
