@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="980" viewBox="0 0 1440 980" role="img" aria-labelledby="title desc">
+  <title id="title">Sahara semantic retrieval examples in an MCP chat client</title>
+  <desc id="desc">Three fictional household questions answered from locally indexed files with citations, including an example where the requested detail is not present.</desc>
+  <rect width="1440" height="980" fill="#0d1117"/>
+  <rect x="1" y="1" width="1438" height="978" rx="16" fill="none" stroke="#30363d" stroke-width="2"/>
+
+  <circle cx="38" cy="38" r="8" fill="#ff5f57"/>
+  <circle cx="64" cy="38" r="8" fill="#febc2e"/>
+  <circle cx="90" cy="38" r="8" fill="#28c840"/>
+  <text x="720" y="47" text-anchor="middle" fill="#c9d1d9" font-family="Arial, sans-serif" font-size="20" font-weight="600">MCP chat client</text>
+  <circle cx="1320" cy="38" r="7" fill="#3fb950"/>
+  <text x="1336" y="45" fill="#8b949e" font-family="Arial, sans-serif" font-size="16">Sahara connected</text>
+  <line x1="0" y1="76" x2="1440" y2="76" stroke="#30363d"/>
+
+  <text x="72" y="126" fill="#f0f6fc" font-family="Arial, sans-serif" font-size="31" font-weight="700">Your files, remembered.</text>
+  <text x="72" y="158" fill="#8b949e" font-family="Arial, sans-serif" font-size="18">Fictional examples of local semantic retrieval with source citations.</text>
+
+  <!-- Timeline example -->
+  <rect x="72" y="196" width="1296" height="210" rx="10" fill="#161b22" stroke="#30363d"/>
+  <rect x="850" y="218" width="480" height="48" rx="9" fill="#21262d" stroke="#30363d"/>
+  <text x="874" y="249" fill="#f0f6fc" font-family="Arial, sans-serif" font-size="17">When was our Portugal family trip?</text>
+  <text x="108" y="250" fill="#56d4b2" font-family="Arial, sans-serif" font-size="17" font-weight="700">SAHARA SEARCH</text>
+  <text x="108" y="302" fill="#f0f6fc" font-family="Arial, sans-serif" font-size="22" font-weight="600">The Portugal trip was May 18 to June 2, 2023.</text>
+  <text x="108" y="337" fill="#c9d1d9" font-family="Arial, sans-serif" font-size="17">The itinerary covers Lisbon, Porto, and Lagos, with the return flight on June 2.</text>
+  <rect x="108" y="359" width="614" height="30" rx="5" fill="#0d1117"/>
+  <text x="124" y="380" fill="#8b949e" font-family="monospace" font-size="15">Source: Travel/Portugal_2023/itinerary.pdf</text>
+
+  <!-- Vendor example -->
+  <rect x="72" y="430" width="1296" height="210" rx="10" fill="#161b22" stroke="#30363d"/>
+  <rect x="962" y="452" width="368" height="48" rx="9" fill="#21262d" stroke="#30363d"/>
+  <text x="986" y="483" fill="#f0f6fc" font-family="Arial, sans-serif" font-size="17">Who fixed the dishwasher?</text>
+  <text x="108" y="484" fill="#56d4b2" font-family="Arial, sans-serif" font-size="17" font-weight="700">SAHARA SEARCH</text>
+  <text x="108" y="536" fill="#f0f6fc" font-family="Arial, sans-serif" font-size="22" font-weight="600">Bayside Appliance Repair replaced the drain pump.</text>
+  <text x="108" y="571" fill="#c9d1d9" font-family="Arial, sans-serif" font-size="17">The fictional invoice records service on October 7, 2024, for $284.50.</text>
+  <rect x="108" y="593" width="690" height="30" rx="5" fill="#0d1117"/>
+  <text x="124" y="614" fill="#8b949e" font-family="monospace" font-size="15">Source: Home/Repairs/dishwasher_invoice.md</text>
+
+  <!-- Honest boundary example -->
+  <rect x="72" y="664" width="1296" height="244" rx="10" fill="#161b22" stroke="#30363d"/>
+  <rect x="794" y="686" width="536" height="48" rx="9" fill="#21262d" stroke="#30363d"/>
+  <text x="818" y="717" fill="#f0f6fc" font-family="Arial, sans-serif" font-size="17">What was the diagnosis last winter?</text>
+  <text x="108" y="718" fill="#56d4b2" font-family="Arial, sans-serif" font-size="17" font-weight="700">SAHARA RETRIEVAL</text>
+  <text x="108" y="770" fill="#f0f6fc" font-family="Arial, sans-serif" font-size="22" font-weight="600">The diagnosis is not present in the indexed files.</text>
+  <text x="108" y="805" fill="#c9d1d9" font-family="Arial, sans-serif" font-size="17">A January 8 prescription receipt is available, but the after-visit summary is missing.</text>
+  <text x="108" y="835" fill="#8b949e" font-family="Arial, sans-serif" font-size="16">Sahara returns the related source without inventing the absent diagnosis.</text>
+  <rect x="108" y="858" width="674" height="30" rx="5" fill="#0d1117"/>
+  <text x="124" y="879" fill="#8b949e" font-family="monospace" font-size="15">Source: Medical/prescription_receipt.md</text>
+
+  <text x="72" y="947" fill="#56d4b2" font-family="Arial, sans-serif" font-size="17" font-weight="600">Retrieved from a fictional local Sahara index</text>
+  <text x="1368" y="947" text-anchor="end" fill="#8b949e" font-family="Arial, sans-serif" font-size="15">No cloud storage required</text>
+</svg>

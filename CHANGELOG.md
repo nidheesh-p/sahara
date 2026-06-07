@@ -33,6 +33,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
   that Hugging Face authentication warnings do not require user action
 - Package and license metadata now identify Nidheesh Puthalath as the maintainer
 - README quick start now demonstrates both CLI retrieval and cited Claude Desktop use
+- Added fictional, privacy-safe README, social, and reproducible terminal demo assets
 - Documentation consolidated around current user, contributor, release, and architecture
   guidance; superseded specifications remain available through Git history
 - Fresh installations default to local indexing; legacy configs without `storage_mode`
