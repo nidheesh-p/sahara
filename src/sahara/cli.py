@@ -1437,6 +1437,53 @@ def mcp() -> None:
     """Run Sahara MCP integrations."""
 
 
+@mcp.command("install-claude")
+@click.option(
+    "--claude-config",
+    type=click.Path(path_type=Path, dir_okay=False),
+    default=None,
+    help="Override the detected Claude Desktop config file.",
+)
+@click.option(
+    "--executable",
+    type=click.Path(path_type=Path, dir_okay=False),
+    default=None,
+    help="Override the detected Sahara executable.",
+)
+@click.pass_context
+def mcp_install_claude(
+    ctx: click.Context,
+    claude_config: Path | None,
+    executable: Path | None,
+) -> None:
+    """Install Sahara as a local MCP server in Claude Desktop."""
+    from sahara.claude_desktop import (
+        detect_claude_config_path,
+        install_claude_server,
+        resolve_sahara_executable,
+    )
+
+    try:
+        config_path = claude_config or detect_claude_config_path()
+        executable_path = resolve_sahara_executable(executable)
+        result = install_claude_server(
+            config_path,
+            executable_path,
+            sahara_config_path=ctx.obj.get("config_path"),
+        )
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if result.changed:
+        _ok(f"Installed Sahara in Claude Desktop: {result.config_path}")
+        if result.backup_path is not None:
+            _info(f"Backup: {result.backup_path}")
+    else:
+        _ok(f"Sahara is already configured in Claude Desktop: {result.config_path}")
+    _info(f"Command: {result.executable_path}")
+    _info("Fully quit and reopen Claude Desktop, then look for Sahara in Connectors.")
+
+
 @mcp.command("serve")
 @click.option(
     "--transport",

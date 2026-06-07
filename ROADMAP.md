@@ -13,6 +13,8 @@
 - **Parsers:** PDF (pypdf), DOCX (python-docx), plain text, Markdown, code files
 - **MCP:** read-only local stdio and authenticated HTTP transports for Claude Desktop, remote clients, and agent runtimes
 - **MCP security:** bearer-token auth, tool/folder allowlists, snippet limits, and non-loopback binding warnings
+- **Claude Desktop installer:** `sahara mcp install-claude` safely merges the local
+  stdio server into supported macOS and Windows configurations
 - **Integration guides:** Claude Desktop and Claude mobile via secure tunnel
 - **Basic indexing:** fresh setups can index and search local folders without storage
 - **Content roots:** indexed folders are tracked separately from sync state
@@ -48,6 +50,8 @@ for the implementation sequence and compatibility plan.
 ## Future (v0.4+)
 
 - **Plugin ecosystem:** parser, embedder, and reranker extension interfaces plus `sahara plugins list`
+- **Claude Desktop extension:** package Sahara as an MCPB desktop extension alongside
+  the CLI installer
 - **OCR plugin:** opt-in tesseract integration for image-heavy PDFs and scanned documents (`pip install sahara-plugin-ocr`)
 - **Image search:** CLIP embeddings for photos, EXIF metadata indexing — find images by content description
 - **Audio / video:** Whisper transcription + scene indexing for MP3, MP4, MOV

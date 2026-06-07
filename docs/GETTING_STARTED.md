@@ -28,6 +28,14 @@ rate limits.
 This command is non-interactive. It requires no bucket, credentials, drive, or storage
 validation.
 
+Connect the indexed library to Claude Desktop:
+
+```bash
+sahara mcp install-claude
+```
+
+Fully quit and reopen Claude Desktop, then confirm Sahara appears in **Connectors**.
+
 Add more folders as index-only content roots:
 
 ```bash

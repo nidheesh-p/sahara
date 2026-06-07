@@ -57,10 +57,16 @@ not expose offload or fetch operations.
 
 ## Claude Desktop
 
-Claude Desktop launches Sahara locally over stdio. Use the complete
-[Claude Desktop guide](../CLAUDE_DESKTOP.md) for platform config locations,
-copy-pasteable JSON, verification, the exact tool contract, security boundaries, and
-troubleshooting.
+Claude Desktop launches Sahara locally over stdio. Install the connection without
+editing JSON:
+
+```bash
+sahara mcp install-claude
+```
+
+Then fully quit and reopen Claude Desktop. Use the complete
+[Claude Desktop guide](../CLAUDE_DESKTOP.md) for verification, manual fallback,
+the exact tool contract, security boundaries, and troubleshooting.
 
 ## Claude Mobile / Remote MCP
 
