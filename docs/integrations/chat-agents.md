@@ -5,6 +5,10 @@ read-only MCP server. The chat client provides the conversation surface. Sahara
 retrieves indexed local context, returns snippets and citations, and does not grant
 write access to the filesystem.
 
+MCP is Sahara's integration boundary. The five-tool contract and transports are
+client-neutral, while configuration files, authentication support, and UI behavior are
+client-specific.
+
 ## Install
 
 Sahara requires Python 3.11 or newer. Its Python distribution is
@@ -25,10 +29,19 @@ sahara index-report
 sahara mcp serve
 ```
 
-MCP works in basic index-only mode; no storage backend or sync is required.
+MCP works in basic index-only mode; no storage backend or sync is required. For a local
+stdio-capable client, the portable server definition is:
 
-For remote MCP clients such as Claude mobile, serve MCP over local HTTP and expose it
-through a secure HTTPS tunnel:
+```text
+command: /absolute/path/to/sahara
+args: mcp serve --transport stdio
+```
+
+Clients may encode that command differently in JSON, TOML, UI settings, or extension
+manifests. Use the client's own documentation for its configuration shape.
+
+For remote MCP clients, serve MCP over local HTTP and expose it through a secure HTTPS
+tunnel:
 
 ```bash
 export SAHARA_MCP_AUTH_TOKEN="$(openssl rand -hex 32)"
@@ -55,7 +68,20 @@ The server does not expose sync mutation, file writes, shell execution, or arbit
 filesystem reads. Search results identify intentionally offloaded files, but MCP does
 not expose offload or fetch operations.
 
-## Claude Desktop
+## Client Status
+
+| Client path | Status | Transport |
+|---|---|---|
+| Claude Desktop | Tested and documented | Local stdio |
+| Claude mobile/web custom connector | Documented; end-to-end validation pending | Authenticated streamable HTTP |
+| Other local MCP clients | Protocol-compatible in principle; not yet validated | Local stdio |
+| ChatGPT | Future validation and guidance | To be determined |
+| OpenClaw | Future validation and guidance | To be determined |
+
+"Protocol-compatible" means Sahara implements a standard MCP server transport. It does
+not mean every client has been tested or accepts the same configuration syntax.
+
+## Claude Desktop: First Tested Client
 
 Claude Desktop launches Sahara locally over stdio. Install the connection without
 editing JSON:
@@ -68,11 +94,14 @@ Then fully quit and reopen Claude Desktop. Use the complete
 [Claude Desktop guide](../CLAUDE_DESKTOP.md) for verification, manual fallback,
 the exact tool contract, security boundaries, and troubleshooting.
 
-## Claude Mobile / Remote MCP
+## Remote MCP
 
-Claude mobile cannot launch Sahara as a local stdio process. To use Sahara from mobile,
-run Sahara's authenticated HTTP MCP transport locally, expose it through a secure tunnel,
-then add the public HTTPS MCP URL as a custom connector from Claude on the web.
+Remote clients cannot launch Sahara as a local stdio process. Run Sahara's authenticated
+HTTP MCP transport locally, expose it through a secure tunnel, then configure the public
+HTTPS MCP URL in a client that supports remote MCP and bearer-token authentication.
+
+Claude mobile/web custom connectors are the first documented remote path, but that
+workflow still needs clean-machine end-to-end validation.
 
 ```bash
 export SAHARA_MCP_AUTH_TOKEN="$(openssl rand -hex 32)"
@@ -106,14 +135,16 @@ sahara mcp serve \
 If a client cannot send a static bearer token, use an OAuth-capable bridge or keep the
 integration local until Sahara grows first-class OAuth support.
 
-## ChatGPT
+## Future Client Validation
+
+### ChatGPT
 
 ChatGPT connector support should remain optional until the integration can preserve
 Sahara's local-first privacy expectations. If a remote bridge is used, document the
 authentication scope, indexed folders, data flow, and which snippets leave the local
 machine.
 
-## Future Clients
+### OpenClaw
 
 OpenClaw integration guidance remains on the future roadmap. It should be published
 after Sahara's read-only MCP tools have been validated with OpenClaw end-to-end.

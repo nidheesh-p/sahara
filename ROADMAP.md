@@ -11,11 +11,14 @@
 - **Search:** chunked semantic search via sqlite-vec (BAAI/bge-small-en-v1.5, 384-dim)
 - **Ask:** natural language question answering via local Ollama or OpenAI (optional; degrades gracefully)
 - **Parsers:** PDF (pypdf), DOCX (python-docx), plain text, Markdown, code files
-- **MCP:** read-only local stdio and authenticated HTTP transports for Claude Desktop, remote clients, and agent runtimes
+- **MCP:** client-neutral read-only tools over local stdio and authenticated HTTP for
+  compatible chat clients and agent runtimes
 - **MCP security:** bearer-token auth, tool/folder allowlists, snippet limits, and non-loopback binding warnings
 - **Claude Desktop installer:** `sahara mcp install-claude` safely merges the local
   stdio server into supported macOS and Windows configurations
-- **Integration guides:** Claude Desktop and Claude mobile via secure tunnel
+- **First tested client:** Claude Desktop over local stdio
+- **Integration contract:** reusable stdio command, HTTP endpoint, tool schema, and
+  explicit per-client validation status
 - **Basic indexing:** fresh setups can index and search local folders without storage
 - **Content roots:** indexed folders are tracked separately from sync state
 - **Index inventory:** indexed, unsupported, failed, and missing files are tracked locally
@@ -43,6 +46,8 @@ for the implementation sequence and compatibility plan.
 - **Entity extraction:** structured extraction of dates, names, amounts, and document types from indexed content — enables queries like `sahara ask "invoices over $500 in March"`
 - **Rucksack backend:** Backblaze B2, Cloudflare R2, Wasabi via a thin wrapper (no new SDK dependency)
 - **OAuth for remote MCP:** support clients that cannot provide a static bearer token
+- **Additional MCP clients:** validate local and remote integrations without assuming
+  Claude Desktop's configuration format
 - **ChatGPT connector path:** document only when authentication and local-first privacy expectations can be preserved
 
 ---
