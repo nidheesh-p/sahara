@@ -14,9 +14,10 @@ External drives, MinIO, and AWS storage are optional extensions, not prerequisit
 **Local-first:** indexing and semantic search run on your computer. No account, API
 key, storage bucket, or additional drive is required for the core search experience.
 
-**Latest release:** [v0.2.0](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0)
-(June 6, 2026) adds semantic search, cited Q&A, read-only MCP integration, and
-optional local-drive and MinIO storage. See the [changelog](CHANGELOG.md).
+**Latest release:** [v0.2.1](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.1)
+(June 7, 2026) adds index-only setup, multiple content roots, verified offload/fetch,
+one-command Claude Desktop setup, and trusted `sahara-memory` packaging. See the
+[changelog](CHANGELOG.md).
 
 ![Fictional Sahara retrieval examples: timeline reconstruction, vendor lookup, and honest missing-data handling](docs/images/sahara-memory-demo.svg)
 
@@ -44,11 +45,10 @@ The Python distribution is named **`sahara-memory`**, but it installs the `sahar
 command. Do not run `pip install sahara`; that name belongs to the unrelated OpenStack
 project.
 
-Until `sahara-memory` is published to PyPI, install it directly from GitHub:
+Install Sahara from PyPI:
 
 ```bash
-python3 -m pip install \
-  "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
+python3 -m pip install "sahara-memory[search,mcp]"
 
 sahara init --mode basic --folder ~/Documents
 sahara index

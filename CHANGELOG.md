@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+---
+
+## [0.2.1] — 2026-06-07
+
 ### Added
 
 - Trusted Publishing workflows for verified TestPyPI and PyPI releases
