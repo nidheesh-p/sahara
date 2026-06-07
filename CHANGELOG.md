@@ -39,6 +39,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - Added first-run Ollama and optional OpenAI setup guidance
 - Streamlined the README around local search first, with answers, MCP, and storage
   introduced as optional extensions
+- Added a categorized reference covering every CLI command
 - Documentation consolidated around current user, contributor, release, and architecture
   guidance; superseded specifications remain available through Git history
 - Fresh installations default to local indexing; legacy configs without `storage_mode`

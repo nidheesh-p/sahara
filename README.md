@@ -234,13 +234,15 @@ Use `sahara index-report` to inspect indexed files, unsupported content, and fai
 | `sahara daemon ...` | Manage background watching and synchronization |
 | `sahara config ...` | Inspect or change configuration |
 
-Run `sahara --help` or `sahara COMMAND --help` for the complete CLI reference.
+See the [complete command reference](docs/COMMAND_REFERENCE.md), or run
+`sahara --help` and `sahara COMMAND --help` for live CLI help.
 
 </details>
 
 ## Documentation
 
 - [Getting Started](docs/GETTING_STARTED.md): index-only, local-drive, and AWS paths
+- [Command Reference](docs/COMMAND_REFERENCE.md): every CLI command grouped by purpose
 - [Answer Providers](docs/ANSWER_PROVIDERS.md): Ollama and OpenAI setup
 - [Claude Desktop](docs/CLAUDE_DESKTOP.md): installation, MCP contract, and troubleshooting
 - [Security](SECURITY.md): threat model, encryption, and vulnerability reporting
