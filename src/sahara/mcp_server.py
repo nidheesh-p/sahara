@@ -238,7 +238,7 @@ def build_mcp_server(
     except ImportError as exc:
         raise RuntimeError(
             "The MCP server requires the optional mcp dependency. "
-            "Install it with: pip install 'sahara[mcp]'"
+            "Install it with: pip install 'sahara-memory[mcp]'"
         ) from exc
 
     config = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)

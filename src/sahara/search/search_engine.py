@@ -157,7 +157,7 @@ class SearchEngine:
             except ImportError:
                 raise RuntimeError(
                     "fastembed is required for semantic search. "
-                    "Install it with: pip install 'sahara[search]'"
+                    "Install it with: pip install 'sahara-memory[search]'"
                 )
         return self._model
 

@@ -7,6 +7,9 @@ Use this checklist before publishing a Sahara release.
 - Confirm `main` is up to date with `origin/main`.
 - Confirm the working tree is clean.
 - Confirm `pyproject.toml` version and `sahara --version` match.
+- Confirm the distribution name is `sahara-memory`; the `sahara` PyPI project is
+  unrelated and must never appear in public installation commands.
+- Confirm installation docs state the Python 3.11 minimum.
 - Review `CHANGELOG.md` and add release notes for the target version.
 - Review `README.md`, `ROADMAP.md`, `SECURITY.md`, and integration guides for stale claims.
 
@@ -53,8 +56,11 @@ Use this checklist before publishing a Sahara release.
 
 - Build the package with `python -m build`.
 - Inspect the generated sdist and wheel.
+- Confirm the built metadata reports `Name: sahara-memory` and still provides the
+  `sahara` console command.
 - Publish to TestPyPI first if this is the first release in a line.
-- Install from the published artifact in a fresh environment.
+- Install `sahara-memory[search,mcp]` from the published artifact in a fresh
+  environment and confirm `pip show sahara-memory` reports this repository.
 - Tag the release after artifacts are verified.
 
 ## Post-Release

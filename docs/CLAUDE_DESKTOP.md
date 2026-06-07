@@ -6,10 +6,12 @@ Claude Desktop on the same computer.
 
 ## Prerequisites
 
-Install Sahara with search and MCP support, initialize it, and build the local index:
+Use Python 3.11 or newer. Install the `sahara-memory` distribution with search and
+MCP support, initialize it, and build the local index:
 
 ```bash
-pip install "sahara[search,mcp]"
+python -m pip install \
+  "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
 sahara init --mode basic --folder ~/Documents
 sahara index
 sahara index-report
@@ -208,7 +210,8 @@ or reduce `--max-snippet-chars` in the Claude configuration.
 ### Sahara does not appear in Claude Desktop
 
 - Validate the JSON syntax and fully quit and reopen Claude Desktop.
-- Confirm MCP support is installed: `pip install "sahara[search,mcp]"`.
+- Confirm MCP support is installed. Before the first PyPI release, use
+  `python -m pip install "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"`.
 - Run `/absolute/path/to/sahara mcp serve --help` in a terminal.
 - Check Claude MCP logs:
   - macOS: `~/Library/Logs/Claude`

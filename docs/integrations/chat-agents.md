@@ -7,8 +7,12 @@ write access to the filesystem.
 
 ## Install
 
+Sahara requires Python 3.11 or newer. Its Python distribution is
+`sahara-memory`; `sahara` on PyPI is an unrelated OpenStack project.
+
 ```bash
-pip install "sahara[search,mcp]"
+python -m pip install \
+  "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
 ```
 
 Index files before connecting a chat client:
