@@ -2154,6 +2154,15 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
     try:
         service = IndexingService(config, db)
         root_path = Path(folder) if folder else None
+        if db.count_embeddings() == 0:
+            _info(
+                "Preparing semantic search. First use may download the local "
+                "embedding model (~200 MB)."
+            )
+            _info(
+                "Hugging Face authentication is optional; its anonymous-download "
+                "warning is harmless."
+            )
         try:
             result = service.index(root_path=root_path, force=force)
         except ValueError as exc:

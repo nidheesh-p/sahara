@@ -8,10 +8,11 @@ write access to the filesystem.
 ## Install
 
 Sahara requires Python 3.11 or newer. Its Python distribution is
-`sahara-memory`; `sahara` on PyPI is an unrelated OpenStack project.
+`sahara-memory`; `sahara` on PyPI is an unrelated OpenStack project. On Windows,
+replace `python3` below with `py -3.11`.
 
 ```bash
-python -m pip install \
+python3 -m pip install \
   "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
 ```
 

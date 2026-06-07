@@ -29,7 +29,7 @@ paste output here
 ## Environment
 
 - OS: (e.g. macOS 14.5, Ubuntu 24.04, Windows 11)
-- Python version: (`python --version`)
+- Python version: (`python3 --version` or `py -3.11 --version` on Windows)
 - Sahara version: (`sahara --version`)
 - Install method: (`pip install sahara-memory` / `pip install -e .` / other)
 - Storage backend: (local / minio / s3)

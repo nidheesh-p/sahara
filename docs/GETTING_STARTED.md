@@ -5,19 +5,25 @@ initial setup. Local-drive and AWS modes index the source folder on the computer
 does not index the storage copy as a second source.
 
 Sahara requires Python 3.11 or newer. The PyPI distribution is `sahara-memory`;
-the distribution named `sahara` is an unrelated OpenStack project.
+the distribution named `sahara` is an unrelated OpenStack project. On Windows,
+replace `python3` below with `py -3.11`.
 
 ## Basic: Local Indexing
 
 Use this when you only need semantic search and MCP access:
 
 ```bash
-python -m pip install \
+python3 -m pip install \
   "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
 sahara init --mode basic --folder ~/Documents
 sahara index
 sahara search "known phrase" --snippet
 ```
+
+The first `sahara index` run downloads the local embedding model (roughly
+200 MB). A Hugging Face warning about unauthenticated requests is informational:
+no account or token is required. `HF_TOKEN` is optional for higher download
+rate limits.
 
 This command is non-interactive. It requires no bucket, credentials, drive, or storage
 validation.

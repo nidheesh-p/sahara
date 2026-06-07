@@ -195,6 +195,8 @@ def test_basic_index_command_does_not_require_storage_records(
 
     assert result.exit_code == 0
     assert "1 indexed" in result.output
+    assert "First use may download" in result.output
+    assert "authentication is optional" in result.output
 
 
 def test_basic_mode_can_add_an_index_only_folder(tmp_path: Path) -> None:

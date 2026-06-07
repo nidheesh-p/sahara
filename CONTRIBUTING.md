@@ -6,14 +6,18 @@ Thank you for your interest in contributing. This document covers everything you
 
 ## Development setup
 
+Python 3.11 or newer is required. The commands below use `python3` on macOS and
+Linux. On Windows, replace `python3` with `py -3.11` and activate the environment
+with `.venv\Scripts\Activate.ps1`.
+
 ```bash
 git clone https://github.com/nidheesh-p/sahara
 cd sahara
 
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate
 
-pip install -e ".[search,dev]"
+python3 -m pip install -e ".[search,dev]"
 ```
 
 Verify the install:

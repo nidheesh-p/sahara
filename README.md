@@ -60,7 +60,8 @@ See [ROADMAP.md](ROADMAP.md) for the full plan.
 ## Installation
 
 Sahara requires **Python 3.11 or newer**. Check with `python3 --version` before
-installing; Python 3.9 and 3.10 are not supported.
+installing; Python 3.9 and 3.10 are not supported. On Windows, use
+`py -3.11` anywhere these examples use `python3`.
 
 The Python distribution is named **`sahara-memory`**. It still installs the
 `sahara` command and `sahara` Python package. Do not run `pip install sahara`:
@@ -70,7 +71,7 @@ Until the first `sahara-memory` release is published to PyPI, install Sahara
 directly from GitHub:
 
 ```bash
-python -m pip install \
+python3 -m pip install \
   "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
 ```
 
@@ -78,13 +79,13 @@ After the PyPI release, these shorter commands will be available:
 
 ```bash
 # Local semantic search
-python -m pip install "sahara-memory[search]"
+python3 -m pip install "sahara-memory[search]"
 
 # Semantic search plus MCP support for Claude Desktop
-python -m pip install "sahara-memory[search,mcp]"
+python3 -m pip install "sahara-memory[search,mcp]"
 
 # Everything, including optional storage, MCP, and OCR dependencies
-python -m pip install "sahara-memory[all]"
+python3 -m pip install "sahara-memory[all]"
 ```
 
 ### Developer setup
@@ -92,7 +93,7 @@ python -m pip install "sahara-memory[all]"
 ```bash
 git clone https://github.com/nidheesh-p/sahara
 cd sahara
-python -m pip install -e ".[search,dev]"
+python3 -m pip install -e ".[search,dev]"
 ```
 
 ---
@@ -102,7 +103,7 @@ python -m pip install -e ".[search,dev]"
 ### Flow A: CLI search
 
 ```bash
-python -m pip install \
+python3 -m pip install \
   "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
 sahara init --mode basic --folder ~/Documents
 sahara index
@@ -253,6 +254,11 @@ sahara index                    # scan and index all registered content roots
 sahara index --force            # re-index everything (ignores content hash)
 sahara index --folder ~/Docs    # index a specific registered folder
 ```
+
+The first indexing run downloads the local embedding model (roughly 200 MB).
+Hugging Face may print an unauthenticated-request warning during this download;
+it is informational and no account or token is required. Setting `HF_TOKEN` is
+optional and only improves download rate limits.
 
 **Supported file types:** PDF, DOCX, Markdown, plain text, code (`.py`, `.js`, `.ts`, etc.), YAML, TOML, CSV, HTML, XML.
 
