@@ -41,7 +41,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ---
 
-## [0.2.0] — 2026-06-05
+## [0.2.0] — 2026-06-06
 
 ### Added
 

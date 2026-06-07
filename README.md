@@ -1,7 +1,13 @@
 # Sahara
 
+[![Latest release](https://img.shields.io/github/v/release/nidheesh-p/sahara?display_name=tag&sort=semver)](https://github.com/nidheesh-p/sahara/releases/latest)
+
 > Sahara: extended storage, searchable memory and instant retrieval.
 > Find the right file by meaning, even when you forget its name.
+
+**Latest release:** [v0.2.0](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.0)
+(June 6, 2026) adds semantic search, cited Q&A, read-only MCP integration, and
+optional local-drive and MinIO storage. [See what changed](CHANGELOG.md).
 
 ---
 
