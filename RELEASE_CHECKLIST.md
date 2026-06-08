@@ -27,6 +27,10 @@ Use this checklist before publishing a Sahara release.
   servers, then successfully reconnects after a full Claude Desktop restart.
 - Confirm a new user reaches one cited answer in under five minutes; revise the guide
   if the flow takes longer.
+- Confirm the basic path works without Ollama, OpenAI, or an answer-provider network
+  request; the local embedding-model download remains expected.
+- Separately smoke-test explicit Ollama and OpenAI opt-in without making either one an
+  onboarding prerequisite.
 - State unvalidated MCP clients as unvalidated. Do not promise ChatGPT, Claude Code,
   Cursor, or OpenClaw support until each path has been tested and documented.
 

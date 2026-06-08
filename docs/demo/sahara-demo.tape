@@ -45,7 +45,7 @@ Type "sahara search \"when was the Portugal trip\" --snippet"
 Enter
 Sleep 4s
 
-Type "sahara ask --provider ollama --ollama-url http://127.0.0.1:9 --snippet \"what did the pediatrician diagnose last winter?\""
+Type "sahara ask --snippet \"what did the pediatrician diagnose last winter?\""
 Enter
 Sleep 5s
 

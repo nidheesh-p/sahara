@@ -9,9 +9,14 @@ local computer. No storage backend is constructed and no file is uploaded by Sah
 Semantic embeddings, extracted chunks, paths, and inventory state are stored in
 `~/.sahara/state.db`.
 
-`sahara search` stays local. `sahara ask` stays local when Ollama is used; when OpenAI
-is selected, the retrieved snippets needed to answer the question are sent to OpenAI.
-The read-only MCP server returns indexed snippets to the connected MCP client.
+`sahara search` and retrieval-only `sahara ask` stay local. New configurations do not
+contact a standalone answer provider. When Ollama is explicitly selected, answer
+generation stays local. When OpenAI is selected, the question and retrieved snippets
+needed to answer it are sent to OpenAI.
+
+The read-only MCP server returns indexed snippets to the connected MCP client. That
+client may process the snippets locally or send them to its own model provider, so its
+privacy and data-retention policy also applies.
 
 Storage encryption applies only after a local-drive, MinIO, or AWS backend is
 configured. It does not encrypt the local source files or local semantic index.

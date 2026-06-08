@@ -7,7 +7,8 @@ Make Sahara useful in three progressively richer configurations:
 1. **Basic: local indexing only**
    - No external drive, AWS account, bucket, or sync setup required.
    - Index one or more folders on the computer.
-   - Search, ask, and MCP work against the local index.
+   - Search, retrieval-only ask, and MCP work against the local index without a
+     standalone answer provider.
 2. **Local drive: index plus extended local storage**
    - Add one or more mounted drives, NAS paths, or network shares.
    - Sync selected indexed folders to the configured drives.
@@ -23,6 +24,8 @@ upgrade an existing Step 1 library without rebuilding its semantic index.
 ## Product Principles
 
 - Indexing is the baseline product capability; storage is optional.
+- Standalone answer generation is optional; MCP clients can use cited retrieval
+  results with their own model.
 - Folders Sahara indexes must be modeled separately from folders Sahara syncs.
 - Adding storage must not silently upload every indexed folder.
 - An indexed folder can remain index-only even when a storage backend is configured.
@@ -67,7 +70,7 @@ Expected behavior:
 - Create local Sahara configuration and SQLite state.
 - Require no bucket, credentials, drive path, or storage validation.
 - Scan and index files directly from the content root.
-- Enable search, ask, index-report, and MCP.
+- Enable search, retrieval-only ask, index-report, and MCP without Ollama or OpenAI.
 - Reject storage commands with a clear upgrade message.
 
 ### Step 2: Local Drive Storage
@@ -330,6 +333,8 @@ Configuration migration:
 - Existing `local`, `s3`, `minio`, and `local+glacier` configs retain their behavior.
 - Missing `storage_mode` keeps the current compatibility default during migration.
 - Fresh installs default to `storage_mode = "none"`.
+- Existing saved Ollama or OpenAI answer-provider choices remain unchanged.
+- Fresh installs default to `answer_provider = "none"`.
 - Continue reading `sync_folder`; consider renaming it to `primary_folder` only in a
   future breaking release.
 
@@ -350,7 +355,8 @@ Status: implemented on June 6, 2026.
 - [x] Add content-root and index-inventory migrations.
 - [x] Refactor `sahara index` to scan content roots directly.
 - [x] Refactor `index-report` to use index inventory.
-- [x] Make search, ask, and MCP work with no backend.
+- [x] Make search, retrieval-only ask, and MCP work with no backend or standalone
+  answer provider.
 - [x] Add basic interactive and non-interactive initialization.
 - [x] Add canonical index-only folder registration.
 
@@ -360,10 +366,11 @@ Exit criterion:
 sahara init --mode basic --folder ~/Documents
 sahara index
 sahara search "known phrase"
+sahara ask --snippet "known phrase"
 sahara mcp serve
 ```
 
-works without a bucket or drive.
+works without a bucket, drive, Ollama installation, or OpenAI key.
 
 ### Milestone B: Optional Storage Upgrade
 
@@ -437,13 +444,14 @@ semantic search, and restore it from local-drive or S3 storage.
 - Interactive setup covers basic, local, and AWS paths.
 - Non-interactive flags reject incomplete combinations.
 - Storage commands explain how to upgrade from basic mode.
-- MCP search/ask/index-status work in basic mode.
+- MCP search/ask/index-status work in basic mode without a standalone answer provider.
 - Folder-list output identifies index-only versus sync-enabled roots.
 - MCP remains read-only and cannot offload or fetch files.
 
 ### End-to-End Acceptance
 
-1. Basic: clean install to cited Claude Desktop answer in under five minutes.
+1. Basic: clean install to cited Claude Desktop answer in under five minutes without
+   installing Ollama or configuring OpenAI.
 2. Local: clean install, sync, offload, search, and fetch using a temporary drive.
 3. AWS: clean install, sync, offload, search, and fetch using a temporary bucket.
 4. Upgrade: current `v0.2.0` local and AWS users retain all indexed and synced data.
@@ -459,7 +467,7 @@ Update these files as each milestone lands:
   - Explain index-only versus sync-enabled folders.
   - Demonstrate offload/search/fetch before claiming extended storage.
 - `docs/GETTING_STARTED.md` (new)
-  - Three setup paths and non-interactive examples.
+  - Three setup paths, non-interactive examples, and retrieval-only default.
 - `docs/STORAGE_MODES.md` (new)
   - No storage, local drive, AWS, MinIO, and local+glacier behavior.
   - Deletion, offload, fetch, encryption, and failure semantics.
@@ -472,7 +480,8 @@ Update these files as each milestone lands:
   - Content roots, index inventory, optional storage, residency state, and migrations.
 - `SECURITY.md`
   - Data-flow differences for Basic, Local Drive, and AWS.
-  - Offload verification and OpenAI snippet disclosure.
+  - Offload verification, retrieval-only behavior, MCP client data flow, and OpenAI
+    snippet disclosure.
 - `CONTRIBUTING.md`
   - New migrations, indexing service, storage guards, and test commands.
 - `ROADMAP.md`
