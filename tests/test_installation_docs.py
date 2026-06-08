@@ -25,5 +25,6 @@ def test_installation_guide_covers_pep_668_without_unsafe_override() -> None:
 
     assert "externally-managed-environment" in text
     assert "virtual environment" in text
+    assert '--python python3.12' in text
     assert "Do not use" in text
     assert "--break-system-packages" in text

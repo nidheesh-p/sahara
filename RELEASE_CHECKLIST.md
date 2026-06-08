@@ -12,6 +12,8 @@ Use this checklist before publishing a Sahara release.
 - Confirm installation docs state the Python 3.11 minimum.
 - Test the `pipx install "sahara-memory[search,mcp]"` path with a clean,
   externally-managed Python such as Homebrew Python.
+- Repeat with `pipx install "sahara-memory[search,mcp]" --python PATH` to verify
+  explicit selection of a supported Python interpreter.
 - Confirm public installation docs do not recommend `--break-system-packages`, global
   `sudo pip`, or direct installation into a managed interpreter.
 - Confirm the README latest-release callout and badge point to the published release.

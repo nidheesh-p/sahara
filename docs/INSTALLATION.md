@@ -33,6 +33,19 @@ pipx install "sahara-memory[search,mcp]"
 sahara --version
 ```
 
+`pipx` normally uses the Python interpreter it was installed with. If it reports that
+Sahara requires a different Python version, point it to Python 3.11 or newer:
+
+```bash
+pipx install "sahara-memory[search,mcp]" --python python3.12
+```
+
+On Windows, select Python through the launcher:
+
+```powershell
+py -3.11 -m pipx install "sahara-memory[search,mcp]"
+```
+
 Upgrade or remove the isolated installation with:
 
 ```bash
