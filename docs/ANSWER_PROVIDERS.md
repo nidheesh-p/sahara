@@ -1,11 +1,27 @@
 # Answer Provider Setup
 
-Semantic indexing and `sahara search` do not require an LLM. `sahara ask` first
-retrieves relevant passages from the local index, then uses an answer provider to
-summarize those passages with citations.
+Semantic indexing, `sahara search`, and MCP retrieval do not require a standalone LLM.
+`sahara ask` always retrieves relevant passages from the local index and can optionally
+use an answer provider to summarize them.
 
-New Sahara installations use local Ollama by default. OpenAI is an optional,
-deliberately selected alternative that can also be saved as the user's default.
+New Sahara installations use `answer_provider = "none"`. This avoids the optional
+multi-gigabyte Ollama download and makes no answer-generation API request.
+
+## Retrieval-Only Default
+
+After indexing, ask for ranked cited passages:
+
+```bash
+sahara ask --snippet "what is the project deadline?"
+```
+
+The result contains the same local evidence available through semantic search. MCP
+clients can reason over those snippets with their own model. To return to this mode
+after enabling a provider:
+
+```bash
+sahara config set answer_provider none
+```
 
 ## Local Ollama Setup
 
@@ -65,6 +81,7 @@ curl http://localhost:11434/api/tags
 After running `sahara index`:
 
 ```bash
+sahara config set answer_provider ollama
 sahara ask "what is the project deadline?"
 ```
 
@@ -119,10 +136,9 @@ sahara config set answer_model gpt-4o
 sahara ask --provider openai --model gpt-4o "what is the project deadline?"
 ```
 
-Merely setting `OPENAI_API_KEY` does not change Sahara's default. A normal
-`sahara ask` still uses the saved provider, which is Ollama on a new installation.
-When OpenAI is selected, the retrieved snippets needed to answer the question are
-sent to OpenAI.
+Merely setting `OPENAI_API_KEY` does not change Sahara's saved provider. A normal
+`sahara ask` remains retrieval-only on a new installation. When OpenAI is selected,
+the retrieved snippets needed to answer the question are sent to OpenAI.
 
 For MCP clients, `OPENAI_API_KEY` must be available to the process that launches
 `sahara mcp serve`. Terminal-launched clients inherit an exported key. Desktop
@@ -177,4 +193,5 @@ includes `--provider openai`. Check the saved choice with:
 sahara config get answer_provider
 ```
 
-Sahara falls back to ranked search results when either provider is unavailable.
+Sahara returns ranked search results when no provider is selected or when the selected
+provider is unavailable.

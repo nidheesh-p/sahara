@@ -1,8 +1,8 @@
 """AskEngine — natural language question answering over local files.
 
-Uses SearchEngine to find relevant chunks, then calls an LLM to generate a
-grounded answer. Supports local Ollama by default and OpenAI when explicitly
-selected. Degrades gracefully to search snippets when no LLM is available.
+Uses SearchEngine to find relevant chunks, then optionally calls an LLM to
+generate a grounded answer. Standalone answer generation is disabled by
+default; Ollama and OpenAI are explicit opt-in providers.
 """
 
 from __future__ import annotations
@@ -63,14 +63,17 @@ class AskEngine:
         self._openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
         self._openai_model = openai_model
 
-        self._provider = provider or "ollama"
-        if self._provider not in ("ollama", "openai"):
-            raise ValueError("provider must be 'ollama' or 'openai'")
+        self._provider = provider or "none"
+        if self._provider not in ("none", "ollama", "openai"):
+            raise ValueError("provider must be 'none', 'ollama', or 'openai'")
 
+        self._model: str | None
         if self._provider == "openai":
             self._model = model or self._openai_model
-        else:
+        elif self._provider == "ollama":
             self._model = model or DEFAULT_OLLAMA_MODEL
+        else:
+            self._model = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -86,6 +89,12 @@ class AskEngine:
         if not chunks:
             return AskResult(answer=None, sources=[], degraded=True,
                              error="No indexed files matched your query.")
+
+        if self._provider == "none":
+            return AskResult(
+                answer=None,
+                sources=chunks[: self._max_context],
+            )
 
         context = self._build_context(chunks)
 

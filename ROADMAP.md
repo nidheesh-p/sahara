@@ -9,7 +9,7 @@
 - **Conflict resolution:** three-way diff with backup / local / remote / ask strategies
 - **Daemon:** background sync with file-watching via watchdog
 - **Search:** chunked semantic search via sqlite-vec (BAAI/bge-small-en-v1.5, 384-dim)
-- **Ask:** natural language question answering via local Ollama or OpenAI (optional; degrades gracefully)
+- **Ask:** retrieval-only by default, with optional answer generation via Ollama or OpenAI
 - **Parsers:** PDF (pypdf), DOCX (python-docx), plain text, Markdown, code files
 - **MCP:** read-only local stdio and authenticated HTTP transports for Claude Desktop, remote clients, and agent runtimes
 - **MCP security:** bearer-token auth, tool/folder allowlists, snippet limits, and non-loopback binding warnings

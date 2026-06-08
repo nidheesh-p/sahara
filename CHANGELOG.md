@@ -8,6 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+### Changed
+
+- Standalone answer generation is now disabled by default on new configurations;
+  semantic search, retrieval-only `sahara ask`, and MCP access no longer require
+  Ollama or OpenAI
+
 ---
 
 ## [0.2.1] — 2026-06-07

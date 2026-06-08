@@ -841,8 +841,8 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
 
     if not hasattr(config, key):
         _abort(f"Unknown config key: {key!r}")
-    if key == "answer_provider" and value.lower() not in ("ollama", "openai"):
-        _abort("answer_provider must be 'ollama' or 'openai'.")
+    if key == "answer_provider" and value.lower() not in ("none", "ollama", "openai"):
+        _abort("answer_provider must be 'none', 'ollama', or 'openai'.")
     if key == "answer_provider":
         value = value.lower()
 
@@ -2373,8 +2373,8 @@ def search_cmd(
 )
 @click.option(
     "--provider", default=None,
-    type=click.Choice(["openai", "ollama"], case_sensitive=False),
-    help="LLM provider: ollama (default) or openai (explicit opt-in).",
+    type=click.Choice(["none", "openai", "ollama"], case_sensitive=False),
+    help="Answer provider for this question; omit to use the saved setting.",
 )
 @click.option(
     "--ollama-url", default=None,
@@ -2394,9 +2394,9 @@ def ask_cmd(
 ) -> None:
     """Answer a natural language question about your files.
 
-    Uses the configured answer provider, which defaults to local Ollama. To use
-    OpenAI once, set OPENAI_API_KEY and pass --provider openai. To make OpenAI
-    the default, run: sahara config set answer_provider openai
+    Standalone answer generation is disabled by default, so this command returns
+    ranked source snippets without contacting an LLM. Enable Ollama or OpenAI
+    with `sahara config set answer_provider PROVIDER`, or use --provider once.
 
     The legacy 'local' prefix also selects Ollama:
 
@@ -2474,6 +2474,11 @@ def ask_cmd(
         else:
             if result.error:
                 _warn(result.error)
+            elif selected_provider == "none":
+                _info(
+                    "Standalone answer generation is off. Enable Ollama or OpenAI "
+                    "with `sahara config set answer_provider PROVIDER`."
+                )
             _info("Showing top matching results:")
 
         if result.sources and (snippet or not result.answer):

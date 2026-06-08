@@ -6,7 +6,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 from sahara.search.ask_engine import (
-    DEFAULT_OLLAMA_MODEL,
     DEFAULT_OPENAI_MODEL,
     AskEngine,
 )
@@ -27,17 +26,17 @@ def _make_engine(provider=None, openai_api_key=None, model=None, **kw):
 
 
 class TestProviderSelection:
-    def test_defaults_to_ollama_without_key(self):
+    def test_defaults_to_none_without_key(self):
         with patch.dict("os.environ", {}, clear=True):
             engine = _make_engine()
-        assert engine._provider == "ollama"
-        assert engine._model == DEFAULT_OLLAMA_MODEL
+        assert engine._provider == "none"
+        assert engine._model is None
 
-    def test_openai_key_does_not_change_ollama_default(self):
+    def test_openai_key_does_not_change_none_default(self):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}):
             engine = _make_engine()
-        assert engine._provider == "ollama"
-        assert engine._model == DEFAULT_OLLAMA_MODEL
+        assert engine._provider == "none"
+        assert engine._model is None
 
     def test_explicit_provider_overrides_env(self):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}):
@@ -51,8 +50,21 @@ class TestProviderSelection:
     def test_openai_key_passed_directly_requires_explicit_provider(self):
         with patch.dict("os.environ", {}, clear=True):
             engine = _make_engine(openai_api_key="sk-direct")
-        assert engine._provider == "ollama"
+        assert engine._provider == "none"
         assert engine._openai_api_key == "sk-direct"
+
+    def test_none_provider_returns_sources_without_network_call(self):
+        engine = _make_engine()
+        with patch("urllib.request.urlopen") as urlopen:
+            result = engine.ask("what is the answer?")
+
+        assert result.answer is None
+        assert not result.degraded
+        assert result.sources[0]["relative_path"] == "doc.txt"
+        assert result.error is None
+        assert result.provider_used is None
+        assert result.model_used is None
+        urlopen.assert_not_called()
 
 
 class TestCallOpenAI:
@@ -343,7 +355,7 @@ class TestCLIProviderFlag:
         assert "Configured OpenAI" in result.output
         assert captured_payloads[0]["model"] == "gpt-configured"
 
-    def test_cli_ask_defaults_to_ollama_with_openai_key_in_env(self, tmp_path):
+    def test_cli_ask_defaults_to_retrieval_only_with_openai_key_in_env(self, tmp_path):
         import numpy as np
         from click.testing import CliRunner
 
@@ -356,28 +368,10 @@ class TestCLIProviderFlag:
         db.upsert_embedding("", "doc.txt", "h", json.dumps([0.5] * 384), "snippet")
         db.close()
 
-        body = json.dumps({"response": "Answer from local Ollama"}).encode()
-
-        class FakeResp:
-            def read(self):
-                return body
-            def __enter__(self):
-                return self
-            def __exit__(self, *a):
-                pass
-
         runner = CliRunner()
-        captured_urls = []
-        captured_models = []
-
-        def fake_urlopen(req, timeout=None):
-            captured_urls.append(req.full_url)
-            captured_models.append(json.loads(req.data.decode())["model"])
-            return FakeResp()
-
         with patch("sahara.storage.state_db.DB_PATH", db_path), \
              patch("sahara.search.search_engine.SearchEngine._embed") as mock_embed, \
-             patch("urllib.request.urlopen", side_effect=fake_urlopen), \
+             patch("urllib.request.urlopen") as mock_urlopen, \
              patch.dict(
                  "os.environ",
                  {"OPENAI_API_KEY": "sk-test", "OPENAI_MODEL": "gpt-test"},
@@ -388,7 +382,6 @@ class TestCLIProviderFlag:
                 ["--config", str(cfg), "ask", "what is the answer?"],
             )
         assert result.exit_code == 0
-        assert "Answer from local Ollama" in result.output
-        assert any("11434/api/generate" in url for url in captured_urls)
-        assert not any("openai.com" in url for url in captured_urls)
-        assert captured_models == [DEFAULT_OLLAMA_MODEL]
+        assert "Standalone answer generation is off" in result.output
+        assert "doc.txt" in result.output
+        mock_urlopen.assert_not_called()

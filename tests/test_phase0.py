@@ -482,7 +482,7 @@ class TestAskEngine:
         search_engine.index_file(f, "", "note.txt")
 
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timeout")):
-            ask = AskEngine(search_engine)
+            ask = AskEngine(search_engine, provider="ollama")
             result = ask.ask("some content")
 
         assert result.degraded is True

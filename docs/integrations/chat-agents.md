@@ -46,7 +46,7 @@ The first MCP surface is read-only:
 | Tool | Purpose |
 |---|---|
 | `sahara_search` | Return ranked indexed files/chunks for a query |
-| `sahara_ask` | Answer a question with cited Sahara sources |
+| `sahara_ask` | Retrieve cited sources and optionally generate an answer |
 | `sahara_read_chunk` | Return one indexed chunk by id |
 | `sahara_list_folders` | List primary and additional Sahara folders |
 | `sahara_index_status` | Show indexed file/chunk counts and vector-index availability |
@@ -54,6 +54,10 @@ The first MCP surface is read-only:
 The server does not expose sync mutation, file writes, shell execution, or arbitrary
 filesystem reads. Search results identify intentionally offloaded files, but MCP does
 not expose offload or fetch operations.
+
+No standalone answer provider is required. By default, `sahara_ask` returns ranked
+cited snippets for the MCP client's model to use. Ollama and OpenAI are optional
+providers for generating an answer inside Sahara itself.
 
 ## Claude Desktop
 

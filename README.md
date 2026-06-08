@@ -73,21 +73,29 @@ sync for it.
 
 ## Ask Questions
 
-Semantic search does not require an LLM. `sahara ask` adds an optional answer-generation
-step after Sahara retrieves the relevant local passages.
+`sahara ask` is retrieval-only by default. It returns ranked source snippets without
+contacting Ollama, OpenAI, or another standalone answer model:
 
-### Local answers with Ollama
+```bash
+sahara ask --snippet "what does the lease say about pets?"
+```
+
+An MCP client can reason over the same retrieved evidence with its own model. Enable a
+separate answer provider only when you want the Sahara CLI or MCP tool to generate the
+answer itself.
+
+### Optional local answers with Ollama
 
 Install [Ollama](https://ollama.com/download), then download Sahara's default model:
 
 ```bash
 ollama pull mistral
+sahara config set answer_provider ollama
 sahara ask --snippet "what does the lease say about pets?"
 ```
 
-The current Mistral download is approximately 4.4 GB. New Sahara installations use
-Ollama as the answer provider. If Ollama is not already running, launch the application
-or run `ollama serve` in another terminal.
+The current Mistral download is approximately 4.4 GB. If Ollama is not already running,
+launch the application or run `ollama serve` in another terminal.
 
 ### OpenAI without Ollama
 
@@ -120,7 +128,8 @@ Sahara exposes five read-only MCP tools for search, cited Q&A, chunk reads, fold
 listing, and index status. These tools operate only on Sahara's indexed corpus; they
 cannot browse arbitrary files or modify your data.
 
-Claude Desktop is the first tested client:
+No standalone Sahara answer provider is required; the MCP client can use Sahara's
+retrieved snippets directly. Claude Desktop is the first tested client:
 
 ```bash
 sahara mcp install-claude
@@ -181,7 +190,7 @@ deletion is not treated as offload.
 
 - The semantic index is stored locally in `~/.sahara/state.db`.
 - Indexing, embeddings, and `sahara search` stay local.
-- Ollama answer generation stays local.
+- Ollama answer generation stays local when explicitly enabled.
 - OpenAI receives the question and retrieved snippets when explicitly selected.
 - MCP is read-only and scoped to indexed content.
 - Remote MCP requires authentication by default and supports tool, folder, and snippet
@@ -231,7 +240,7 @@ editor, build, and credential exclusions.
 | `sahara index [--force]` | Build or refresh the semantic index |
 | `sahara index-report` | Inspect indexing coverage and failures |
 | `sahara search QUERY` | Find files and passages by meaning |
-| `sahara ask --snippet QUESTION` | Generate an answer and show supporting sources |
+| `sahara ask --snippet QUESTION` | Retrieve cited sources and optionally generate an answer |
 | `sahara mcp install-claude` | Connect Sahara to Claude Desktop |
 | `sahara mcp serve` | Run the read-only MCP server |
 

@@ -78,7 +78,7 @@ class TestSaharaConfigDefaults:
 
     def test_default_answer_provider(self):
         cfg = SaharaConfig()
-        assert cfg.answer_provider == "ollama"
+        assert cfg.answer_provider == "none"
         assert cfg.answer_model == ""
 
 
