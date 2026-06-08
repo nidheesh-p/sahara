@@ -8,6 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+### Changed
+
+- User installation guidance now recommends `pipx` and documents a virtual-environment
+  fallback for PEP 668 `externally-managed-environment` errors
+
 ---
 
 ## [0.2.1] — 2026-06-07

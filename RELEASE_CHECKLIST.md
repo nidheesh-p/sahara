@@ -10,6 +10,10 @@ Use this checklist before publishing a Sahara release.
 - Confirm the distribution name is `sahara-memory`; the `sahara` PyPI project is
   unrelated and must never appear in public installation commands.
 - Confirm installation docs state the Python 3.11 minimum.
+- Test the `pipx install "sahara-memory[search,mcp]"` path with a clean,
+  externally-managed Python such as Homebrew Python.
+- Confirm public installation docs do not recommend `--break-system-packages`, global
+  `sudo pip`, or direct installation into a managed interpreter.
 - Confirm the README latest-release callout and badge point to the published release.
 - Review `CHANGELOG.md` and add release notes for the target version.
 - Review `README.md`, `ROADMAP.md`, `SECURITY.md`, and integration guides for stale claims.
@@ -33,6 +37,8 @@ Use this checklist before publishing a Sahara release.
 ## Verification
 
 - Run `python3 -m pip install -e ".[search,dev]"` in a clean virtual environment.
+- Run `pipx install "sahara-memory[search,mcp]"` and `sahara --version` outside the
+  contributor virtual environment.
 - Run `sahara --version` from the clean virtual environment.
 - Run `pytest`.
 - Run `ruff check .`.
