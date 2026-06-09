@@ -176,6 +176,28 @@ def test_ask_question_uses_configured_provider(tmp_path: Path) -> None:
         db.close()
 
 
+def test_ask_question_defaults_to_retrieval_only(tmp_path: Path) -> None:
+    db = StateDB(tmp_path / "state.db").connect()
+    try:
+        with patch("sahara.mcp_server.AskEngine") as engine_cls:
+            engine_cls.return_value.ask.return_value = AskResult(
+                answer=None,
+                sources=[],
+            )
+
+            payload = ask_question("question", config=SaharaConfig(), db=db)
+
+        assert engine_cls.call_args.kwargs == {
+            "provider": "none",
+            "model": None,
+        }
+        assert payload["answer"] is None
+        assert payload["degraded"] is False
+        assert payload["error"] is None
+    finally:
+        db.close()
+
+
 def test_static_token_verifier_accepts_only_configured_token() -> None:
     pytest.importorskip("mcp.server.auth.provider")
     verifier = StaticTokenVerifier("secret")

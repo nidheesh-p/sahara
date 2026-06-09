@@ -25,9 +25,8 @@ vhs docs/demo/sahara-demo.tape
 ```
 
 The tape copies `fixtures/` into an isolated temporary home, builds a real Sahara
-index, runs two semantic searches, demonstrates `sahara ask` falling back to
-retrieved sources when the configured local LLM is unavailable, and runs the
-Claude Desktop installer.
+index, runs two semantic searches, demonstrates the default retrieval-only
+`sahara ask` flow without a standalone LLM, and runs the Claude Desktop installer.
 
 The first recording may take longer than the scripted sleep while the embedding
 model downloads. Run `sahara index` once before recording or increase that sleep

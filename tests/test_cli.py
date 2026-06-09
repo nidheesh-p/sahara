@@ -10,7 +10,7 @@ from click.testing import CliRunner
 from moto import mock_aws
 
 from sahara.cli import main
-from sahara.config import SaharaConfig, save_config
+from sahara.config import SaharaConfig, load_config, save_config
 from sahara.models import FileRecord
 from sahara.sync_engine import DiffResult
 
@@ -193,8 +193,19 @@ class TestConfigSetGet:
             ],
         )
         assert result.exit_code != 0
+        assert "none" in result.output
         assert "ollama" in result.output
         assert "openai" in result.output
+
+    def test_config_set_accepts_none_answer_provider(self, tmp_path: Path):
+        _, config_path = _make_config(tmp_path)
+        result = _runner().invoke(
+            main,
+            ["--config", str(config_path), "config", "set", "answer_provider", "none"],
+        )
+
+        assert result.exit_code == 0
+        assert load_config(config_path).answer_provider == "none"
 
     def test_config_get_unknown_key_aborts(self, tmp_path: Path):
         cfg, config_path = _make_config(tmp_path)

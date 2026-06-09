@@ -27,20 +27,30 @@ The first `sahara index` run downloads the local embedding model (roughly
 no account or token is required. `HF_TOKEN` is optional for higher download
 rate limits.
 
-This command is non-interactive. It requires no bucket, credentials, drive, or storage
-validation.
+This command is non-interactive. It requires no bucket, credentials, drive, storage
+validation, or standalone answer provider.
 
-Semantic search is now ready. To also generate answers locally, install and launch
-[Ollama](https://ollama.com/download), then download Sahara's default model:
+Semantic search and retrieval-only questions are now ready:
+
+```bash
+sahara ask --snippet "what does this folder say about the project deadline?"
+```
+
+This returns ranked source passages and makes no answer-generation network request. It
+is also enough for an MCP client to use Sahara as retrieval context.
+
+To generate standalone answers locally, install and launch
+[Ollama](https://ollama.com/download), then download the optional default model:
 
 ```bash
 ollama pull mistral
 ollama run mistral "Reply with only: Ollama is ready"
+sahara config set answer_provider ollama
 sahara ask "what does this folder say about the project deadline?"
 ```
 
-The model download is approximately 4.4 GB. OpenAI is an optional, explicit alternative;
-setting `OPENAI_API_KEY` does not silently move Sahara away from local Ollama. Follow
+The optional Ollama model download is approximately 4.4 GB. OpenAI is an explicit
+alternative; setting `OPENAI_API_KEY` does not change the saved provider. Follow
 [Answer provider setup](ANSWER_PROVIDERS.md) for platform-specific Ollama installation,
 OpenAI setup, and troubleshooting.
 

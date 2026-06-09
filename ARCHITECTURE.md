@@ -8,13 +8,13 @@ This document explains how Sahara is structured so contributors can find their w
 
 ```
 ┌─────────────┐   ┌────────────────┐   ┌──────────────────────┐
-│ CLI (click) │──▶│ IndexingService│──▶│ SearchEngine         │
-│ cli.py      │   │ library.py     │   │ fastembed + vec      │
+│ CLI / MCP   │──▶│ IndexingService│──▶│ SearchEngine         │
+│ public APIs │   │ library.py     │   │ fastembed + vec      │
 └─────────────┘   └────────────────┘   └──────────────────────┘
        │                   │                      │
        │                   ▼                      ▼
        │             ┌──────────┐             AskEngine
-       │             │ StateDB  │             Ollama/OpenAI
+       │             │ StateDB  │             none / Ollama / OpenAI
        │             └──────────┘
        │                   ▲
        ▼                   │
@@ -24,7 +24,8 @@ This document explains how Sahara is structured so contributors can find their w
                   └──────────────────────┘
 ```
 
-The CLI is the only public surface. Everything else is an internal library that the CLI composes.
+The Click CLI and read-only MCP server are Sahara's public surfaces. They compose the
+same internal indexing, retrieval, state, and optional storage services.
 
 ---
 
@@ -33,6 +34,7 @@ The CLI is the only public surface. Everything else is an internal library that 
 ```
 src/sahara/
 ├── cli.py                  # All Click commands — the public API
+├── mcp_server.py           # Read-only MCP tools and transports
 ├── config.py               # SaharaConfig dataclass + TOML I/O
 ├── library.py              # Content-root migration and local indexing service
 ├── models.py               # FileRecord, SyncOperation, ManifestEntry, ...
@@ -53,7 +55,7 @@ src/sahara/
 │
 ├── search/
 │   ├── search_engine.py    # Text extraction, chunking, embedding, sqlite-vec KNN
-│   └── ask_engine.py       # LLM answer generation (ollama / OpenAI)
+│   └── ask_engine.py       # Retrieval-only ask + optional Ollama/OpenAI answers
 │
 └── utils/
     ├── encryption.py       # AES-256-GCM, PBKDF2, keyring
@@ -168,19 +170,22 @@ A 50-page PDF has ~25,000 words. Embedding the whole document as one vector woul
 
 ## Ask pipeline
 
-`search/ask_engine.py` wraps `SearchEngine` with an LLM layer.
+`search/ask_engine.py` wraps `SearchEngine` with optional answer generation.
 
 ```
 1. Run search(question, top_k)
-2. Build context string from top chunk texts (capped at 6,000 chars)
-3. Try LLM in priority order:
-   a. OpenAI if OPENAI_API_KEY is set
-   b. Ollama at http://localhost:11434 if reachable
-   c. Degrade: return search results with snippets, no generated answer
-4. Return AskResult(answer, sources, degraded, model_used)
+2. If answer_provider is "none", return ranked sources with no generated answer
+3. If Ollama or OpenAI is explicitly selected:
+   a. Build context from the top chunks (capped at 6,000 chars)
+   b. Call only the selected provider
+   c. If the provider fails, return sources with a degraded result and error
+4. Return AskResult(answer, sources, degraded, model_used, provider_used, error)
 ```
 
-Degraded mode is intentional — `sahara ask` is useful even without any LLM installed, because the ranked snippets alone often answer the question visually.
+Retrieval-only mode is the default and is not an error. It makes `sahara ask` useful
+without a standalone LLM and lets MCP clients reason over the cited snippets with their
+own model. A configured provider failure is reported as degraded while preserving the
+retrieved sources.
 
 ---
 

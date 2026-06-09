@@ -41,13 +41,13 @@ These commands work in basic index-only mode and do not require optional storage
 | `sahara index [--folder PATH] [--force]` | Index all registered folders, one folder, or force unchanged files to re-index |
 | `sahara index-report [--top N] [--sample N]` | Show indexed, unsupported, failed, missing, and unindexed content |
 | `sahara search QUERY [-n N] [-f PATH] [--snippet]` | Search indexed content by meaning |
-| `sahara ask QUESTION [-n N] [-f PATH] [--snippet]` | Retrieve passages and generate an answer with the configured provider |
+| `sahara ask QUESTION [-n N] [-f PATH] [--snippet]` | Retrieve passages and optionally generate an answer with a configured provider |
 
 Answer-provider overrides:
 
 | Option | Purpose |
 |---|---|
-| `--provider ollama\|openai` | Override the saved provider for one question |
+| `--provider none\|ollama\|openai` | Override the saved provider for one question |
 | `--model NAME` | Override the selected provider's model |
 | `--ollama-url URL` | Override the Ollama server URL |
 | `--snippet` | Show supporting source snippets even when an answer is generated |
