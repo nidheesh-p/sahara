@@ -8,13 +8,14 @@ write access to the filesystem.
 ## Install
 
 Sahara requires Python 3.11 or newer. Its Python distribution is
-`sahara-memory`; `sahara` on PyPI is an unrelated OpenStack project. On Windows,
-replace `python3` below with `py -3.11`.
+`sahara-memory`; `sahara` on PyPI is an unrelated OpenStack project.
 
 ```bash
-python3 -m pip install \
-  "sahara-memory[search,mcp] @ git+https://github.com/nidheesh-p/sahara.git"
+pipx install "sahara-memory[search,mcp]"
 ```
+
+See the [installation guide](../INSTALLATION.md) for `pipx` setup, virtual
+environments, and PEP 668 troubleshooting.
 
 Index files before connecting a chat client:
 

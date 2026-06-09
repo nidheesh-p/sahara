@@ -45,19 +45,23 @@ The Python distribution is named **`sahara-memory`**, but it installs the `sahar
 command. Do not run `pip install sahara`; that name belongs to the unrelated OpenStack
 project.
 
-Install Sahara from PyPI:
+Install Sahara from PyPI with
+[pipx](https://pipx.pypa.io/stable/installation/), which keeps CLI applications
+isolated from the system Python:
 
 ```bash
-python3 -m pip install "sahara-memory[search,mcp]"
+pipx install "sahara-memory[search,mcp]"
 
 sahara init --mode basic --folder ~/Documents
 sahara index
 sahara search "my tax return from 2024" --snippet
 ```
 
-On Windows, use `py -3.11 -m pip` instead of `python3 -m pip`.
+See [Installation](docs/INSTALLATION.md) for macOS and Windows `pipx` setup, a virtual
+environment alternative, and the `externally-managed-environment` fix. Do not use
+`--break-system-packages`.
 
-The first `sahara index` downloads a local embedding model of roughly 200 MB.
+The first `sahara index` downloads a local embedding model of roughly 70 MB.
 Hugging Face may show an unauthenticated-download warning; no account or token is
 required.
 
@@ -266,6 +270,7 @@ See the [complete command reference](docs/COMMAND_REFERENCE.md), or run
 ## Documentation
 
 - [Getting Started](docs/GETTING_STARTED.md): index-only, local-drive, and AWS paths
+- [Installation](docs/INSTALLATION.md): pipx, virtual environments, and PEP 668
 - [Command Reference](docs/COMMAND_REFERENCE.md): every CLI command grouped by purpose
 - [Answer Providers](docs/ANSWER_PROVIDERS.md): Ollama and OpenAI setup
 - [Claude Desktop](docs/CLAUDE_DESKTOP.md): installation, MCP contract, and troubleshooting

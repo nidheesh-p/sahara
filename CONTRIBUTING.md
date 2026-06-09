@@ -20,6 +20,9 @@ source .venv/bin/activate
 python3 -m pip install -e ".[search,dev]"
 ```
 
+Keep the editable install inside this virtual environment. Do not use
+`--break-system-packages` with a Homebrew or distribution-managed Python.
+
 Verify the install:
 
 ```bash

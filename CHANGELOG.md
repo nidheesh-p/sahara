@@ -13,6 +13,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - Standalone answer generation is now disabled by default on new configurations;
   semantic search, retrieval-only `sahara ask`, and MCP access no longer require
   Ollama or OpenAI
+- User installation guidance now recommends `pipx` and documents a virtual-environment
+  fallback for PEP 668 `externally-managed-environment` errors
 
 ---
 
