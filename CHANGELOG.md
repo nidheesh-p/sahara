@@ -15,6 +15,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
   Ollama or OpenAI
 - User installation guidance now recommends `pipx` and documents a virtual-environment
   fallback for PEP 668 `externally-managed-environment` errors
+- The MCP extra now requires MCP SDK 1.14.0 or newer for authenticated HTTP token
+  verification, with a concise upgrade error for stale environments
 
 ---
 
