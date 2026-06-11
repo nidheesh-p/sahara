@@ -11,7 +11,9 @@ from sahara.cli import main
 from sahara.config import SaharaConfig
 from sahara.mcp_server import (
     StaticTokenVerifier,
+    _require_compatible_mcp_sdk,
     ask_question,
+    build_mcp_server,
     index_status,
     list_folders,
     read_chunk,
@@ -210,6 +212,56 @@ def test_static_token_verifier_accepts_only_configured_token() -> None:
     assert invalid is None
 
 
+def test_compatible_mcp_sdk_rejects_version_without_token_verifier() -> None:
+    class OldFastMCP:
+        def __init__(self, name: str | None = None, **settings: object) -> None:
+            pass
+
+    with patch("sahara.mcp_server.version", return_value="1.9.0"):
+        with pytest.raises(RuntimeError, match=r"MCP SDK 1\.14\.0 or newer") as exc_info:
+            _require_compatible_mcp_sdk(OldFastMCP)
+
+    assert "found 1.9.0" in str(exc_info.value)
+    assert "pipx runpip sahara-memory" in str(exc_info.value)
+
+
+def test_compatible_mcp_sdk_rejects_partially_compatible_version() -> None:
+    class FastMCPWithTokenVerifier:
+        def __init__(
+            self,
+            name: str | None = None,
+            token_verifier: object | None = None,
+            **settings: object,
+        ) -> None:
+            pass
+
+    with patch("sahara.mcp_server.version", return_value="1.13.0"):
+        with pytest.raises(RuntimeError, match="found 1.13.0"):
+            _require_compatible_mcp_sdk(FastMCPWithTokenVerifier)
+
+
+def test_compatible_mcp_sdk_accepts_minimum_version() -> None:
+    class CompatibleFastMCP:
+        def __init__(
+            self,
+            name: str | None = None,
+            token_verifier: object | None = None,
+            **settings: object,
+        ) -> None:
+            pass
+
+    with patch("sahara.mcp_server.version", return_value="1.14.0"):
+        _require_compatible_mcp_sdk(CompatibleFastMCP)
+
+
+def test_build_mcp_server_accepts_static_token_with_supported_sdk() -> None:
+    pytest.importorskip("mcp.server.fastmcp")
+
+    server = build_mcp_server(auth_token="secret")
+
+    assert server is not None
+
+
 def test_mcp_serve_cli_invokes_server() -> None:
     runner = CliRunner()
     server = MagicMock()
@@ -237,6 +289,23 @@ def test_mcp_serve_cli_requires_auth_for_http_transport() -> None:
 
     assert result.exit_code != 0
     assert "require --auth-token" in result.output
+
+
+def test_mcp_serve_cli_reports_sdk_compatibility_error_without_traceback() -> None:
+    runner = CliRunner()
+
+    with patch(
+        "sahara.mcp_server.serve",
+        side_effect=RuntimeError("Authenticated HTTP MCP requires MCP SDK 1.14.0 or newer"),
+    ):
+        result = runner.invoke(
+            main,
+            ["mcp", "serve", "--transport", "http", "--auth-token", "secret"],
+        )
+
+    assert result.exit_code != 0
+    assert "Error: Authenticated HTTP MCP requires MCP SDK 1.14.0 or newer" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_mcp_serve_cli_accepts_http_transport_options() -> None:

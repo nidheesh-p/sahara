@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
+import re
 import secrets
 from dataclasses import asdict
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Literal
 
@@ -37,6 +40,31 @@ DEFAULT_MCP_TOOLS: tuple[McpToolName, ...] = (
     "sahara_list_folders",
     "sahara_index_status",
 )
+
+
+def _require_compatible_mcp_sdk(fast_mcp_class: type[Any]) -> None:
+    """Reject MCP SDK releases that cannot serve Sahara's authenticated tools."""
+    try:
+        installed_version = version("mcp")
+    except PackageNotFoundError:
+        installed_version = "unknown"
+
+    version_match = re.match(r"^(\d+)\.(\d+)", installed_version)
+    version_supported = (
+        version_match is not None
+        and (int(version_match.group(1)), int(version_match.group(2))) >= (1, 14)
+    )
+    token_verifier_supported = "token_verifier" in inspect.signature(fast_mcp_class).parameters
+    if version_supported and token_verifier_supported:
+        return
+
+    raise RuntimeError(
+        "Authenticated HTTP MCP requires MCP SDK 1.14.0 or newer "
+        f"(found {installed_version}). Upgrade with "
+        "`pipx runpip sahara-memory install --upgrade 'mcp>=1.14.0'`, "
+        "or run `python -m pip install --upgrade 'mcp>=1.14.0'` in the environment "
+        "that runs Sahara."
+    )
 
 
 class StaticTokenVerifier:
@@ -253,6 +281,7 @@ def build_mcp_server(
     auth = None
     token_verifier = None
     if auth_token:
+        _require_compatible_mcp_sdk(FastMCP)
         issuer_url: Any = f"http://127.0.0.1:{port}"
         auth = AuthSettings(
             issuer_url=issuer_url,

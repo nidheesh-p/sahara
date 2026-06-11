@@ -40,6 +40,19 @@ Remote HTTP/SSE transports require bearer-token authentication by default. Clien
 send `Authorization: Bearer <token>`. For temporary local experiments only, use
 `--allow-insecure-http`.
 
+If authenticated startup reports that MCP SDK 1.14.0 or newer is required, upgrade the
+SDK inside the pipx installation:
+
+```bash
+pipx runpip sahara-memory install --upgrade "mcp>=1.14.0"
+```
+
+For a virtual-environment installation, activate that environment and run:
+
+```bash
+python -m pip install --upgrade "mcp>=1.14.0"
+```
+
 ## MCP Tools
 
 The first MCP surface is read-only:

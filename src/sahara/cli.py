@@ -1592,16 +1592,19 @@ def mcp_serve(
             err=True,
         )
 
-    serve(
-        str(config_path) if config_path else None,
-        transport=mcp_transport,
-        host=host,
-        port=port,
-        auth_token=auth_token,
-        allowed_tools=cast(tuple[Any, ...], allowed_tools) if allowed_tools else None,
-        allowed_storage_prefixes=allowed_storage_prefixes or None,
-        max_snippet_chars=max_snippet_chars,
-    )
+    try:
+        serve(
+            str(config_path) if config_path else None,
+            transport=mcp_transport,
+            host=host,
+            port=port,
+            auth_token=auth_token,
+            allowed_tools=cast(tuple[Any, ...], allowed_tools) if allowed_tools else None,
+            allowed_storage_prefixes=allowed_storage_prefixes or None,
+            max_snippet_chars=max_snippet_chars,
+        )
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
