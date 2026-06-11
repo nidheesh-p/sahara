@@ -36,6 +36,24 @@ for the implementation sequence and compatibility plan.
 
 ---
 
+## Next: Simple Installation
+
+- **Guided onboarding:** add an idempotent `sahara setup` path for local search and MCP
+- **Standalone runtime:** bundle Sahara, semantic-search dependencies, and MCP support
+  without requiring a system Python installation
+- **Native installers:** support macOS Apple Silicon and Windows x64 first
+- **Release automation:** produce checksummed native artifacts only on manual or release
+  workflows to control Actions usage
+- **Package managers:** publish Homebrew and WinGet installation paths after native
+  artifacts are stable
+
+See [specs/SIMPLE_INSTALLER_PLAN.md](specs/SIMPLE_INSTALLER_PLAN.md) for the user
+experience, packaging architecture, verification matrix, and issue sequence. Progress
+is tracked in
+[#54](https://github.com/nidheesh-p/sahara/issues/54).
+
+---
+
 ## Later (v0.3+)
 
 - **Hybrid retrieval:** BM25 keyword search (sqlite-fts5, no new dependency) + vector search merged via Reciprocal Rank Fusion
