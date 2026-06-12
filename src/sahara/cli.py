@@ -1059,13 +1059,13 @@ def folder_add(ctx: click.Context, path: Path, name: str | None) -> None:
             _abort(f"Folder already registered: {resolved}")
         if any(root.storage_prefix == storage_prefix for root in roots):
             _abort(f"Storage prefix '{storage_prefix}' is already registered.")
+        _ensure_saharaignore(resolved)
         db.upsert_content_root(
             str(resolved),
             storage_prefix,
             sync_enabled=False,
         )
         _ok(f"Added content root: {resolved}")
-        _ensure_saharaignore(resolved)
         _info("Mode: index only")
         _info("Run `sahara index` to add its contents to search.")
     finally:
@@ -1209,9 +1209,9 @@ def add_folder(ctx: click.Context, path: Path, name: str | None, dest: str | Non
                     "Use --as <name> to choose a different name."
                 )
 
+        _ensure_saharaignore(resolved)
         db.add_sync_target(str(resolved), s3_prefix)
         _ok(f"Registered: {resolved}")
-        _ensure_saharaignore(resolved)
         _info(f"S3 prefix  : {s3_prefix}/")
         _info(f"S3 location: s3://{config.bucket}/{s3_prefix}/")
         _info("Run `sahara sync` to sync this folder now.")

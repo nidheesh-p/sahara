@@ -147,3 +147,48 @@ class TestFolderAddCreatesIgnoreFile:
         assert second.exit_code == 0
         assert "Created .saharaignore" not in second.output
         assert ignore_path.read_text(encoding="utf-8") == "custom-after-add/\n"
+
+    def test_failed_ignore_file_creation_does_not_register_folder(
+        self, tmp_path: Path
+    ) -> None:
+        """If .saharaignore creation fails, the folder must not be left
+        registered without it — otherwise a retry sees "already registered"
+        and the user can never get a .saharaignore for that root."""
+        primary = tmp_path / "primary"
+        additional = tmp_path / "additional"
+        primary.mkdir()
+        additional.mkdir()
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            f'sync_folder = "{primary}"\nstorage_mode = "none"\n', encoding="utf-8"
+        )
+        db_path = tmp_path / "state.db"
+        resolved = additional.resolve()
+
+        real_open = open
+
+        def failing_open(path, mode="r", *args, **kwargs):
+            if "x" in mode:
+                raise PermissionError("read-only filesystem")
+            return real_open(path, mode, *args, **kwargs)
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            with patch("sahara.cli.open", side_effect=failing_open):
+                first = CliRunner().invoke(
+                    main,
+                    ["--config", str(config_path), "folder", "add", str(additional)],
+                )
+
+            assert first.exit_code != 0
+            with StateDB(db_path) as db:
+                assert db.get_content_root(str(resolved)) is None
+
+            second = CliRunner().invoke(
+                main,
+                ["--config", str(config_path), "folder", "add", str(additional)],
+            )
+
+        assert second.exit_code == 0
+        assert "Created .saharaignore from template." in second.output
+        with StateDB(db_path) as db:
+            assert db.get_content_root(str(resolved)) is not None
