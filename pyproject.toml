@@ -95,7 +95,6 @@ include = [
     "/ROADMAP.md",
     "/SECURITY.md",
     "/pyproject.toml",
-    "/.saharaignore.template",
 ]
 
 [tool.ruff]

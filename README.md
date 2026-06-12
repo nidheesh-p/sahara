@@ -232,8 +232,12 @@ node_modules/
 *.tmp
 ```
 
-Start from the [example ignore file](.saharaignore.template) for common operating-system,
-editor, build, and credential exclusions.
+Start from the [example ignore file](src/sahara/data/saharaignore.template) for common
+operating-system, editor, build, and credential exclusions.
+
+Each content root manages its own `.saharaignore` independently. `sahara init` creates
+one in the primary folder, and `sahara folder add PATH` creates one in every additional
+root you add (without overwriting a `.saharaignore` that already exists there).
 
 ## Core Commands
 
