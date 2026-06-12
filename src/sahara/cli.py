@@ -6,6 +6,7 @@ import datetime
 import logging
 import os
 import sys
+from importlib import resources
 from pathlib import Path
 from typing import Any, Literal, NoReturn, cast
 
@@ -157,6 +158,44 @@ def _require_storage_config(config: SaharaConfig) -> None:
 def _require_config(config: SaharaConfig) -> None:
     """Compatibility alias for commands that require a storage backend."""
     _require_storage_config(config)
+
+
+_SAHARAIGNORE_FALLBACK = b"# Sahara ignore rules (gitignore syntax)\n"
+
+
+def _ensure_saharaignore(folder: Path) -> bool:
+    """Create a `.saharaignore` file in *folder* if one doesn't exist yet.
+
+    Prints a confirmation message on creation. Returns True if a file was
+    created, False if one already existed.
+    """
+    if not folder.is_dir():
+        return False
+
+    ignore_path = folder / ".saharaignore"
+    if ignore_path.exists():
+        return False
+
+    try:
+        template = resources.files("sahara").joinpath("data", "saharaignore.template")
+        content = template.read_bytes()
+        from_template = True
+    except (OSError, ModuleNotFoundError):
+        content = _SAHARAIGNORE_FALLBACK
+        from_template = False
+
+    try:
+        with open(ignore_path, "xb") as fh:
+            fh.write(content)
+    except FileExistsError:
+        return False
+
+    _ok(
+        "Created .saharaignore from template."
+        if from_template
+        else "Created empty .saharaignore."
+    )
+    return True
 
 
 def _content_roots(config: SaharaConfig, db: Any) -> list[Any]:
@@ -491,19 +530,7 @@ def init(
             _warn(f"Storage validation failed: {exc}")
             _warn("You can re-run `sahara doctor` after fixing the issue.")
 
-    ignore_path = Path(config.sync_folder) / ".saharaignore"
-    if not ignore_path.exists():
-        template = Path(__file__).parent.parent.parent / ".saharaignore.template"
-        if template.exists():
-            import shutil
-
-            shutil.copy(str(template), str(ignore_path))
-            _ok("Created .saharaignore from template.")
-        else:
-            ignore_path.write_text(
-                "# Sahara ignore rules (gitignore syntax)\n", encoding="utf-8"
-            )
-            _ok("Created empty .saharaignore.")
+    _ensure_saharaignore(Path(config.sync_folder))
 
     click.echo()
     if config.is_index_only_mode:
@@ -1038,6 +1065,7 @@ def folder_add(ctx: click.Context, path: Path, name: str | None) -> None:
             sync_enabled=False,
         )
         _ok(f"Added content root: {resolved}")
+        _ensure_saharaignore(resolved)
         _info("Mode: index only")
         _info("Run `sahara index` to add its contents to search.")
     finally:
@@ -1135,7 +1163,7 @@ def folder_sync(
 
 
 @main.command("add")
-@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.argument("path", type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option(
     "--as",
     "name",
@@ -1183,6 +1211,7 @@ def add_folder(ctx: click.Context, path: Path, name: str | None, dest: str | Non
 
         db.add_sync_target(str(resolved), s3_prefix)
         _ok(f"Registered: {resolved}")
+        _ensure_saharaignore(resolved)
         _info(f"S3 prefix  : {s3_prefix}/")
         _info(f"S3 location: s3://{config.bucket}/{s3_prefix}/")
         _info("Run `sahara sync` to sync this folder now.")
