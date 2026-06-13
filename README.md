@@ -208,7 +208,7 @@ storage.
 
 Sahara extracts text from:
 
-- PDF and DOCX documents
+- PDF, DOCX, and EPUB documents
 - Markdown, reStructuredText, and plain text
 - Python, JavaScript, TypeScript, JSON, YAML, TOML, CSV, HTML, and XML
 - Other files that can be safely detected as UTF-8 text
