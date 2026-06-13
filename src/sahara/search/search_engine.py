@@ -50,19 +50,30 @@ class _HTMLTextExtractor(HTMLParser):
     """Collects visible text from XHTML, skipping script/style content."""
 
     _SKIP_TAGS = {"script", "style"}
+    _BLOCK_TAGS = frozenset({
+        "p", "div", "br", "hr", "section", "article", "aside", "header",
+        "footer", "nav", "figure", "figcaption", "blockquote", "pre",
+        "h1", "h2", "h3", "h4", "h5", "h6",
+        "ul", "ol", "li", "dl", "dt", "dd",
+        "table", "tr", "td", "th", "caption",
+    })
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self._skip_depth = 0
         self._parts: list[str] = []
 
-    def handle_starttag(self, tag: str, attrs: Any) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in self._SKIP_TAGS:
             self._skip_depth += 1
+        if not self._skip_depth and tag in self._BLOCK_TAGS:
+            self._parts.append(" ")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in self._SKIP_TAGS and self._skip_depth:
             self._skip_depth -= 1
+        if not self._skip_depth and tag in self._BLOCK_TAGS:
+            self._parts.append(" ")
 
     def handle_data(self, data: str) -> None:
         if not self._skip_depth:
