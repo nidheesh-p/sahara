@@ -7,6 +7,7 @@ import logging
 import struct
 from contextlib import contextmanager
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -43,6 +44,39 @@ def _quiet_pdf_logs() -> Any:
     finally:
         for log, level in zip(loggers, old_levels):
             log.setLevel(level)
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Collects visible text from XHTML, skipping script/style content."""
+
+    _SKIP_TAGS = {"script", "style"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._skip_depth = 0
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._SKIP_TAGS and self._skip_depth:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip_depth:
+            self._parts.append(data)
+
+    def get_text(self) -> str:
+        return "".join(self._parts)
+
+
+def _html_to_text(html: str) -> str:
+    """Extract visible text from an XHTML string with whitespace collapsed."""
+    parser = _HTMLTextExtractor()
+    parser.feed(html)
+    return " ".join(parser.get_text().split())
 
 
 class TextExtractor:
