@@ -35,6 +35,16 @@ class TestHtmlToText:
         assert "two" in result
         assert "   " not in result
 
+    def test_separates_adjacent_block_elements(self):
+        assert _html_to_text("<p>one</p><p>two</p>") == "one two"
+
+    def test_does_not_split_inline_elements(self):
+        assert _html_to_text("wor<b>d</b>s") == "words"
+
+    def test_separates_headings_and_list_items(self):
+        html = "<h1>Title</h1><ul><li>alpha</li><li>beta</li></ul>"
+        assert _html_to_text(html) == "Title alpha beta"
+
 
 def _build_epub(path: Path, *, chapter_title: str, body_html: str) -> None:
     """Author a minimal valid EPUB at `path` using ebooklib's writer.
