@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from sahara.search.search_engine import TextExtractor, _html_to_text
+from sahara.search.search_engine import TextExtractor, _decode_xhtml, _html_to_text
 
 
 class TestHtmlToText:
@@ -102,3 +102,52 @@ class TestExtractEpub:
         )):
             result = extractor._extract_epub(f)
         assert result is None
+
+    def test_extracts_chapters_in_spine_order(self, tmp_path):
+        """Chapters are emitted in spine (reading) order, not manifest order."""
+        epub = pytest.importorskip("ebooklib.epub")
+        book = epub.EpubBook()
+        book.set_identifier("order-id")
+        book.set_title("Ordered Book")
+        book.set_language("en")
+
+        first = epub.EpubHtml(title="First", file_name="z_first.xhtml", lang="en")
+        first.content = "<html><body><p>ALPHA</p></body></html>"
+        second = epub.EpubHtml(title="Second", file_name="a_second.xhtml", lang="en")
+        second.content = "<html><body><p>OMEGA</p></body></html>"
+
+        # Manifest/add order is [second, first]; spine (reading) order is the
+        # reverse, so only spine-ordered extraction yields ALPHA before OMEGA.
+        book.add_item(second)
+        book.add_item(first)
+        book.add_item(epub.EpubNcx())
+        book.add_item(epub.EpubNav())
+        book.toc = (first, second)
+        book.spine = ["nav", first, second]
+
+        f = tmp_path / "ordered.epub"
+        epub.write_epub(str(f), book)
+
+        result = TextExtractor().extract(f)
+        assert result is not None
+        assert "ALPHA" in result and "OMEGA" in result
+        assert result.index("ALPHA") < result.index("OMEGA")
+
+
+class TestDecodeXhtml:
+    def test_decodes_utf8(self):
+        assert _decode_xhtml("hello café".encode()) == "hello café"
+
+    def test_decodes_utf16_with_bom(self):
+        # str.encode("utf-16") prepends a byte-order mark.
+        raw = "café résumé".encode("utf-16")
+        assert _decode_xhtml(raw) == "café résumé"
+
+    def test_decodes_utf8_bom(self):
+        assert _decode_xhtml("plain".encode("utf-8-sig")) == "plain"
+
+    def test_invalid_bytes_fall_back_without_raising(self):
+        # Not valid UTF-8 and no clean BOM: must degrade, not crash.
+        result = _decode_xhtml(b"caf\xe9 text")  # latin-1 'é'
+        assert isinstance(result, str)
+        assert "text" in result

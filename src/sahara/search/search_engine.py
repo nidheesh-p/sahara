@@ -90,6 +90,18 @@ def _html_to_text(html: str) -> str:
     return " ".join(parser.get_text().split())
 
 
+def _decode_xhtml(raw: bytes) -> str:
+    """Decode EPUB document bytes, honoring a UTF byte-order mark when present."""
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw.decode("utf-8-sig", errors="replace")
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16", errors="replace")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace")
+
+
 class TextExtractor:
     """Extracts plain text from various file types for indexing."""
 
@@ -155,10 +167,10 @@ class TextExtractor:
             from ebooklib import epub  # type: ignore[import]
             book = epub.read_epub(str(file_path))
             parts = []
-            for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+            for item in self._epub_items_in_reading_order(book, ebooklib):
                 if isinstance(item, epub.EpubNav):
-                    continue  # skip the EPUB 3 navigation document
-                html = item.get_content().decode("utf-8", errors="replace")
+                    continue  # skip the EPUB navigation document
+                html = _decode_xhtml(item.get_content())
                 parts.append(_html_to_text(html))
             text = "\n".join(p for p in parts if p)
             return text or None
@@ -168,6 +180,27 @@ class TextExtractor:
         except Exception as exc:
             logger.debug("EPUB extraction failed for %s: %s", file_path, exc)
             return None
+
+    @staticmethod
+    def _epub_items_in_reading_order(book: Any, ebooklib: Any) -> list[Any]:
+        """Document items in spine (reading) order, then any not in the spine.
+
+        ``get_items_of_type`` yields manifest order, which can differ from the
+        spine. Iterating the spine preserves reading order; trailing items
+        absent from the spine are appended so no content is dropped.
+        """
+        ordered: list[Any] = []
+        seen: set[str] = set()
+        for entry in book.spine:
+            idref = entry[0] if isinstance(entry, tuple) else entry
+            item = book.get_item_with_id(idref)
+            if item is not None:
+                ordered.append(item)
+                seen.add(idref)
+        for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+            if item.get_id() not in seen:
+                ordered.append(item)
+        return ordered
 
     def _looks_like_text(self, file_path: Path) -> bool:
         try:
