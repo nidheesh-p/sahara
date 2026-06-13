@@ -98,6 +98,8 @@ class TextExtractor:
             return self._extract_pdf(file_path)
         if suffix in (".docx", ".doc"):
             return self._extract_docx(file_path)
+        if suffix == ".epub":
+            return self._extract_epub(file_path)
         if suffix in self.BINARY_EXTENSIONS:
             return None
         if suffix in self.SUPPORTED_EXTENSIONS or self._looks_like_text(file_path):
@@ -134,6 +136,26 @@ class TextExtractor:
             return None
         except Exception as exc:
             logger.debug("DOCX extraction failed for %s: %s", file_path, exc)
+            return None
+
+    def _extract_epub(self, file_path: Path) -> str | None:
+        try:
+            import ebooklib  # type: ignore[import]
+            from ebooklib import epub  # type: ignore[import]
+            book = epub.read_epub(str(file_path))
+            parts = []
+            for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+                if isinstance(item, epub.EpubNav):
+                    continue  # skip the EPUB 3 navigation document
+                html = item.get_content().decode("utf-8", errors="replace")
+                parts.append(_html_to_text(html))
+            text = "\n".join(p for p in parts if p)
+            return text or None
+        except ImportError:
+            logger.debug("ebooklib not installed; cannot extract EPUB text")
+            return None
+        except Exception as exc:
+            logger.debug("EPUB extraction failed for %s: %s", file_path, exc)
             return None
 
     def _looks_like_text(self, file_path: Path) -> bool:
