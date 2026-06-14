@@ -27,7 +27,7 @@ absent.</sub>
 
 ## What Sahara Does
 
-- Searches PDFs, DOCX files, notes, code, and other text documents by meaning
+- Searches PDFs, DOCX files, EPUB ebooks, notes, code, and other text documents by meaning
 - Answers questions over indexed files with source paths and supporting snippets
 - Indexes multiple folders without copying them to a storage backend
 - Exposes read-only search and Q&A tools through MCP
@@ -208,7 +208,7 @@ storage.
 
 Sahara extracts text from:
 
-- PDF and DOCX documents
+- PDF, DOCX, and EPUB documents
 - Markdown, reStructuredText, and plain text
 - Python, JavaScript, TypeScript, JSON, YAML, TOML, CSV, HTML, and XML
 - Other files that can be safely detected as UTF-8 text

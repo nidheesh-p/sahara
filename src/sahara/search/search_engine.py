@@ -7,6 +7,7 @@ import logging
 import struct
 from contextlib import contextmanager
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -45,6 +46,62 @@ def _quiet_pdf_logs() -> Any:
             log.setLevel(level)
 
 
+class _HTMLTextExtractor(HTMLParser):
+    """Collects visible text from XHTML, skipping script/style content."""
+
+    _SKIP_TAGS = {"script", "style"}
+    _BLOCK_TAGS = frozenset({
+        "p", "div", "br", "hr", "section", "article", "aside", "header",
+        "footer", "nav", "figure", "figcaption", "blockquote", "pre",
+        "h1", "h2", "h3", "h4", "h5", "h6",
+        "ul", "ol", "li", "dl", "dt", "dd",
+        "table", "tr", "td", "th", "caption",
+    })
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._skip_depth = 0
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
+        if not self._skip_depth and tag in self._BLOCK_TAGS:
+            self._parts.append(" ")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._SKIP_TAGS and self._skip_depth:
+            self._skip_depth -= 1
+        if not self._skip_depth and tag in self._BLOCK_TAGS:
+            self._parts.append(" ")
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip_depth:
+            self._parts.append(data)
+
+    def get_text(self) -> str:
+        return "".join(self._parts)
+
+
+def _html_to_text(html: str) -> str:
+    """Extract visible text from an XHTML string with whitespace collapsed."""
+    parser = _HTMLTextExtractor()
+    parser.feed(html)
+    return " ".join(parser.get_text().split())
+
+
+def _decode_xhtml(raw: bytes) -> str:
+    """Decode EPUB document bytes, honoring a UTF byte-order mark when present."""
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw.decode("utf-8-sig", errors="replace")
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16", errors="replace")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace")
+
+
 class TextExtractor:
     """Extracts plain text from various file types for indexing."""
 
@@ -64,6 +121,8 @@ class TextExtractor:
             return self._extract_pdf(file_path)
         if suffix in (".docx", ".doc"):
             return self._extract_docx(file_path)
+        if suffix == ".epub":
+            return self._extract_epub(file_path)
         if suffix in self.BINARY_EXTENSIONS:
             return None
         if suffix in self.SUPPORTED_EXTENSIONS or self._looks_like_text(file_path):
@@ -101,6 +160,47 @@ class TextExtractor:
         except Exception as exc:
             logger.debug("DOCX extraction failed for %s: %s", file_path, exc)
             return None
+
+    def _extract_epub(self, file_path: Path) -> str | None:
+        try:
+            import ebooklib  # type: ignore[import]
+            from ebooklib import epub  # type: ignore[import]
+            book = epub.read_epub(str(file_path))
+            parts = []
+            for item in self._epub_items_in_reading_order(book, ebooklib):
+                if isinstance(item, epub.EpubNav):
+                    continue  # skip the EPUB navigation document
+                html = _decode_xhtml(item.get_content())
+                parts.append(_html_to_text(html))
+            text = "\n".join(p for p in parts if p)
+            return text or None
+        except ImportError:
+            logger.debug("ebooklib not installed; cannot extract EPUB text")
+            return None
+        except Exception as exc:
+            logger.debug("EPUB extraction failed for %s: %s", file_path, exc)
+            return None
+
+    @staticmethod
+    def _epub_items_in_reading_order(book: Any, ebooklib: Any) -> list[Any]:
+        """Document items in spine (reading) order, then any not in the spine.
+
+        ``get_items_of_type`` yields manifest order, which can differ from the
+        spine. Iterating the spine preserves reading order; trailing items
+        absent from the spine are appended so no content is dropped.
+        """
+        ordered: list[Any] = []
+        seen: set[str] = set()
+        for entry in book.spine:
+            idref = entry[0] if isinstance(entry, tuple) else entry
+            item = book.get_item_with_id(idref)
+            if item is not None:
+                ordered.append(item)
+                seen.add(idref)
+        for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+            if item.get_id() not in seen:
+                ordered.append(item)
+        return ordered
 
     def _looks_like_text(self, file_path: Path) -> bool:
         try:
