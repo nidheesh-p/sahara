@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import posixpath
 import struct
+import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import unquote
+from xml.etree import ElementTree as ET
 
 if TYPE_CHECKING:
     from sahara.storage.state_db import StateDB
@@ -90,6 +94,11 @@ def _html_to_text(html: str) -> str:
     return " ".join(parser.get_text().split())
 
 
+def _localname(tag: str) -> str:
+    """Strip any XML namespace from an ElementTree tag (e.g. ``{ns}item``)."""
+    return tag.rsplit("}", 1)[-1]
+
+
 def _decode_xhtml(raw: bytes) -> str:
     """Decode EPUB document bytes, honoring a UTF byte-order mark when present."""
     if raw.startswith(b"\xef\xbb\xbf"):
@@ -162,45 +171,88 @@ class TextExtractor:
             return None
 
     def _extract_epub(self, file_path: Path) -> str | None:
+        # EPUB is a ZIP of XHTML documents; parsed with the standard library
+        # only (no third-party reader) to keep Sahara's dependency tree
+        # permissively licensed.
         try:
-            import ebooklib  # type: ignore[import]
-            from ebooklib import epub  # type: ignore[import]
-            book = epub.read_epub(str(file_path))
-            parts = []
-            for item in self._epub_items_in_reading_order(book, ebooklib):
-                if isinstance(item, epub.EpubNav):
-                    continue  # skip the EPUB navigation document
-                html = _decode_xhtml(item.get_content())
-                parts.append(_html_to_text(html))
+            with zipfile.ZipFile(file_path) as zf:
+                opf_name = self._epub_opf_path(zf)
+                if opf_name is None:
+                    return None
+                parts = []
+                for name in self._epub_document_names(zf, opf_name):
+                    try:
+                        raw = zf.read(name)
+                    except KeyError:
+                        continue  # manifest references a missing file
+                    parts.append(_html_to_text(_decode_xhtml(raw)))
             text = "\n".join(p for p in parts if p)
             return text or None
-        except ImportError:
-            logger.debug("ebooklib not installed; cannot extract EPUB text")
-            return None
         except Exception as exc:
             logger.debug("EPUB extraction failed for %s: %s", file_path, exc)
             return None
 
     @staticmethod
-    def _epub_items_in_reading_order(book: Any, ebooklib: Any) -> list[Any]:
-        """Document items in spine (reading) order, then any not in the spine.
+    def _epub_opf_path(zf: zipfile.ZipFile) -> str | None:
+        """Locate the OPF package document via ``META-INF/container.xml``."""
+        try:
+            root = ET.fromstring(zf.read("META-INF/container.xml"))
+        except KeyError:
+            return None
+        for el in root.iter():
+            if _localname(el.tag) == "rootfile" and el.get("full-path"):
+                return el.get("full-path")
+        return None
 
-        ``get_items_of_type`` yields manifest order, which can differ from the
-        spine. Iterating the spine preserves reading order; trailing items
-        absent from the spine are appended so no content is dropped.
+    @staticmethod
+    def _epub_document_names(zf: zipfile.ZipFile, opf_name: str) -> list[str]:
+        """ZIP names of XHTML documents in spine (reading) order.
+
+        The OPF manifest maps item ids to hrefs; the spine lists itemrefs in
+        reading order. Hrefs resolve relative to the OPF document's directory.
+        The navigation document (manifest ``properties="nav"``) is skipped, as
+        are non-XHTML items. Manifest documents absent from the spine are
+        appended so no content is dropped.
         """
-        ordered: list[Any] = []
+        root = ET.fromstring(zf.read(opf_name))
+        base = posixpath.dirname(opf_name)
+        xhtml_types = {"application/xhtml+xml", "text/html"}
+
+        manifest: dict[str, str] = {}  # id -> href
+        nav_ids: set[str] = set()
+        for el in root.iter():
+            if _localname(el.tag) != "item":
+                continue
+            item_id, href = el.get("id"), el.get("href")
+            if item_id is None or href is None:
+                continue
+            if el.get("media-type", "") not in xhtml_types:
+                continue
+            manifest[item_id] = href
+            if "nav" in (el.get("properties", "") or "").split():
+                nav_ids.add(item_id)
+
+        ordered_ids: list[str] = []
         seen: set[str] = set()
-        for entry in book.spine:
-            idref = entry[0] if isinstance(entry, tuple) else entry
-            item = book.get_item_with_id(idref)
-            if item is not None:
-                ordered.append(item)
+        for el in root.iter():
+            if _localname(el.tag) != "itemref":
+                continue
+            idref = el.get("idref")
+            if idref in manifest and idref not in seen:
+                ordered_ids.append(idref)
                 seen.add(idref)
-        for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
-            if item.get_id() not in seen:
-                ordered.append(item)
-        return ordered
+        for item_id in manifest:  # append non-spine documents, manifest order
+            if item_id not in seen:
+                ordered_ids.append(item_id)
+                seen.add(item_id)
+
+        names: list[str] = []
+        for item_id in ordered_ids:
+            if item_id in nav_ids:
+                continue
+            href = unquote(manifest[item_id].split("#", 1)[0])
+            names.append(posixpath.normpath(posixpath.join(base, href)))
+        return names
 
     def _looks_like_text(self, file_path: Path) -> bool:
         try:
