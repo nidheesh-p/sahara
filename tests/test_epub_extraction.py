@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
-from unittest.mock import patch
-
-import pytest
 
 from sahara.search.search_engine import TextExtractor, _decode_xhtml, _html_to_text
 
@@ -46,36 +44,70 @@ class TestHtmlToText:
         assert _html_to_text(html) == "Title alpha beta"
 
 
-def _build_epub(path: Path, *, chapter_title: str, body_html: str) -> None:
-    """Author a minimal valid EPUB at `path` using ebooklib's writer.
+_CONTAINER_XML = (
+    '<?xml version="1.0"?>'
+    '<container version="1.0"'
+    ' xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+    "<rootfiles>"
+    '<rootfile full-path="OEBPS/content.opf"'
+    ' media-type="application/oebps-package+xml"/>'
+    "</rootfiles></container>"
+)
 
-    The chapter title becomes the nav/TOC link text; body_html is the
-    chapter's document content. Used to exercise real ebooklib parsing.
+
+def _make_epub(path: Path, *, items, spine) -> None:
+    """Author a minimal valid EPUB at ``path`` using only the standard library.
+
+    ``items`` is a list of ``(item_id, filename, media_type, properties,
+    content)`` tuples written under ``OEBPS/``; ``content`` of ``None`` declares
+    a manifest entry without a backing file. ``spine`` is the list of item ids in
+    reading order. No third-party (copyleft) writer is involved.
     """
-    epub = pytest.importorskip("ebooklib.epub")
-    book = epub.EpubBook()
-    book.set_identifier("test-id-123")
-    book.set_title("Test Book")
-    book.set_language("en")
+    manifest = "".join(
+        f'<item id="{item_id}" href="{filename}" media-type="{media_type}"'
+        + (f' properties="{properties}"' if properties else "")
+        + "/>"
+        for item_id, filename, media_type, properties, _ in items
+    )
+    spine_xml = "".join(f'<itemref idref="{idref}"/>' for idref in spine)
+    opf = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<package xmlns="http://www.idpf.org/2007/opf" version="3.0"'
+        ' unique-identifier="bookid">'
+        '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+        '<dc:identifier id="bookid">test-id-123</dc:identifier>'
+        "<dc:title>Test Book</dc:title><dc:language>en</dc:language>"
+        "</metadata>"
+        f"<manifest>{manifest}</manifest>"
+        f"<spine>{spine_xml}</spine>"
+        "</package>"
+    )
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", _CONTAINER_XML)
+        zf.writestr("OEBPS/content.opf", opf)
+        for _id, filename, _media, _props, content in items:
+            if content is not None:
+                data = content if isinstance(content, bytes) else content.encode("utf-8")
+                zf.writestr(f"OEBPS/{filename}", data)
 
-    chapter = epub.EpubHtml(title=chapter_title, file_name="chap_01.xhtml", lang="en")
-    chapter.content = f"<html><body>{body_html}</body></html>"
-    book.add_item(chapter)
 
-    book.add_item(epub.EpubNcx())
-    book.add_item(epub.EpubNav())
-    book.toc = (chapter,)
-    book.spine = ["nav", chapter]
-    epub.write_epub(str(path), book)
+def _chapter(body_html: str) -> str:
+    return f"<html><body>{body_html}</body></html>"
 
 
 class TestExtractEpub:
     def test_extracts_chapter_prose_and_skips_nav(self, tmp_path):
         f = tmp_path / "book.epub"
-        _build_epub(
+        _make_epub(
             f,
-            chapter_title="NAVSENTINEL",
-            body_html="<h1>Heading</h1><p>QUICKBROWNFOX prose.</p>",
+            items=[
+                ("nav", "nav.xhtml", "application/xhtml+xml", "nav",
+                 _chapter("<h1>NAVSENTINEL</h1>")),
+                ("chap1", "chap_01.xhtml", "application/xhtml+xml", None,
+                 _chapter("<h1>Heading</h1><p>QUICKBROWNFOX prose.</p>")),
+            ],
+            spine=["nav", "chap1"],
         )
         result = TextExtractor().extract(f)
         assert result is not None
@@ -84,7 +116,12 @@ class TestExtractEpub:
 
     def test_empty_epub_returns_none(self, tmp_path):
         f = tmp_path / "empty.epub"
-        _build_epub(f, chapter_title="Empty", body_html="<p></p>")
+        _make_epub(
+            f,
+            items=[("chap1", "chap_01.xhtml", "application/xhtml+xml", None,
+                    _chapter("<p></p>"))],
+            spine=["chap1"],
+        )
         assert TextExtractor().extract(f) is None
 
     def test_malformed_epub_returns_none(self, tmp_path):
@@ -92,42 +129,58 @@ class TestExtractEpub:
         f.write_bytes(b"this is not a valid epub zip")
         assert TextExtractor().extract(f) is None
 
-    def test_missing_ebooklib_returns_none(self, tmp_path):
-        f = tmp_path / "book.epub"
-        f.write_bytes(b"PK\x03\x04 fake")
-        extractor = TextExtractor()
-        with patch("builtins.__import__", side_effect=lambda name, *a, **kw: (
-            (_ for _ in ()).throw(ImportError("No module named 'ebooklib'"))
-            if name == "ebooklib" else __import__(name, *a, **kw)
-        )):
-            result = extractor._extract_epub(f)
-        assert result is None
+    def test_missing_container_returns_none(self, tmp_path):
+        # A valid ZIP that lacks META-INF/container.xml is not a usable EPUB.
+        f = tmp_path / "no_container.epub"
+        with zipfile.ZipFile(f, "w") as zf:
+            zf.writestr("mimetype", "application/epub+zip")
+        assert TextExtractor().extract(f) is None
+
+    def test_resolves_hrefs_relative_to_opf_directory(self, tmp_path):
+        # Document lives in a subdirectory; href is relative to the OPF (OEBPS/).
+        f = tmp_path / "nested.epub"
+        _make_epub(
+            f,
+            items=[("chap1", "text/chap_01.xhtml", "application/xhtml+xml", None,
+                    _chapter("<p>NESTEDPROSE</p>"))],
+            spine=["chap1"],
+        )
+        result = TextExtractor().extract(f)
+        assert result is not None
+        assert "NESTEDPROSE" in result
+
+    def test_appends_documents_absent_from_spine(self, tmp_path):
+        # Manifest documents not listed in the spine must still be extracted.
+        f = tmp_path / "orphan.epub"
+        _make_epub(
+            f,
+            items=[
+                ("chap1", "chap_01.xhtml", "application/xhtml+xml", None,
+                 _chapter("<p>INSPINE</p>")),
+                ("chap2", "chap_02.xhtml", "application/xhtml+xml", None,
+                 _chapter("<p>OFFSPINE</p>")),
+            ],
+            spine=["chap1"],
+        )
+        result = TextExtractor().extract(f)
+        assert result is not None
+        assert "INSPINE" in result and "OFFSPINE" in result
 
     def test_extracts_chapters_in_spine_order(self, tmp_path):
         """Chapters are emitted in spine (reading) order, not manifest order."""
-        epub = pytest.importorskip("ebooklib.epub")
-        book = epub.EpubBook()
-        book.set_identifier("order-id")
-        book.set_title("Ordered Book")
-        book.set_language("en")
-
-        first = epub.EpubHtml(title="First", file_name="z_first.xhtml", lang="en")
-        first.content = "<html><body><p>ALPHA</p></body></html>"
-        second = epub.EpubHtml(title="Second", file_name="a_second.xhtml", lang="en")
-        second.content = "<html><body><p>OMEGA</p></body></html>"
-
-        # Manifest/add order is [second, first]; spine (reading) order is the
-        # reverse, so only spine-ordered extraction yields ALPHA before OMEGA.
-        book.add_item(second)
-        book.add_item(first)
-        book.add_item(epub.EpubNcx())
-        book.add_item(epub.EpubNav())
-        book.toc = (first, second)
-        book.spine = ["nav", first, second]
-
         f = tmp_path / "ordered.epub"
-        epub.write_epub(str(f), book)
-
+        # Manifest order is [second, first]; spine (reading) order is the
+        # reverse, so only spine-ordered extraction yields ALPHA before OMEGA.
+        _make_epub(
+            f,
+            items=[
+                ("second", "a_second.xhtml", "application/xhtml+xml", None,
+                 _chapter("<p>OMEGA</p>")),
+                ("first", "z_first.xhtml", "application/xhtml+xml", None,
+                 _chapter("<p>ALPHA</p>")),
+            ],
+            spine=["first", "second"],
+        )
         result = TextExtractor().extract(f)
         assert result is not None
         assert "ALPHA" in result and "OMEGA" in result

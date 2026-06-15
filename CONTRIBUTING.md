@@ -233,24 +233,19 @@ def extract(self, file_path: Path) -> Optional[str]:
         return self._extract_epub(file_path)
     # ...
 
-def _extract_epub(self, file_path: Path) -> Optional[str]:
+def _extract_pdf(self, file_path: Path) -> Optional[str]:
     try:
-        import ebooklib  # type: ignore[import]
-        from ebooklib import epub
-        book = epub.read_epub(str(file_path))
-        texts = []
-        for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
-            texts.append(item.get_content().decode("utf-8", errors="replace"))
-        return "\n".join(texts) or None
+        import pypdf  # type: ignore[import]
+        # ... parse and return text, or None on empty ...
     except ImportError:
-        logger.debug("ebooklib not installed; cannot extract EPUB text")
+        logger.debug("pypdf not installed; cannot extract PDF text")
         return None
     except Exception as exc:
-        logger.debug("EPUB extraction failed for %s: %s", file_path, exc)
+        logger.debug("PDF extraction failed for %s: %s", file_path, exc)
         return None
 ```
 
-Wrap heavy imports in `try/except ImportError` so the base install does not break for users who don't have the dependency.
+Wrap heavy third-party imports in `try/except ImportError` so the base install does not break for users who don't have the optional dependency. Prefer the standard library where it is sufficient: EPUB extraction (`_extract_epub`), for example, reads the container with `zipfile` and parses the OPF manifest/spine with `xml.etree.ElementTree`, so it needs no third-party reader and avoids pulling in a copyleft-licensed dependency.
 
 ---
 
