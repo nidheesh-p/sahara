@@ -136,12 +136,19 @@ sahara remember "Vendor X uses net-30 terms" \
   --tag vendor
 
 cat meeting-notes.txt | sahara remember --source conversation
+
+sahara recall "Which vendor uses net-30?" --tag vendor
+sahara memory list --source conversation
 ```
 
 Sahara creates a managed `~/Sahara Memory` content root on first capture, keeps storage
 sync disabled until you explicitly enable it, and indexes only the new note. If the
 embedding model is unavailable, the Markdown file is still saved and can be indexed
 later with `sahara index`.
+
+Use `sahara memory show`, `edit`, and `delete` with a memory UUID or exact title.
+`sahara memory rebuild` reconstructs the catalog and search state from the Markdown
+files, which remain the source of truth.
 
 The broader recall, MCP, mobile, and Siri rollout is described in the
 [captured knowledge plan](specs/CAPTURED_KNOWLEDGE_PLAN.md).
@@ -268,6 +275,8 @@ root you add (without overwriting a `.saharaignore` that already exists there).
 | `sahara index [--force]` | Build or refresh the semantic index |
 | `sahara index-report` | Inspect indexing coverage and failures |
 | `sahara remember [TEXT]` | Save durable captured knowledge and index it |
+| `sahara recall QUERY` | Search only captured memories with metadata filters |
+| `sahara memory ...` | List, show, edit, delete, or rebuild captured memories |
 | `sahara search QUERY` | Find files and passages by meaning |
 | `sahara ask --snippet QUESTION` | Retrieve cited sources and optionally generate an answer |
 | `sahara mcp install-claude` | Connect Sahara to Claude Desktop |

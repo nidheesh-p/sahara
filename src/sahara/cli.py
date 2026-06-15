@@ -2399,6 +2399,11 @@ def index_report_cmd(ctx: click.Context, top: int, sample: int) -> None:
 )
 @click.option("--url", "source_url", default="", help="Optional HTTP(S) source URL.")
 @click.option("--source-id", default="", help="Optional identifier from the source system.")
+@click.option(
+    "--idempotency-key",
+    default="",
+    help="Optional retry key used to prevent duplicate captures.",
+)
 @click.option("--tag", "tags", multiple=True, help="Tag this memory. Repeat as needed.")
 @click.pass_context
 def remember_cmd(
@@ -2408,6 +2413,7 @@ def remember_cmd(
     source_type: str,
     source_url: str,
     source_id: str,
+    idempotency_key: str,
     tags: tuple[str, ...],
 ) -> None:
     """Save knowledge as a durable Markdown memory."""
@@ -2442,19 +2448,268 @@ def remember_cmd(
                     source_url=source_url,
                     source_id=source_id,
                     tags=tags,
+                    idempotency_key=idempotency_key,
                 )
             )
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
 
-        _ok(f"Saved memory {result.item.memory_id}")
+        if result.deduplicated:
+            _ok(f"Memory already saved: {result.item.memory_id}")
+        else:
+            _ok(f"Saved memory {result.item.memory_id}")
         _info(f"Path: {result.item.path}")
-        if result.indexed:
+        if result.deduplicated:
+            _info("Duplicate capture was not written again.")
+        elif result.indexed:
             _ok("Indexed for semantic retrieval.")
         else:
             _warn("Saved successfully; semantic indexing is pending.")
             if result.index_error:
                 _info(f"Indexing detail: {result.index_error}")
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# memory recall and lifecycle
+# ---------------------------------------------------------------------------
+
+
+def _memory_filters(
+    sources: tuple[str, ...],
+    tags: tuple[str, ...],
+    since: str | None,
+    until: str | None,
+):
+    from sahara.memory import MemoryFilters
+
+    return MemoryFilters(
+        source_types=sources,
+        tags=tags,
+        since=since,
+        until=until,
+    )
+
+
+@main.command("recall")
+@click.argument("query")
+@click.option("--top", "-n", default=5, show_default=True)
+@click.option(
+    "--source",
+    "sources",
+    multiple=True,
+    type=click.Choice(
+        ["manual", "web", "conversation", "ai-chat", "mobile"],
+        case_sensitive=False,
+    ),
+)
+@click.option("--tag", "tags", multiple=True)
+@click.option("--since", default=None, help="Only memories updated on or after this date.")
+@click.option("--until", default=None, help="Only memories updated on or before this date.")
+@click.pass_context
+def recall_cmd(
+    ctx: click.Context,
+    query: str,
+    top: int,
+    sources: tuple[str, ...],
+    tags: tuple[str, ...],
+    since: str | None,
+    until: str | None,
+) -> None:
+    """Recall captured knowledge using semantic search."""
+    from sahara.memory import MemoryService
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+    db = StateDB().connect()
+    try:
+        results: list[Any]
+        try:
+            results = MemoryService(config, db).search(
+                query,
+                _memory_filters(sources, tags, since, until),
+                top_k=top,
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        if not results:
+            _info("No matching memories found.")
+            return
+        _section(f"Memories for: \"{query}\"")
+        for index, result in enumerate(results, 1):
+            score = int(result.score * 100)
+            click.echo(
+                f"  {index}. [{score}%] {result.item.title} "
+                f"({result.item.memory_id})"
+            )
+            snippet = result.snippet.replace("\n", " ").strip()[:240]
+            if snippet:
+                click.echo(click.style(f"       {snippet}", fg="bright_black"))
+            click.echo(f"       {result.item.relative_path}")
+    finally:
+        db.close()
+
+
+@main.group("memory")
+def memory_group() -> None:
+    """List, inspect, edit, delete, and rebuild captured memories."""
+
+
+@memory_group.command("list")
+@click.option(
+    "--source",
+    "sources",
+    multiple=True,
+    type=click.Choice(
+        ["manual", "web", "conversation", "ai-chat", "mobile"],
+        case_sensitive=False,
+    ),
+)
+@click.option("--tag", "tags", multiple=True)
+@click.option("--since", default=None)
+@click.option("--until", default=None)
+@click.pass_context
+def memory_list(
+    ctx: click.Context,
+    sources: tuple[str, ...],
+    tags: tuple[str, ...],
+    since: str | None,
+    until: str | None,
+) -> None:
+    """List captured memories."""
+    from sahara.memory import MemoryService
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+    db = StateDB().connect()
+    try:
+        try:
+            items = MemoryService(config, db).list(
+                _memory_filters(sources, tags, since, until)
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        if not items:
+            _info("No memories found.")
+            return
+        for item in items:
+            tags_text = f" [{', '.join(item.tags)}]" if item.tags else ""
+            click.echo(
+                f"  {item.memory_id}  {item.updated_at[:10]}  "
+                f"{item.title}{tags_text}"
+            )
+    finally:
+        db.close()
+
+
+@memory_group.command("show")
+@click.argument("identifier")
+@click.pass_context
+def memory_show(ctx: click.Context, identifier: str) -> None:
+    """Show one memory by UUID or exact title."""
+    from sahara.memory import MemoryService
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+    db = StateDB().connect()
+    try:
+        try:
+            item = MemoryService(config, db).get(identifier)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(item.path.read_text(encoding="utf-8"), nl=False)
+    finally:
+        db.close()
+
+
+@memory_group.command("edit")
+@click.argument("identifier")
+@click.pass_context
+def memory_edit(ctx: click.Context, identifier: str) -> None:
+    """Edit one memory in the configured editor."""
+    from sahara.memory import MemoryService
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+    db = StateDB().connect()
+    try:
+        service = MemoryService(config, db)
+        try:
+            item = service.get(identifier)
+            edited = click.edit(
+                item.path.read_text(encoding="utf-8"),
+                extension=".md",
+                require_save=True,
+            )
+            if edited is None:
+                _info("Memory was not changed.")
+                return
+            result = service.edit(item.memory_id, edited)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        _ok(f"Updated memory {result.item.memory_id}")
+        if not result.indexed:
+            _warn("Saved successfully; semantic indexing is pending.")
+    finally:
+        db.close()
+
+
+@memory_group.command("delete")
+@click.argument("identifier")
+@click.option("--force", is_flag=True, help="Delete without confirmation.")
+@click.pass_context
+def memory_delete(
+    ctx: click.Context,
+    identifier: str,
+    force: bool,
+) -> None:
+    """Delete one memory by UUID or exact title."""
+    from sahara.memory import MemoryService
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+    db = StateDB().connect()
+    try:
+        service = MemoryService(config, db)
+        try:
+            item = service.get(identifier)
+            if not force and not click.confirm(
+                f"Delete memory '{item.title}'?",
+                default=False,
+            ):
+                return
+            service.delete(item.memory_id)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        _ok(f"Deleted memory {item.memory_id}")
+    finally:
+        db.close()
+
+
+@memory_group.command("rebuild")
+@click.pass_context
+def memory_rebuild(ctx: click.Context) -> None:
+    """Rebuild the memory catalog and semantic index from Markdown."""
+    from sahara.memory import MemoryService
+    from sahara.storage.state_db import StateDB
+
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+    db = StateDB().connect()
+    try:
+        result = MemoryService(config, db).rebuild()
+        _ok(f"Cataloged {result.cataloged} memory file(s).")
+        _info(f"Indexed: {result.indexed}; pending: {result.pending}")
+        if result.removed:
+            _info(f"Removed stale search state: {result.removed}")
+        for path, error in result.failed[:10]:
+            _warn(f"{path}: {error}")
     finally:
         db.close()
 

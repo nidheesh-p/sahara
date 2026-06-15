@@ -25,7 +25,7 @@ from sahara.library import (
     validate_content_root_path,
     validate_storage_prefix,
 )
-from sahara.memory import CaptureRequest, MemoryService
+from sahara.memory import CaptureRequest, MemoryFilters, MemoryService
 from sahara.memory.format import (
     classify_memory_document,
     parse_document,
@@ -1488,3 +1488,648 @@ def test_config_rejects_changing_initialized_memory_folder(
     assert result.exit_code != 0
     assert "cannot be changed" in result.output
     assert load_config(config_path).memory_folder == config.memory_folder
+
+
+def test_capture_populates_rebuildable_memory_catalog(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            captured = MemoryService(config, db).capture(
+                CaptureRequest(
+                    text="Catalog this knowledge",
+                    title="Catalog entry",
+                    tags=("catalog",),
+                    idempotency_key="request-1",
+                )
+            )
+
+        row = db.get_memory_item(captured.item.memory_id)
+        assert row is not None
+        assert row["relative_path"] == captured.item.relative_path
+        assert row["tags"] == ("catalog",)
+        assert row["idempotency_key"] == "request-1"
+
+
+@pytest.mark.parametrize(
+    ("first", "retry"),
+    [
+        (
+            CaptureRequest(text="first", idempotency_key="same-request"),
+            CaptureRequest(text="changed", idempotency_key="same-request"),
+        ),
+        (
+            CaptureRequest(
+                text="first",
+                source_type="conversation",
+                source_id="thread-42",
+            ),
+            CaptureRequest(
+                text="changed",
+                source_type="conversation",
+                source_id="thread-42",
+            ),
+        ),
+        (
+            CaptureRequest(
+                text="first",
+                source_url="HTTPS://Example.COM/article/?b=2&a=1#section",
+            ),
+            CaptureRequest(
+                text="changed",
+                source_url="https://example.com/article?a=1&b=2",
+            ),
+        ),
+        (
+            CaptureRequest(text="identical body"),
+            CaptureRequest(text="identical body", title="Different title"),
+        ),
+    ],
+)
+def test_capture_retries_do_not_create_duplicate_memories(
+    tmp_path: Path,
+    first: CaptureRequest,
+    retry: CaptureRequest,
+) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            original = MemoryService(config, db).capture(first)
+            duplicate = MemoryService(config, db).capture(retry)
+
+        assert duplicate.deduplicated is True
+        assert duplicate.item.memory_id == original.item.memory_id
+        assert len(list(Path(config.memory_folder).rglob("*.md"))) == 1
+        assert db.count_memory_items() == 1
+
+
+def test_deduplication_recovers_from_missing_catalog_row(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            original = MemoryService(config, db).capture(
+                CaptureRequest(text="durable duplicate")
+            )
+            db.conn.execute("DELETE FROM memory_items")
+            db.conn.commit()
+            duplicate = MemoryService(config, db).capture(
+                CaptureRequest(text="durable duplicate")
+            )
+
+        assert duplicate.deduplicated is True
+        assert duplicate.item.memory_id == original.item.memory_id
+        assert db.count_memory_items() == 1
+
+
+def test_memory_list_filters_source_tags_and_dates_before_results(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MemoryService(config, db)
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            wanted = service.capture(
+                CaptureRequest(
+                    text="wanted",
+                    title="Wanted",
+                    source_type="web",
+                    tags=("postgres", "research"),
+                )
+            ).item
+            service.capture(
+                CaptureRequest(
+                    text="wrong source",
+                    source_type="manual",
+                    tags=("postgres", "research"),
+                )
+            )
+            service.capture(
+                CaptureRequest(
+                    text="wrong tag",
+                    source_type="web",
+                    tags=("postgres",),
+                )
+            )
+
+        items = service.list(
+            MemoryFilters(
+                source_types=("web",),
+                tags=("postgres", "research"),
+                since=wanted.updated_at[:10],
+                until=wanted.updated_at[:10],
+            )
+        )
+
+        assert [item.memory_id for item in items] == [wanted.memory_id]
+
+
+def test_recall_passes_filtered_paths_before_semantic_limit(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MemoryService(config, db)
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            wanted = service.capture(
+                CaptureRequest(
+                    text="matching body",
+                    source_type="web",
+                    tags=("database",),
+                )
+            ).item
+            service.capture(
+                CaptureRequest(
+                    text="unrelated body",
+                    source_type="manual",
+                    tags=("database",),
+                )
+            )
+
+        with patch.object(
+            SearchEngine,
+            "search",
+            return_value=[
+                {
+                    "storage_prefix": "memory",
+                    "relative_path": wanted.relative_path,
+                    "score": 0.9,
+                    "snippet": "matching body",
+                }
+            ],
+        ) as search:
+            results = service.search(
+                "matching",
+                MemoryFilters(source_types=("web",)),
+                top_k=1,
+            )
+
+        assert [result.item.memory_id for result in results] == [
+            wanted.memory_id
+        ]
+        assert search.call_args.kwargs["candidate_paths"] == {
+            wanted.relative_path
+        }
+        assert search.call_args.kwargs["top_k"] == 1
+
+
+def test_recall_returns_body_snippet_without_ranking_metadata(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MemoryService(config, db)
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            item = service.capture(
+                CaptureRequest(
+                    text="The cited body",
+                    title="Ranking title",
+                    tags=("ranking-tag",),
+                )
+            ).item
+
+        with patch.object(
+            SearchEngine,
+            "search",
+            return_value=[
+                {
+                    "storage_prefix": "memory",
+                    "relative_path": item.relative_path,
+                    "score": 0.9,
+                    "snippet": (
+                        "Ranking title\n\nTags: ranking-tag\n\nThe cited body"
+                    ),
+                }
+            ],
+        ):
+            result = service.search("ranking")[0]
+
+        assert result.snippet == "The cited body"
+
+
+def test_search_engine_filters_candidates_before_top_k(tmp_path: Path) -> None:
+    with StateDB(tmp_path / "state.db") as db:
+        db.upsert_embedding(
+            "memory",
+            "outside.md",
+            "outside",
+            "[1.0, 0.0]",
+            "outside",
+        )
+        db.upsert_embedding(
+            "memory",
+            "wanted.md",
+            "wanted",
+            "[0.8, 0.2]",
+            "wanted",
+        )
+        engine = SearchEngine(db)
+
+        with (
+            patch.object(db, "has_vec_table", return_value=False),
+            patch.object(engine, "_embed", return_value=[[1.0, 0.0]]),
+        ):
+            results = engine.search(
+                "query",
+                top_k=1,
+                storage_prefix="memory",
+                candidate_paths={"wanted.md"},
+            )
+
+        assert [result["relative_path"] for result in results] == ["wanted.md"]
+
+
+def test_edit_preserves_identity_and_reindexes_atomically(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MemoryService(config, db)
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            original = service.capture(
+                CaptureRequest(text="before", title="Original")
+            ).item
+            metadata, _ = parse_document(
+                original.path.read_text(encoding="utf-8")
+            )
+            metadata["title"] = "Updated"
+            edited_document = render_document(metadata, "after")
+            result = service.edit(original.memory_id, edited_document)
+
+        assert result.item.memory_id == original.memory_id
+        assert result.item.created_at == original.created_at
+        assert result.item.updated_at >= original.updated_at
+        assert service.get(original.memory_id).text == "after"
+        assert service.get(original.memory_id).title == "Updated"
+
+
+def test_invalid_edit_leaves_original_memory_unchanged(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MemoryService(config, db)
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            original = service.capture(
+                CaptureRequest(text="keep me")
+            ).item
+        before = original.path.read_bytes()
+
+        with pytest.raises(ValueError, match="id cannot be changed"):
+            metadata, body = parse_document(before.decode())
+            metadata["id"] = str(uuid.uuid4())
+            service.edit(
+                original.memory_id,
+                render_document(metadata, body),
+            )
+
+        assert original.path.read_bytes() == before
+
+
+def test_delete_removes_file_catalog_and_search_state(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MemoryService(config, db)
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            item = service.capture(CaptureRequest(text="delete me")).item
+        db.upsert_chunk("memory", item.relative_path, 0, "hash", "delete me")
+        db.upsert_embedding("memory", item.relative_path, "hash", "[]", "delete me")
+
+        deleted = service.delete(item.memory_id)
+
+        assert deleted.memory_id == item.memory_id
+        assert not item.path.exists()
+        assert db.get_memory_item(item.memory_id) is None
+        assert db.get_embedding("memory", item.relative_path) is None
+        assert db.get_chunk_content_hash("memory", item.relative_path) is None
+
+
+def test_delete_restores_file_when_database_cleanup_fails(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MemoryService(config, db)
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            item = service.capture(CaptureRequest(text="restore me")).item
+
+        with patch.object(
+            db,
+            "delete_memory_item_and_index",
+            side_effect=sqlite3.OperationalError("simulated failure"),
+        ):
+            with pytest.raises(sqlite3.OperationalError):
+                service.delete(item.memory_id)
+
+        assert item.path.is_file()
+        assert service.get(item.memory_id).text == "restore me"
+
+
+def test_prepared_delete_is_restored_after_interruption(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MemoryService(config, db)
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            item = service.capture(CaptureRequest(text="survive interruption")).item
+
+        token = uuid.uuid4().hex
+        trash = service.root / ".sahara" / "trash"
+        trash.mkdir(parents=True)
+        staged = trash / f"{item.memory_id}-{token}.md"
+        db.prepare_memory_delete(
+            token,
+            item.memory_id,
+            "memory",
+            item.relative_path,
+            staged.relative_to(service.root).as_posix(),
+        )
+        item.path.replace(staged)
+
+        recovered = MemoryService(config, db).get(item.memory_id)
+
+        assert recovered.text == "survive interruption"
+        assert item.path.is_file()
+        assert not staged.exists()
+        assert db.list_memory_delete_journal() == []
+
+
+def test_committed_delete_cleanup_finishes_after_interruption(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MemoryService(config, db)
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            item = service.capture(CaptureRequest(text="finish deletion")).item
+
+        token = uuid.uuid4().hex
+        trash = service.root / ".sahara" / "trash"
+        trash.mkdir(parents=True)
+        staged = trash / f"{item.memory_id}-{token}.md"
+        db.prepare_memory_delete(
+            token,
+            item.memory_id,
+            "memory",
+            item.relative_path,
+            staged.relative_to(service.root).as_posix(),
+        )
+        item.path.replace(staged)
+        db.delete_memory_item_and_index(
+            item.memory_id,
+            "memory",
+            item.relative_path,
+            delete_token=token,
+        )
+
+        assert MemoryService(config, db).list() == []
+        assert not staged.exists()
+        assert db.list_memory_delete_journal() == []
+
+
+def test_rebuild_restores_catalog_and_reindexes_external_edits(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MemoryService(config, db)
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            item = service.capture(CaptureRequest(text="before rebuild")).item
+        metadata, _ = parse_document(item.path.read_text(encoding="utf-8"))
+        item.path.write_text(
+            render_document(metadata, "edited outside Sahara"),
+            encoding="utf-8",
+        )
+        db.conn.execute("DELETE FROM memory_items")
+        db.conn.commit()
+
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ) as index_path:
+            result = service.rebuild()
+
+        assert result.cataloged == 1
+        assert result.indexed == 1
+        assert db.get_memory_item(item.memory_id) is not None
+        assert service.get(item.memory_id).text == "edited outside Sahara"
+        index_path.assert_called_once_with(item.path, force=True)
+
+
+def test_memory_cli_lifecycle_commands(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config_path = tmp_path / "config.toml"
+    save_config(config, config_path)
+    db_path = tmp_path / "state.db"
+    runner = CliRunner()
+
+    with (
+        patch("sahara.storage.state_db.DB_PATH", db_path),
+        patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ),
+    ):
+        remembered = runner.invoke(
+            main,
+            [
+                "--config",
+                str(config_path),
+                "remember",
+                "CLI lifecycle",
+                "--title",
+                "Lifecycle",
+            ],
+        )
+        listed = runner.invoke(
+            main,
+            ["--config", str(config_path), "memory", "list"],
+        )
+        shown = runner.invoke(
+            main,
+            [
+                "--config",
+                str(config_path),
+                "memory",
+                "show",
+                "Lifecycle",
+            ],
+        )
+        deleted = runner.invoke(
+            main,
+            [
+                "--config",
+                str(config_path),
+                "memory",
+                "delete",
+                "Lifecycle",
+                "--force",
+            ],
+        )
+
+    assert remembered.exit_code == 0
+    assert listed.exit_code == 0
+    assert "Lifecycle" in listed.output
+    assert shown.exit_code == 0
+    assert "CLI lifecycle" in shown.output
+    assert deleted.exit_code == 0
+    assert "Deleted memory" in deleted.output
+
+
+def test_memory_cli_recall_edit_and_rebuild(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config_path = tmp_path / "config.toml"
+    save_config(config, config_path)
+    db_path = tmp_path / "state.db"
+    runner = CliRunner()
+
+    with (
+        patch("sahara.storage.state_db.DB_PATH", db_path),
+        patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ),
+    ):
+        remembered = runner.invoke(
+            main,
+            [
+                "--config",
+                str(config_path),
+                "remember",
+                "Original body",
+                "--title",
+                "Editable",
+                "--source",
+                "web",
+                "--tag",
+                "research",
+            ],
+        )
+        assert remembered.exit_code == 0
+
+        with StateDB(db_path) as db:
+            row = db.list_memory_items()[0]
+
+        with patch.object(
+            SearchEngine,
+            "search",
+            return_value=[
+                {
+                    "storage_prefix": "memory",
+                    "relative_path": row["relative_path"],
+                    "score": 0.88,
+                    "snippet": "Original body",
+                }
+            ],
+        ) as search:
+            recalled = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "recall",
+                    "original",
+                    "--source",
+                    "web",
+                    "--tag",
+                    "research",
+                    "--top",
+                    "1",
+                ],
+            )
+
+        def edit_document(document: str, **_: object) -> str:
+            metadata, _ = parse_document(document)
+            return render_document(metadata, "Edited body")
+
+        with patch("click.edit", side_effect=edit_document):
+            edited = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "memory",
+                    "edit",
+                    row["memory_id"],
+                ],
+            )
+
+        with StateDB(db_path) as db:
+            db.conn.execute("DELETE FROM memory_items")
+            db.conn.commit()
+
+        rebuilt = runner.invoke(
+            main,
+            ["--config", str(config_path), "memory", "rebuild"],
+        )
+        shown = runner.invoke(
+            main,
+            [
+                "--config",
+                str(config_path),
+                "memory",
+                "show",
+                row["memory_id"],
+            ],
+        )
+
+    assert recalled.exit_code == 0
+    assert "Editable" in recalled.output
+    assert "Original body" in recalled.output
+    assert search.call_args.kwargs["candidate_paths"] == {row["relative_path"]}
+    assert edited.exit_code == 0
+    assert "Updated memory" in edited.output
+    assert rebuilt.exit_code == 0
+    assert "Cataloged 1 memory file(s)" in rebuilt.output
+    assert shown.exit_code == 0
+    assert "Edited body" in shown.output

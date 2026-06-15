@@ -67,6 +67,7 @@ title: "Vendor payment terms"
 source_type: "conversation"
 source_url: ""
 source_id: ""
+idempotency_key: ""
 tags:
   - "vendor"
   - "finance"
@@ -87,6 +88,7 @@ MemoryService.capture(CaptureRequest) -> CaptureResult
 MemoryService.search(query, filters) -> list[MemoryResult]
 MemoryService.get(memory_id) -> MemoryItem
 MemoryService.list(filters) -> list[MemoryItem]
+MemoryService.edit(memory_id, document) -> CaptureResult
 MemoryService.delete(memory_id) -> None
 MemoryService.rebuild() -> RebuildResult
 ```

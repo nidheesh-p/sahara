@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -137,6 +138,44 @@ CREATE TABLE IF NOT EXISTS chunks (
 
 CREATE INDEX IF NOT EXISTS idx_chunks_prefix ON chunks (storage_prefix);
 CREATE INDEX IF NOT EXISTS idx_chunks_path   ON chunks (storage_prefix, relative_path);
+
+CREATE TABLE IF NOT EXISTS memory_items (
+    memory_id       TEXT    PRIMARY KEY,
+    storage_prefix  TEXT    NOT NULL,
+    relative_path   TEXT    NOT NULL,
+    created_at      TEXT    NOT NULL,
+    updated_at      TEXT    NOT NULL,
+    title           TEXT    NOT NULL,
+    source_type     TEXT    NOT NULL,
+    source_url      TEXT    NOT NULL DEFAULT '',
+    source_id       TEXT    NOT NULL DEFAULT '',
+    canonical_url   TEXT    NOT NULL DEFAULT '',
+    tags_json       TEXT    NOT NULL DEFAULT '[]',
+    content_hash    TEXT    NOT NULL,
+    idempotency_key TEXT    NOT NULL DEFAULT '',
+    UNIQUE(storage_prefix, relative_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_items_updated
+    ON memory_items (updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_items_source
+    ON memory_items (source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_memory_items_url
+    ON memory_items (canonical_url);
+CREATE INDEX IF NOT EXISTS idx_memory_items_hash
+    ON memory_items (content_hash);
+CREATE INDEX IF NOT EXISTS idx_memory_items_idempotency
+    ON memory_items (idempotency_key);
+
+CREATE TABLE IF NOT EXISTS memory_delete_journal (
+    token                TEXT PRIMARY KEY,
+    memory_id            TEXT NOT NULL,
+    storage_prefix       TEXT NOT NULL,
+    relative_path        TEXT NOT NULL,
+    staged_relative_path TEXT NOT NULL,
+    state                TEXT NOT NULL CHECK(state IN ('prepared', 'committed')),
+    created_at           TEXT NOT NULL
+);
 """
 
 
@@ -1399,6 +1438,238 @@ class StateDB:
             suffix = Path(row["relative_path"]).suffix.lower() or "(none)"
             counts[suffix] = counts.get(suffix, 0) + 1
         return dict(sorted(counts.items(), key=lambda item: item[1], reverse=True))
+
+    # ------------------------------------------------------------------
+    # memory_items table (rebuildable Markdown metadata cache)
+    # ------------------------------------------------------------------
+
+    def upsert_memory_item(self, item: dict) -> None:
+        """Insert or update one rebuildable memory metadata row."""
+        with self.transaction():
+            self.conn.execute(
+                """
+                INSERT INTO memory_items (
+                    memory_id, storage_prefix, relative_path, created_at,
+                    updated_at, title, source_type, source_url, source_id,
+                    canonical_url, tags_json, content_hash, idempotency_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(memory_id) DO UPDATE SET
+                    storage_prefix = excluded.storage_prefix,
+                    relative_path = excluded.relative_path,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at,
+                    title = excluded.title,
+                    source_type = excluded.source_type,
+                    source_url = excluded.source_url,
+                    source_id = excluded.source_id,
+                    canonical_url = excluded.canonical_url,
+                    tags_json = excluded.tags_json,
+                    content_hash = excluded.content_hash,
+                    idempotency_key = excluded.idempotency_key
+                """,
+                (
+                    item["memory_id"],
+                    item["storage_prefix"],
+                    item["relative_path"],
+                    item["created_at"],
+                    item["updated_at"],
+                    item["title"],
+                    item["source_type"],
+                    item.get("source_url", ""),
+                    item.get("source_id", ""),
+                    item.get("canonical_url", ""),
+                    json.dumps(item.get("tags", [])),
+                    item["content_hash"],
+                    item.get("idempotency_key", ""),
+                ),
+            )
+
+    def replace_memory_items(self, items: list[dict]) -> None:
+        """Atomically replace the rebuildable memory metadata cache."""
+        with self.transaction():
+            self.conn.execute("DELETE FROM memory_items")
+            self.conn.executemany(
+                """
+                INSERT INTO memory_items (
+                    memory_id, storage_prefix, relative_path, created_at,
+                    updated_at, title, source_type, source_url, source_id,
+                    canonical_url, tags_json, content_hash, idempotency_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        item["memory_id"],
+                        item["storage_prefix"],
+                        item["relative_path"],
+                        item["created_at"],
+                        item["updated_at"],
+                        item["title"],
+                        item["source_type"],
+                        item.get("source_url", ""),
+                        item.get("source_id", ""),
+                        item.get("canonical_url", ""),
+                        json.dumps(item.get("tags", [])),
+                        item["content_hash"],
+                        item.get("idempotency_key", ""),
+                    )
+                    for item in items
+                ],
+            )
+
+    @staticmethod
+    def _memory_row(row: sqlite3.Row) -> dict:
+        result = dict(row)
+        result["tags"] = tuple(json.loads(result.pop("tags_json")))
+        return result
+
+    def get_memory_item(self, memory_id: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM memory_items WHERE memory_id = ?",
+            (memory_id,),
+        ).fetchone()
+        return self._memory_row(row) if row else None
+
+    def get_memory_item_by_path(
+        self, storage_prefix: str, relative_path: str
+    ) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM memory_items "
+            "WHERE storage_prefix = ? AND relative_path = ?",
+            (storage_prefix, relative_path),
+        ).fetchone()
+        return self._memory_row(row) if row else None
+
+    def list_memory_items(self) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM memory_items ORDER BY updated_at DESC, memory_id"
+        ).fetchall()
+        return [self._memory_row(row) for row in rows]
+
+    def count_memory_items(self) -> int:
+        row = self.conn.execute("SELECT COUNT(*) FROM memory_items").fetchone()
+        return row[0] if row else 0
+
+    def find_duplicate_memory(
+        self,
+        *,
+        source_type: str,
+        source_id: str,
+        canonical_url: str,
+        content_hash: str,
+        idempotency_key: str,
+    ) -> dict | None:
+        conditions = ["content_hash = ?"]
+        params: list[str] = [content_hash]
+        if idempotency_key:
+            conditions.insert(0, "idempotency_key = ?")
+            params.insert(0, idempotency_key)
+        if source_id:
+            conditions.insert(0, "(source_type = ? AND source_id = ?)")
+            params[0:0] = [source_type, source_id]
+        if canonical_url:
+            conditions.insert(0, "canonical_url = ?")
+            params.insert(0, canonical_url)
+        row = self.conn.execute(
+            "SELECT * FROM memory_items WHERE "
+            + " OR ".join(conditions)
+            + " ORDER BY created_at LIMIT 1",
+            params,
+        ).fetchone()
+        return self._memory_row(row) if row else None
+
+    def prepare_memory_delete(
+        self,
+        token: str,
+        memory_id: str,
+        storage_prefix: str,
+        relative_path: str,
+        staged_relative_path: str,
+    ) -> None:
+        """Record a delete intent before moving its authoritative Markdown."""
+        with self.transaction():
+            self.conn.execute(
+                """
+                INSERT INTO memory_delete_journal (
+                    token, memory_id, storage_prefix, relative_path,
+                    staged_relative_path, state, created_at
+                ) VALUES (?, ?, ?, ?, ?, 'prepared', ?)
+                """,
+                (
+                    token,
+                    memory_id,
+                    storage_prefix,
+                    relative_path,
+                    staged_relative_path,
+                    datetime.datetime.now(datetime.UTC).isoformat(),
+                ),
+            )
+
+    def list_memory_delete_journal(self) -> list[dict]:
+        """Return unfinished memory deletes in creation order."""
+        rows = self.conn.execute(
+            "SELECT * FROM memory_delete_journal ORDER BY created_at, token"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def finish_memory_delete(self, token: str) -> None:
+        """Remove a recovered or fully cleaned delete journal entry."""
+        with self.transaction():
+            self.conn.execute(
+                "DELETE FROM memory_delete_journal WHERE token = ?",
+                (token,),
+            )
+
+    def delete_memory_item_and_index(
+        self,
+        memory_id: str,
+        storage_prefix: str,
+        relative_path: str,
+        *,
+        delete_token: str | None = None,
+    ) -> None:
+        """Atomically remove catalog, inventory, and semantic-search state."""
+        with self.transaction():
+            chunk_ids = [
+                row["id"]
+                for row in self.conn.execute(
+                    "SELECT id FROM chunks "
+                    "WHERE storage_prefix = ? AND relative_path = ?",
+                    (storage_prefix, relative_path),
+                ).fetchall()
+            ]
+            if chunk_ids and self.has_vec_table():
+                for offset in range(0, len(chunk_ids), 500):
+                    batch = chunk_ids[offset : offset + 500]
+                    placeholders = ",".join("?" * len(batch))
+                    self.conn.execute(
+                        f"DELETE FROM vec_chunks WHERE rowid IN ({placeholders})",
+                        batch,
+                    )
+            self.conn.execute(
+                "DELETE FROM chunks WHERE storage_prefix = ? AND relative_path = ?",
+                (storage_prefix, relative_path),
+            )
+            self.conn.execute(
+                "DELETE FROM embeddings WHERE s3_prefix = ? AND relative_path = ?",
+                (storage_prefix, relative_path),
+            )
+            self.conn.execute(
+                "DELETE FROM index_entries "
+                "WHERE storage_prefix = ? AND relative_path = ?",
+                (storage_prefix, relative_path),
+            )
+            self.conn.execute(
+                "DELETE FROM memory_items WHERE memory_id = ?",
+                (memory_id,),
+            )
+            if delete_token is not None:
+                cursor = self.conn.execute(
+                    "UPDATE memory_delete_journal SET state = 'committed' "
+                    "WHERE token = ? AND state = 'prepared'",
+                    (delete_token,),
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError("Memory delete journal entry is missing")
 
     # ------------------------------------------------------------------
     # chunks table (chunked semantic search)
