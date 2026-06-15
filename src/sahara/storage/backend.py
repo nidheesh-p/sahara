@@ -65,8 +65,9 @@ class StorageBackend(Protocol):
         manifest_dict: dict,
         if_match_etag: str | None = None,
         key: str | None = None,
+        if_none_match: bool = False,
     ) -> str:
-        """Write manifest. Raises ManifestConflictError on concurrent modification."""
+        """Write manifest with atomic update or create-only preconditions."""
         ...
 
     def list_all_objects(self, prefix: str = "") -> list[dict[str, Any]]:

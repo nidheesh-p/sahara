@@ -56,12 +56,18 @@ is tracked in
 
 ## Later (v0.3+)
 
+- **Captured knowledge:** save durable Markdown memories from CLI, AI conversations,
+  mobile share sheets, and Siri while keeping sync and remote writes optional
 - **Hybrid retrieval:** BM25 keyword search (sqlite-fts5, no new dependency) + vector search merged via Reciprocal Rank Fusion
 - **Cross-encoder reranking:** optional future plugin — the top merged results are re-scored by a cross-encoder model for much better precision on ambiguous queries
 - **Entity extraction:** structured extraction of dates, names, amounts, and document types from indexed content — enables queries like `sahara ask "invoices over $500 in March"`
 - **Rucksack backend:** Backblaze B2, Cloudflare R2, Wasabi via a thin wrapper (no new SDK dependency)
 - **OAuth for remote MCP:** support clients that cannot provide a static bearer token
 - **ChatGPT connector path:** document only when authentication and local-first privacy expectations can be preserved
+
+See [specs/CAPTURED_KNOWLEDGE_PLAN.md](specs/CAPTURED_KNOWLEDGE_PLAN.md) for the
+filesystem model, security boundaries, mobile/Siri design, and modular issue sequence.
+Implementation starts with [#57](https://github.com/nidheesh-p/sahara/issues/57).
 
 ---
 

@@ -508,6 +508,7 @@ class S3Client:
         manifest_dict: dict,
         if_match_etag: str | None = None,
         key: str | None = None,
+        if_none_match: bool = False,
     ) -> str:
         """Write the manifest to S3, optionally with conditional PUT.
 
@@ -525,14 +526,18 @@ class S3Client:
             "Body": body,
             "ContentType": "application/json",
         }
+        if if_match_etag is not None and if_none_match:
+            raise ValueError("if_match_etag and if_none_match are mutually exclusive")
         if if_match_etag is not None:
             kwargs["IfMatch"] = if_match_etag
+        elif if_none_match:
+            kwargs["IfNoneMatch"] = "*"
 
         try:
             resp = self._s3.put_object(**kwargs)
         except botocore.exceptions.ClientError as exc:
             code = exc.response["Error"]["Code"]
-            if code == "PreconditionFailed":
+            if code in {"PreconditionFailed", "ConditionalRequestConflict"}:
                 # Fetch current ETag for the conflict error
                 try:
                     head = self._s3.head_object(

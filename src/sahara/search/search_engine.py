@@ -339,6 +339,7 @@ class SearchEngine:
         storage_prefix: str,
         relative_path: str,
         force: bool = False,
+        managed_memory: bool = False,
     ) -> IndexFileResult:
         """Index file_path and return whether it was indexed plus a reason."""
         suffix = file_path.suffix.lower()
@@ -349,6 +350,23 @@ class SearchEngine:
         if not text or not text.strip():
             return IndexFileResult(indexed=False, reason="no_text")
 
+        if file_path.suffix.lower() == ".md":
+            from sahara.memory.format import (
+                classify_memory_document,
+                searchable_text,
+            )
+
+            memory_kind = classify_memory_document(text)
+            if memory_kind == "invalid" or (
+                managed_memory and memory_kind != "valid"
+            ):
+                self._db.delete_search_index_for_file(
+                    storage_prefix,
+                    relative_path,
+                )
+                return IndexFileResult(indexed=False, reason="invalid_memory")
+            if memory_kind == "valid":
+                text = searchable_text(text)
         text = text.strip()
         content_hash = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
 

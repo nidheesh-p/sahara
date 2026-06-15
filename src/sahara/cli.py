@@ -872,6 +872,28 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
         _abort("answer_provider must be 'none', 'ollama', or 'openai'.")
     if key == "answer_provider":
         value = value.lower()
+    if key == "memory_folder":
+        from sahara.memory.format import validate_memory_root_marker
+        from sahara.storage.state_db import StateDB
+
+        memory_path = Path(value).expanduser()
+        if not memory_path.is_absolute():
+            memory_path = Path.home() / memory_path
+        value = str(memory_path.resolve())
+        db = StateDB().connect()
+        try:
+            managed_roots = [
+                Path(root["local_path"]).resolve()
+                for root in db.list_content_roots()
+                if validate_memory_root_marker(Path(root["local_path"]))
+            ]
+        finally:
+            db.close()
+        if managed_roots and Path(value) not in managed_roots:
+            _abort(
+                "memory_folder cannot be changed after managed memory has "
+                "been initialized."
+            )
 
     # Type coerce
     existing = getattr(config, key)
@@ -1043,28 +1065,39 @@ def folder_group() -> None:
 @click.pass_context
 def folder_add(ctx: click.Context, path: Path, name: str | None) -> None:
     """Add a folder to the local semantic index."""
+    from sahara.library import (
+        register_content_root,
+        validate_content_root_path,
+        validate_storage_prefix,
+    )
     from sahara.storage.state_db import StateDB
 
     config: SaharaConfig = ctx.obj["config"]
     _require_library_config(config)
     resolved = path.expanduser().resolve()
-    storage_prefix = (name or resolved.name).strip("/")
-    if not storage_prefix:
+    storage_prefix = name or resolved.name
+    if not storage_prefix.strip("/"):
         _abort("Folder name cannot be empty.")
 
     db = StateDB().connect()
     try:
-        roots = _content_roots(config, db)
-        if any(root.local_path == resolved for root in roots):
-            _abort(f"Folder already registered: {resolved}")
-        if any(root.storage_prefix == storage_prefix for root in roots):
-            _abort(f"Storage prefix '{storage_prefix}' is already registered.")
-        _ensure_saharaignore(resolved)
-        db.upsert_content_root(
-            str(resolved),
-            storage_prefix,
-            sync_enabled=False,
-        )
+        try:
+            roots = _content_roots(config, db)
+            validate_content_root_path(resolved, roots)
+            storage_prefix = validate_storage_prefix(
+                storage_prefix,
+                roots,
+                owned_prefixes=db.list_storage_ownership_prefixes(),
+            )
+            _ensure_saharaignore(resolved)
+            register_content_root(
+                config,
+                db,
+                resolved,
+                storage_prefix,
+            )
+        except ValueError as exc:
+            _abort(str(exc))
         _ok(f"Added content root: {resolved}")
         _info("Mode: index only")
         _info("Run `sahara index` to add its contents to search.")
@@ -1089,6 +1122,8 @@ def folder_remove(
     force: bool,
 ) -> None:
     """Remove a non-primary folder from Sahara's library."""
+    from sahara.library import unregister_content_root
+    from sahara.memory.format import validate_memory_root_marker
     from sahara.storage.state_db import StateDB
 
     config: SaharaConfig = ctx.obj["config"]
@@ -1103,13 +1138,13 @@ def folder_remove(
             _abort(f"Folder not registered: {resolved}")
         if root["is_primary"]:
             _abort("The primary folder cannot be removed.")
+        if validate_memory_root_marker(resolved):
+            _abort("The managed Sahara memory folder cannot be removed.")
         if not force and not click.confirm(
             "  Remove this folder from Sahara's index?", default=False
         ):
             return
-        db.delete_index_for_prefix(root["storage_prefix"])
-        db.remove_sync_target(str(resolved))
-        db.remove_content_root(str(resolved))
+        unregister_content_root(db, resolved, root["storage_prefix"])
         _ok(f"Removed content root: {resolved}")
     finally:
         db.close()
@@ -1180,6 +1215,11 @@ def folder_sync(
 @click.pass_context
 def add_folder(ctx: click.Context, path: Path, name: str | None, dest: str | None) -> None:
     """Register an additional folder for sync."""
+    from sahara.library import (
+        register_content_root,
+        validate_content_root_path,
+        validate_storage_prefix,
+    )
     from sahara.storage.state_db import StateDB
 
     config: SaharaConfig = ctx.obj["config"]
@@ -1195,21 +1235,26 @@ def add_folder(ctx: click.Context, path: Path, name: str | None, dest: str | Non
 
     db = StateDB().connect()
     try:
-        # Check against primary folder
-        if resolved == config.get_sync_folder_path():
-            _abort("That is the primary sync folder — it is always synced.")
+        try:
+            roots = _content_roots(config, db)
+            validate_content_root_path(resolved, roots)
+            s3_prefix = validate_storage_prefix(
+                s3_prefix,
+                roots,
+                owned_prefixes=db.list_storage_ownership_prefixes(),
+            )
+            _ensure_saharaignore(resolved)
+            root = register_content_root(
+                config,
+                db,
+                resolved,
+                s3_prefix,
+                sync_enabled=True,
+            )
+            s3_prefix = root.storage_prefix
+        except ValueError as exc:
+            _abort(str(exc))
 
-        existing = db.list_sync_targets()
-        for t in existing:
-            if Path(t["local_path"]) == resolved:
-                _abort(f"Folder already registered: {resolved}")
-            if t["s3_prefix"] == s3_prefix:
-                _abort(
-                    f"S3 prefix '{s3_prefix}' is already used by {t['local_path']}. "
-                    "Use --as <name> to choose a different name."
-                )
-
-        _ensure_saharaignore(resolved)
         db.add_sync_target(str(resolved), s3_prefix)
         _ok(f"Registered: {resolved}")
         _info(f"S3 prefix  : {s3_prefix}/")
@@ -1225,6 +1270,8 @@ def add_folder(ctx: click.Context, path: Path, name: str | None, dest: str | Non
 @click.pass_context
 def remove_folder(ctx: click.Context, path: Path, force: bool) -> None:
     """Unregister an additional sync folder (does not delete S3 data)."""
+    from sahara.library import unregister_content_root
+    from sahara.memory.format import validate_memory_root_marker
     from sahara.storage.state_db import StateDB
 
     config: SaharaConfig = ctx.obj["config"]
@@ -1239,6 +1286,8 @@ def remove_folder(ctx: click.Context, path: Path, force: bool) -> None:
         )
         if target is None:
             _abort(f"Folder not registered: {resolved}")
+        if validate_memory_root_marker(resolved):
+            _abort("The managed Sahara memory folder cannot be removed.")
 
         file_count = len(db.list_files(s3_prefix=target["s3_prefix"]))
         if file_count > 0:
@@ -1250,7 +1299,7 @@ def remove_folder(ctx: click.Context, path: Path, force: bool) -> None:
             if not force and not click.confirm("  Continue?", default=False):
                 return
 
-        db.remove_sync_target(str(resolved))
+        unregister_content_root(db, resolved, target["s3_prefix"])
         _ok(f"Unregistered: {resolved}")
     finally:
         db.close()
@@ -2325,6 +2374,87 @@ def index_report_cmd(ctx: click.Context, top: int, sample: int) -> None:
                     f"{row['storage_prefix']}/" if row["storage_prefix"] else ""
                 )
                 _info(f"{prefix}{row['relative_path']}")
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# captured knowledge
+# ---------------------------------------------------------------------------
+
+
+@main.command("remember")
+@click.argument("text", nargs=-1)
+@click.option("--title", default=None, help="Optional short title.")
+@click.option(
+    "--source",
+    "source_type",
+    type=click.Choice(
+        ["manual", "web", "conversation", "ai-chat", "mobile"],
+        case_sensitive=False,
+    ),
+    default="manual",
+    show_default=True,
+    help="Where this knowledge came from.",
+)
+@click.option("--url", "source_url", default="", help="Optional HTTP(S) source URL.")
+@click.option("--source-id", default="", help="Optional identifier from the source system.")
+@click.option("--tag", "tags", multiple=True, help="Tag this memory. Repeat as needed.")
+@click.pass_context
+def remember_cmd(
+    ctx: click.Context,
+    text: tuple[str, ...],
+    title: str | None,
+    source_type: str,
+    source_url: str,
+    source_id: str,
+    tags: tuple[str, ...],
+) -> None:
+    """Save knowledge as a durable Markdown memory."""
+    config: SaharaConfig = ctx.obj["config"]
+    _require_library_config(config)
+
+    content = " ".join(text)
+    if not content.strip() and not sys.stdin.isatty():
+        from sahara.memory.format import MAX_MEMORY_CHARS
+
+        content = click.get_text_stream("stdin").read(MAX_MEMORY_CHARS + 1)
+        if len(content) > MAX_MEMORY_CHARS:
+            raise click.UsageError(
+                f"Memory text exceeds the {MAX_MEMORY_CHARS:,}-character limit."
+            )
+    if not content.strip():
+        raise click.UsageError(
+            "Provide memory text as an argument or pipe it through standard input."
+        )
+
+    from sahara.memory import CaptureRequest, MemoryService
+    from sahara.storage.state_db import StateDB
+
+    db = StateDB().connect()
+    try:
+        try:
+            result = MemoryService(config, db).capture(
+                CaptureRequest(
+                    text=content,
+                    title=title,
+                    source_type=source_type,
+                    source_url=source_url,
+                    source_id=source_id,
+                    tags=tags,
+                )
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        _ok(f"Saved memory {result.item.memory_id}")
+        _info(f"Path: {result.item.path}")
+        if result.indexed:
+            _ok("Indexed for semantic retrieval.")
+        else:
+            _warn("Saved successfully; semantic indexing is pending.")
+            if result.index_error:
+                _info(f"Indexing detail: {result.index_error}")
     finally:
         db.close()
 

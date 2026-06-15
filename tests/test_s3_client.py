@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -323,6 +324,13 @@ class TestManifest:
         etag2 = client.put_manifest(data2, if_match_etag=etag1)
         assert etag2 is not None
 
+    def test_put_manifest_create_only_conflicts_when_present(self, s3_setup):
+        client, cfg = s3_setup
+        client.put_manifest({"v": "1"})
+
+        with pytest.raises(ManifestConflictError):
+            client.put_manifest({"v": "2"}, if_none_match=True)
+
     def test_manifest_conflict_error_on_412(self, s3_setup):
         """ManifestConflictError should be raised when If-Match fails."""
         client, cfg = s3_setup
@@ -340,10 +348,38 @@ class TestManifest:
             with pytest.raises(ManifestConflictError):
                 client.put_manifest({"v": "2"}, if_match_etag="wrong-etag")
 
+    def test_manifest_conflict_error_on_409(self, s3_setup):
+        client, cfg = s3_setup
+        error_response = {
+            "Error": {
+                "Code": "ConditionalRequestConflict",
+                "Message": "conditional request conflict",
+            },
+            "ResponseMetadata": {"HTTPStatusCode": 409},
+        }
+        with patch.object(
+            client._s3,
+            "put_object",
+            side_effect=botocore.exceptions.ClientError(
+                error_response,
+                "PutObject",
+            ),
+        ):
+            with pytest.raises(ManifestConflictError):
+                client.put_manifest({"v": "2"}, if_none_match=True)
+
     def test_manifest_conflict_error_has_etag(self):
         exc = ManifestConflictError("abc123")
         assert exc.current_etag == "abc123"
         assert "abc123" in str(exc)
+
+
+def test_boto3_floor_supports_put_object_if_none_match() -> None:
+    project = tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert "boto3>=1.35.2" in project["project"]["dependencies"]
 
 
 # ---------------------------------------------------------------------------

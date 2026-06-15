@@ -587,7 +587,7 @@ class TestBootstrapManifest:
 
 
 class TestWriteManifestWithRetry:
-    def test_manifest_conflict_retries(self, tmp_path: Path):
+    def test_manifest_conflict_retries_with_delta(self, tmp_path: Path):
         with mock_aws():
             boto3.client("s3", region_name=REGION).create_bucket(Bucket=BUCKET)
             cfg = _make_config(tmp_path)
@@ -604,9 +604,30 @@ class TestWriteManifestWithRetry:
                     raise ManifestConflictError("etag1")
                 return "new-etag"
 
-            with patch.object(s3, "put_manifest", side_effect=put_manifest_side_effect), \
-                 patch.object(s3, "get_manifest", return_value=({"file": "data"}, "etag2")):
-                engine._write_manifest_with_retry({"myfile": "data"}, "old-etag")
+            entry = {
+                "sha256": "a" * 64,
+                "size": 1,
+                "tier": "STANDARD",
+                "modified_at": NOW.isoformat(),
+                "etag": "etag",
+            }
+            with (
+                patch.object(
+                    s3,
+                    "put_manifest",
+                    side_effect=put_manifest_side_effect,
+                ),
+                patch.object(
+                    s3,
+                    "get_manifest",
+                    return_value=({"other.txt": entry}, "etag2"),
+                ),
+            ):
+                engine._write_manifest_with_retry(
+                    {"myfile": entry},
+                    "old-etag",
+                    base_manifest={},
+                )
 
             assert call_count[0] == 2
             db.close()

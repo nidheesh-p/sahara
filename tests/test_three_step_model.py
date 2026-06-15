@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import datetime
+import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from sahara.cli import main
@@ -27,6 +29,195 @@ def test_fresh_config_defaults_to_index_only() -> None:
     assert config.storage_mode == "none"
     assert config.is_index_only_mode is True
     assert config.has_storage_backend is False
+
+
+def test_primary_content_root_follows_configured_folder_change(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+
+    with StateDB(tmp_path / "state.db") as db:
+        ensure_content_roots(
+            SaharaConfig(sync_folder=str(first), storage_mode="none"),
+            db,
+        )
+        roots = ensure_content_roots(
+            SaharaConfig(sync_folder=str(second), storage_mode="none"),
+            db,
+        )
+
+    primary = next(root for root in roots if root.is_primary)
+    assert primary.local_path == second.resolve()
+    assert primary.storage_prefix == ""
+
+
+def test_primary_content_root_change_rolls_back_index_on_failure(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+
+    with StateDB(tmp_path / "state.db") as db:
+        ensure_content_roots(
+            SaharaConfig(sync_folder=str(first), storage_mode="none"),
+            db,
+        )
+        db.upsert_index_entry(
+            "",
+            "note.md",
+            content_hash="abc",
+            size_bytes=3,
+            modified_ns=1,
+            status="indexed",
+        )
+        db.conn.execute(
+            """
+            CREATE TRIGGER fail_primary_replacement
+            BEFORE DELETE ON content_roots
+            WHEN OLD.is_primary = 1
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated primary replacement failure');
+            END
+            """
+        )
+        db.conn.commit()
+
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="simulated primary replacement failure",
+        ):
+            ensure_content_roots(
+                SaharaConfig(sync_folder=str(second), storage_mode="none"),
+                db,
+            )
+
+        primary = next(root for root in db.list_content_roots() if root["is_primary"])
+        assert Path(primary["local_path"]) == first.resolve()
+        entries = db.list_index_entries(storage_prefix="")
+        assert [entry["relative_path"] for entry in entries] == ["note.md"]
+
+
+def test_primary_content_root_change_is_blocked_with_storage(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    drive = tmp_path / "drive"
+    first.mkdir()
+    second.mkdir()
+    drive.mkdir()
+
+    with StateDB(tmp_path / "state.db") as db:
+        ensure_content_roots(
+            SaharaConfig(sync_folder=str(first), storage_mode="none"),
+            db,
+        )
+        with pytest.raises(ValueError, match="explicit migration"):
+            ensure_content_roots(
+                SaharaConfig(
+                    sync_folder=str(second),
+                    storage_mode="local",
+                    drive_paths=[str(drive)],
+                ),
+                db,
+            )
+
+        primary = next(root for root in db.list_content_roots() if root["is_primary"])
+        assert Path(primary["local_path"]) == first.resolve()
+
+
+def test_existing_additional_root_can_be_promoted_to_primary(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+
+    with StateDB(tmp_path / "state.db") as db:
+        ensure_content_roots(
+            SaharaConfig(sync_folder=str(first), storage_mode="none"),
+            db,
+        )
+        db.upsert_content_root(str(second), "second", sync_enabled=False)
+        roots = ensure_content_roots(
+            SaharaConfig(sync_folder=str(second), storage_mode="none"),
+            db,
+        )
+
+    assert len(roots) == 1
+    assert roots[0].local_path == second.resolve()
+    assert roots[0].storage_prefix == ""
+    assert roots[0].is_primary is True
+
+
+def test_additional_root_with_storage_ownership_cannot_be_promoted(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    now = datetime.datetime.now(datetime.UTC)
+
+    with StateDB(tmp_path / "state.db") as db:
+        ensure_content_roots(
+            SaharaConfig(sync_folder=str(first), storage_mode="none"),
+            db,
+        )
+        db.upsert_content_root(str(second), "archive", sync_enabled=False)
+        db.upsert_file(
+            FileRecord(
+                relative_path="retained.txt",
+                sha256_checksum="abc",
+                size_bytes=3,
+                tier="STANDARD",
+                s3_etag="etag",
+                last_sync_at=now,
+                local_modified_at=now,
+                remote_modified_at=now,
+            ),
+            s3_prefix="archive",
+        )
+
+        with pytest.raises(ValueError, match="explicit storage migration"):
+            ensure_content_roots(
+                SaharaConfig(sync_folder=str(second), storage_mode="none"),
+                db,
+            )
+
+        roots = db.list_content_roots()
+        primary = next(root for root in roots if root["is_primary"])
+        additional = next(root for root in roots if not root["is_primary"])
+        assert Path(primary["local_path"]) == first.resolve()
+        assert additional["storage_prefix"] == "archive"
+
+
+def test_primary_replacement_rejects_overlap_with_additional_root(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first"
+    additional = tmp_path / "additional"
+    nested = additional / "nested"
+    first.mkdir()
+    nested.mkdir(parents=True)
+
+    with StateDB(tmp_path / "state.db") as db:
+        ensure_content_roots(
+            SaharaConfig(sync_folder=str(first), storage_mode="none"),
+            db,
+        )
+        db.upsert_content_root(str(additional), "additional", sync_enabled=False)
+        with pytest.raises(ValueError, match="overlaps registered root"):
+            ensure_content_roots(
+                SaharaConfig(sync_folder=str(nested), storage_mode="none"),
+                db,
+            )
 
 
 def test_legacy_config_without_storage_mode_remains_s3(tmp_path: Path) -> None:

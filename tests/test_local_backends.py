@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -19,10 +23,12 @@ from sahara.storage.s3_client import ManifestConflictError, S3ClientError
 
 
 def _make_config(drive_paths: list[str], storage_mode: str = "local") -> SaharaConfig:
+    lock_root = Path(drive_paths[0]).parent if drive_paths else Path("/tmp")
     return SaharaConfig(
         sync_folder="/tmp/sahara-test",
         storage_mode=storage_mode,
         drive_paths=drive_paths,
+        pid_file=str(lock_root / "daemon.pid"),
     )
 
 
@@ -83,6 +89,61 @@ def test_upload_writes_to_all_drives(dual_drive, src_file):
     assert (d2 / "hello.txt").exists()
 
 
+@pytest.mark.parametrize(
+    "key",
+    ["../escape.txt", "/absolute.txt", ".", "", "dir/.."],
+)
+def test_storage_keys_cannot_escape_drive(single_drive, src_file, key):
+    client, drive = single_drive
+
+    with pytest.raises(S3ClientError, match="escapes configured drive"):
+        client.upload_file(src_file, key)
+
+    assert not (drive.parent / "escape.txt").exists()
+
+
+def test_storage_key_cannot_escape_through_drive_symlink(single_drive, src_file):
+    client, drive = single_drive
+    outside = drive.parent / "outside"
+    outside.mkdir()
+    link = drive / "linked"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are unavailable")
+
+    with pytest.raises(S3ClientError, match="escapes configured drive"):
+        client.upload_file(src_file, "linked/escape.txt")
+
+    assert not (outside / "escape.txt").exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX directory descriptors")
+def test_upload_survives_parent_symlink_swap(single_drive, src_file, monkeypatch):
+    client, drive = single_drive
+    safe = drive / "safe"
+    safe.mkdir()
+    detached = drive / "detached"
+    outside = drive.parent / "outside"
+    outside.mkdir()
+    original_open = os.open
+    swapped = False
+
+    def swap_then_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal swapped
+        if not swapped and dir_fd is not None and str(path).endswith(".tmp"):
+            safe.rename(detached)
+            safe.symlink_to(outside, target_is_directory=True)
+            swapped = True
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", swap_then_open)
+    client.upload_file(src_file, "safe/hello.txt")
+
+    assert (detached / "hello.txt").read_bytes() == b"hello sahara"
+    assert not (outside / "hello.txt").exists()
+
+
 def test_download_reads_from_first_drive(single_drive, src_file, tmp_path):
     client, drive = single_drive
     client.upload_file(src_file, "hello.txt")
@@ -92,6 +153,36 @@ def test_download_reads_from_first_drive(single_drive, src_file, tmp_path):
     assert sha == hashlib.sha256(b"hello sahara").hexdigest()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX file modes")
+def test_download_installs_private_file(single_drive, src_file, tmp_path):
+    client, _ = single_drive
+    client.upload_file(src_file, "private.txt")
+    dest = tmp_path / "private.txt"
+
+    client.download_file("private.txt", dest)
+
+    assert dest.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX file modes")
+def test_decrypted_download_installs_private_file(
+    single_drive,
+    src_file,
+    tmp_path,
+):
+    client, _ = single_drive
+    client.upload_file(src_file, "encrypted.txt")
+    dest = tmp_path / "decrypted.txt"
+
+    def decrypt(source: Path, destination: Path) -> str:
+        destination.write_bytes(b"plaintext")
+        return hashlib.sha256(b"plaintext").hexdigest()
+
+    client.download_file("encrypted.txt", dest, decrypt_fn=decrypt)
+
+    assert dest.stat().st_mode & 0o777 == 0o600
+
+
 def test_download_falls_back_to_second_drive(dual_drive, src_file, tmp_path):
     client, d1, d2 = dual_drive
     # Only put file on second drive
@@ -99,6 +190,34 @@ def test_download_falls_back_to_second_drive(dual_drive, src_file, tmp_path):
     dest = tmp_path / "out.txt"
     client.download_file("hello.txt", dest)
     assert dest.read_bytes() == b"hello sahara"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX directory descriptors")
+def test_download_survives_parent_symlink_swap(single_drive, tmp_path, monkeypatch):
+    client, drive = single_drive
+    safe = drive / "safe"
+    safe.mkdir()
+    (safe / "value.txt").write_bytes(b"inside")
+    detached = drive / "detached"
+    outside = drive.parent / "outside"
+    outside.mkdir()
+    (outside / "value.txt").write_bytes(b"outside")
+    original_copy = shutil.copyfileobj
+    swapped = False
+
+    def swap_then_copy(source, target, *args, **kwargs):
+        nonlocal swapped
+        if not swapped:
+            safe.rename(detached)
+            safe.symlink_to(outside, target_is_directory=True)
+            swapped = True
+        return original_copy(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copyfileobj", swap_then_copy)
+    destination = tmp_path / "download.txt"
+    client.download_file("safe/value.txt", destination)
+
+    assert destination.read_bytes() == b"inside"
 
 
 def test_download_missing_raises(single_drive, tmp_path):
@@ -216,6 +335,249 @@ def test_put_manifest_conditional_conflict(single_drive):
         client.put_manifest({"a": 2}, if_match_etag="wrong-etag")
 
 
+def test_put_manifest_if_match_conflicts_when_all_replicas_missing(single_drive):
+    client, _ = single_drive
+
+    with pytest.raises(ManifestConflictError):
+        client.put_manifest({"a": 2}, if_match_etag="stale-etag")
+
+
+def test_put_manifest_create_only_conflict(single_drive):
+    client, _ = single_drive
+    client.put_manifest({"a": 1})
+    with pytest.raises(ManifestConflictError):
+        client.put_manifest({"a": 2}, if_none_match=True)
+
+
+def test_put_manifest_rejects_conflicting_conditions(single_drive):
+    client, _ = single_drive
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        client.put_manifest(
+            {"a": 1},
+            if_match_etag="etag",
+            if_none_match=True,
+        )
+
+
+def test_put_manifest_conditional_writers_are_serialized(single_drive):
+    client, _ = single_drive
+    original_etag = client.put_manifest({"version": 1})
+
+    def update(version: int) -> str:
+        return client.put_manifest(
+            {"version": version},
+            if_match_etag=original_etag,
+        )
+
+    successes: list[str] = []
+    conflicts = 0
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(update, 2), executor.submit(update, 3)]
+        for future in futures:
+            try:
+                successes.append(future.result())
+            except ManifestConflictError:
+                conflicts += 1
+
+    assert len(successes) == 1
+    assert conflicts == 1
+
+
+def test_put_manifest_rolls_back_partial_multi_drive_write(
+    dual_drive,
+    monkeypatch,
+):
+    client, d1, d2 = dual_drive
+    original_etag = client.put_manifest({"version": 1})
+    original_write = client._atomic_write_to_key
+    failed = False
+
+    def fail_second_drive_once(drive, key, data):
+        nonlocal failed
+        if drive.resolve() == d2.resolve() and not failed:
+            failed = True
+            raise OSError("simulated second-drive failure")
+        return original_write(drive, key, data)
+
+    monkeypatch.setattr(client, "_atomic_write_to_key", fail_second_drive_once)
+
+    with pytest.raises(OSError, match="second-drive failure"):
+        client.put_manifest({"version": 2}, if_match_etag=original_etag)
+
+    assert json.loads((d1 / ".sahara" / "manifest.json").read_text()) == {
+        "version": 1
+    }
+    assert json.loads((d2 / ".sahara" / "manifest.json").read_text()) == {
+        "version": 1
+    }
+
+
+def test_manifest_lock_is_independent_of_drive_order(tmp_path: Path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    forward = LocalDriveClient(_make_config([str(first), str(second)]))
+    reverse = LocalDriveClient(_make_config([str(second), str(first)]))
+    original_etag = forward.put_manifest({"version": 1})
+
+    def update(client, version):
+        return client.put_manifest(
+            {"version": version},
+            if_match_etag=original_etag,
+        )
+
+    successes = 0
+    conflicts = 0
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(update, forward, 2),
+            executor.submit(update, reverse, 3),
+        ]
+        for future in futures:
+            try:
+                future.result()
+                successes += 1
+            except ManifestConflictError:
+                conflicts += 1
+
+    assert successes == 1
+    assert conflicts == 1
+    lock_files = list((first / ".sahara" / "locks").glob("manifest-*.lock"))
+    assert len(lock_files) == 1
+
+
+def test_manifest_lock_is_shared_across_machine_local_pid_paths(
+    tmp_path: Path,
+) -> None:
+    drive = tmp_path / "shared-drive"
+    drive.mkdir()
+    first_config = _make_config([str(drive)])
+    second_config = _make_config([str(drive)])
+    first_config.pid_file = str(tmp_path / "machine-a" / "daemon.pid")
+    second_config.pid_file = str(tmp_path / "machine-b" / "daemon.pid")
+    first = LocalDriveClient(first_config)
+    second = LocalDriveClient(second_config)
+    original_etag = first.put_manifest({"version": 1})
+
+    def update(client, version):
+        return client.put_manifest(
+            {"version": version},
+            if_match_etag=original_etag,
+        )
+
+    successes = 0
+    conflicts = 0
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(update, first, 2),
+            executor.submit(update, second, 3),
+        ]
+        for future in futures:
+            try:
+                future.result()
+                successes += 1
+            except ManifestConflictError:
+                conflicts += 1
+
+    assert successes == 1
+    assert conflicts == 1
+
+
+def test_manifest_lock_serializes_overlapping_drive_subsets(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    pair = LocalDriveClient(_make_config([str(first), str(second)]))
+    subset = LocalDriveClient(_make_config([str(first)]))
+    original_etag = pair.put_manifest({"version": 1})
+
+    def update(client, version):
+        return client.put_manifest(
+            {"version": version},
+            if_match_etag=original_etag,
+        )
+
+    successes = 0
+    conflicts = 0
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(update, pair, 2),
+            executor.submit(update, subset, 3),
+        ]
+        for future in futures:
+            try:
+                future.result()
+                successes += 1
+            except ManifestConflictError:
+                conflicts += 1
+
+    assert successes == 1
+    assert conflicts == 1
+
+
+def test_manifest_lock_normalizes_alternate_drive_paths(
+    tmp_path: Path,
+) -> None:
+    drive = tmp_path / "drive"
+    drive.mkdir()
+    alias = tmp_path / "drive-alias"
+    alias.symlink_to(drive, target_is_directory=True)
+    direct = LocalDriveClient(_make_config([str(drive)]))
+    via_alias = LocalDriveClient(_make_config([str(alias)]))
+    original_etag = direct.put_manifest({"version": 1})
+
+    def update(client, version):
+        return client.put_manifest(
+            {"version": version},
+            if_match_etag=original_etag,
+        )
+
+    successes = 0
+    conflicts = 0
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(update, direct, 2),
+            executor.submit(update, via_alias, 3),
+        ]
+        for future in futures:
+            try:
+                future.result()
+                successes += 1
+            except ManifestConflictError:
+                conflicts += 1
+
+    assert successes == 1
+    assert conflicts == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX descriptor hardening")
+def test_list_objects_skips_fifo_without_blocking(single_drive):
+    client, drive = single_drive
+    os.mkfifo(drive / "pipe")
+
+    assert client.list_all_objects() == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX descriptor hardening")
+def test_validate_access_rejects_symlinked_internal_directory(
+    single_drive,
+    tmp_path: Path,
+):
+    client, drive = single_drive
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (drive / ".sahara").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(S3ClientError):
+        client.validate_bucket_access()
+
+    assert list(outside.iterdir()) == []
+
+
 # ---------------------------------------------------------------------------
 # LocalDriveClient — list_all_objects
 # ---------------------------------------------------------------------------
@@ -223,6 +585,19 @@ def test_put_manifest_conditional_conflict(single_drive):
 
 def test_list_all_objects_empty(single_drive):
     client, _ = single_drive
+    assert client.list_all_objects() == []
+
+
+def test_list_all_objects_skips_symlinks_outside_drive(single_drive):
+    client, drive = single_drive
+    outside = drive.parent / "outside.txt"
+    outside.write_bytes(b"private")
+    link = drive / "linked.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("file symlinks are unavailable")
+
     assert client.list_all_objects() == []
 
 

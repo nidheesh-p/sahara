@@ -126,6 +126,26 @@ billing is separate from a ChatGPT subscription.
 See [Answer Provider Setup](docs/ANSWER_PROVIDERS.md) for installation, model selection,
 privacy details, and troubleshooting.
 
+## Capture Knowledge
+
+Save something you learned as a durable Markdown memory:
+
+```bash
+sahara remember "Vendor X uses net-30 terms" \
+  --source conversation \
+  --tag vendor
+
+cat meeting-notes.txt | sahara remember --source conversation
+```
+
+Sahara creates a managed `~/Sahara Memory` content root on first capture, keeps storage
+sync disabled until you explicitly enable it, and indexes only the new note. If the
+embedding model is unavailable, the Markdown file is still saved and can be indexed
+later with `sahara index`.
+
+The broader recall, MCP, mobile, and Siri rollout is described in the
+[captured knowledge plan](specs/CAPTURED_KNOWLEDGE_PLAN.md).
+
 ## Connect an MCP Client
 
 Sahara exposes five read-only MCP tools for search, cited Q&A, chunk reads, folder
@@ -247,6 +267,7 @@ root you add (without overwriting a `.saharaignore` that already exists there).
 | `sahara folder add/list/remove` | Manage indexed folders |
 | `sahara index [--force]` | Build or refresh the semantic index |
 | `sahara index-report` | Inspect indexing coverage and failures |
+| `sahara remember [TEXT]` | Save durable captured knowledge and index it |
 | `sahara search QUERY` | Find files and passages by meaning |
 | `sahara ask --snippet QUESTION` | Retrieve cited sources and optionally generate an answer |
 | `sahara mcp install-claude` | Connect Sahara to Claude Desktop |

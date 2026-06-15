@@ -144,6 +144,35 @@ class TestConfigSetGet:
         assert result.exit_code == 0
         assert "eu-west-1" in result.output
 
+    def test_config_set_memory_folder_canonicalizes_relative_path(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        _, config_path = _make_config(tmp_path)
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+
+        with patch(
+            "sahara.storage.state_db.DB_PATH",
+            tmp_path / "state.db",
+        ):
+            result = _runner().invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "config",
+                    "set",
+                    "memory_folder",
+                    "memories",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert load_config(config_path).memory_folder == str(home / "memories")
+
     def test_config_set_integer(self, tmp_path: Path):
         cfg, config_path = _make_config(tmp_path)
         runner = _runner()

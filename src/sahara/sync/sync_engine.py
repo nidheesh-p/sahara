@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import datetime
+import inspect
 import logging
 import os
+import re
+import stat
+import tempfile
+import unicodedata
+import urllib.parse
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import filelock
 
@@ -40,8 +46,25 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_MAX_MANIFEST_RETRIES = 3
 _CONFLICT_TOLERANCE_SECONDS = 2.0
+_MAX_MANIFEST_RETRIES = 3
+_STORAGE_TIERS = {
+    "STANDARD",
+    "GLACIER",
+    "GLACIER_IR",
+    "DEEP_ARCHIVE",
+    "HOT_TEMP",
+}
+_SHA256_RE = re.compile(r"\A[0-9a-fA-F]{64}\Z")
+_WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
+_WINDOWS_FORBIDDEN_CHARS = frozenset('<>:"|?*')
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +158,23 @@ class SyncEngine:
             self._sync_folder,
             extra_patterns=config.exclude_patterns,
         )
+        self._unsupported_local_paths: set[str] = set()
         self._lock_path = self._sync_folder / ".sahara" / "sync.lock"
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _get_s3_key(self, relative_path: str) -> str:
         """Build full S3 key for a relative path, respecting global prefix and s3_prefix."""
+        self._content_path_parts(relative_path)
+        content_parts = [
+            part
+            for value in (self._config.prefix, self._s3_prefix, relative_path)
+            for part in value.strip("/").split("/")
+            if part
+        ]
+        if any(part.casefold() == ".sahara" for part in content_parts):
+            raise S3ClientError(
+                "Content paths cannot use Sahara's .sahara control namespace."
+            )
         parts = []
         if self._config.prefix:
             parts.append(self._config.prefix.rstrip("/"))
@@ -148,12 +183,407 @@ class SyncEngine:
         parts.append(relative_path)
         return "/".join(parts)
 
+    @staticmethod
+    def _content_path_parts(relative_path: str) -> tuple[str, ...]:
+        """Validate a portable content path and return its POSIX components."""
+        if (
+            not isinstance(relative_path, str)
+            or not relative_path
+            or relative_path.startswith(("/", "\\"))
+            or "\\" in relative_path
+            or PurePosixPath(relative_path).is_absolute()
+            or PureWindowsPath(relative_path).is_absolute()
+            or PureWindowsPath(relative_path).drive
+        ):
+            raise S3ClientError(f"Invalid content path in manifest: {relative_path!r}")
+        parts = tuple(relative_path.split("/"))
+        if any(
+            not part
+            or part in {".", ".."}
+            or "\x00" in part
+            for part in parts
+        ):
+            raise S3ClientError(f"Invalid content path in manifest: {relative_path!r}")
+        if any(part.casefold() == ".sahara" for part in parts):
+            raise S3ClientError(
+                "Content paths cannot use Sahara's .sahara control namespace."
+            )
+        for part in parts:
+            normalized = unicodedata.normalize("NFKC", part)
+            device_name = normalized.split(".", 1)[0].upper()
+            if (
+                normalized in {".", ".."}
+                or normalized.casefold() == ".sahara"
+                or normalized.endswith((" ", "."))
+                or "/" in normalized
+                or "\\" in normalized
+                or any(character in _WINDOWS_FORBIDDEN_CHARS for character in normalized)
+                or any(ord(character) < 32 for character in normalized)
+                or device_name in _WINDOWS_RESERVED_NAMES
+            ):
+                raise S3ClientError(
+                    f"Content path is not portable across filesystems: {relative_path!r}"
+                )
+        return parts
+
+    @classmethod
+    def _content_path_identity(cls, relative_path: str) -> str:
+        return "/".join(
+            unicodedata.normalize("NFKC", part).casefold()
+            for part in cls._content_path_parts(relative_path)
+        )
+
+    @classmethod
+    def _validate_distinct_content_paths(cls, paths: set[str]) -> None:
+        identities: dict[str, str] = {}
+        for path in paths:
+            identity = cls._content_path_identity(path)
+            existing = identities.get(identity)
+            if existing is not None and existing != path:
+                raise S3ClientError(
+                    f"Content paths alias across filesystems: {existing!r} and {path!r}"
+                )
+            identities[identity] = path
+
+    def _manifest_entries(self, raw_manifest: dict) -> dict[str, ManifestEntry]:
+        """Parse a remote manifest only after validating every content path."""
+        if not isinstance(raw_manifest, dict):
+            raise S3ClientError("Remote manifest must be a JSON object.")
+        if not all(isinstance(path, str) for path in raw_manifest):
+            raise S3ClientError("Remote manifest paths must be text.")
+        self._validate_distinct_content_paths(set(raw_manifest))
+        entries: dict[str, ManifestEntry] = {}
+        for path, data in raw_manifest.items():
+            self._content_path_parts(path)
+            if not isinstance(data, dict):
+                raise S3ClientError(f"Invalid manifest entry for {path!r}")
+            try:
+                entry = ManifestEntry.from_dict(data)
+                self._validate_manifest_entry(path, entry)
+                entries[path] = entry
+            except (KeyError, TypeError, ValueError) as exc:
+                raise S3ClientError(
+                    f"Invalid manifest entry for {path!r}"
+                ) from exc
+        return entries
+
+    @staticmethod
+    def _validate_manifest_entry(
+        path: str,
+        entry: ManifestEntry,
+        *,
+        allow_missing_checksum: bool = False,
+    ) -> datetime.datetime:
+        """Validate untrusted manifest metadata before any filesystem change."""
+        if (
+            not isinstance(entry.sha256, str)
+            or not (
+                _SHA256_RE.fullmatch(entry.sha256)
+                or (allow_missing_checksum and not entry.sha256)
+            )
+            or type(entry.size) is not int
+            or entry.size < 0
+            or not isinstance(entry.tier, str)
+            or entry.tier not in _STORAGE_TIERS
+            or not isinstance(entry.modified_at, str)
+            or not isinstance(entry.etag, str)
+            or type(entry.ignored) is not bool
+        ):
+            raise S3ClientError(f"Invalid manifest entry for {path!r}")
+        try:
+            modified_at = datetime.datetime.fromisoformat(
+                entry.modified_at.replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise S3ClientError(
+                f"Invalid manifest timestamp for {path!r}"
+            ) from exc
+        if modified_at.tzinfo is None:
+            raise S3ClientError(
+                f"Manifest timestamp lacks timezone for {path!r}"
+            )
+        return modified_at
+
+    def _open_local_parent_fd(
+        self,
+        relative_path: str,
+        *,
+        create: bool,
+    ) -> tuple[int, str]:
+        """Open a destination parent beneath the sync root without following links."""
+        parts = self._content_path_parts(relative_path)
+        flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+        current_fd = os.open(self._sync_folder.resolve(), flags)
+        try:
+            for part in parts[:-1]:
+                try:
+                    next_fd = os.open(part, flags, dir_fd=current_fd)
+                except FileNotFoundError:
+                    if not create:
+                        raise
+                    try:
+                        os.mkdir(part, mode=0o700, dir_fd=current_fd)
+                    except FileExistsError:
+                        pass
+                    next_fd = os.open(part, flags, dir_fd=current_fd)
+                os.close(current_fd)
+                current_fd = next_fd
+            return current_fd, parts[-1]
+        except Exception:
+            os.close(current_fd)
+            raise
+
+    def _install_download(self, staged_path: Path, relative_path: str) -> Path:
+        """Atomically install a verified download beneath the sync root."""
+        parts = self._content_path_parts(relative_path)
+        if os.name != "posix":
+            root = self._sync_folder.resolve()
+            destination = root.joinpath(*parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if not destination.parent.resolve().is_relative_to(root):
+                raise S3ClientError(
+                    f"Content path escapes sync folder: {relative_path!r}"
+                )
+            staged_path.replace(destination)
+            return destination
+
+        try:
+            parent_fd, filename = self._open_local_parent_fd(
+                relative_path,
+                create=True,
+            )
+        except OSError as exc:
+            raise S3ClientError(
+                f"Content path has an unsafe parent: {relative_path!r}"
+            ) from exc
+        try:
+            os.chmod(staged_path, 0o600)
+            os.replace(staged_path, filename, dst_dir_fd=parent_fd)
+            os.fsync(parent_fd)
+        finally:
+            os.close(parent_fd)
+        return self._sync_folder.joinpath(*parts)
+
+    def _delete_local_path(self, relative_path: str) -> None:
+        """Delete one local content path without following parent symlinks."""
+        parts = self._content_path_parts(relative_path)
+        if os.name != "posix":
+            root = self._sync_folder.resolve()
+            destination = root.joinpath(*parts)
+            if not destination.parent.resolve().is_relative_to(root):
+                raise S3ClientError(
+                    f"Content path escapes sync folder: {relative_path!r}"
+                )
+            destination.unlink(missing_ok=True)
+            return
+
+        try:
+            parent_fd, filename = self._open_local_parent_fd(
+                relative_path,
+                create=False,
+            )
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise S3ClientError(
+                f"Content path has an unsafe parent: {relative_path!r}"
+            ) from exc
+        try:
+            try:
+                os.unlink(filename, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+        finally:
+            os.close(parent_fd)
+
+    def _snapshot_local_file(
+        self,
+        relative_path: str,
+    ) -> tuple[Path, str, datetime.datetime, int]:
+        """Create a private, stable snapshot of one local regular file."""
+        parts = self._content_path_parts(relative_path)
+        source_fd = -1
+        parent_fd = -1
+        snapshot_fd = -1
+        snapshot_path: Path | None = None
+        source_filename: str | None = None
+        try:
+            if os.name == "posix":
+                parent_fd, source_filename = self._open_local_parent_fd(
+                    relative_path,
+                    create=False,
+                )
+                source_fd = os.open(
+                    source_filename,
+                    os.O_RDONLY
+                    | getattr(os, "O_NOFOLLOW", 0)
+                    | getattr(os, "O_NONBLOCK", 0),
+                    dir_fd=parent_fd,
+                )
+            else:
+                source_path = self._sync_folder.joinpath(*parts)
+                if source_path.is_symlink():
+                    raise S3ClientError(
+                        f"Local content path is not a regular file: {relative_path}"
+                    )
+                source_fd = os.open(source_path, os.O_RDONLY)
+
+            before = os.fstat(source_fd)
+            if not stat.S_ISREG(before.st_mode):
+                raise S3ClientError(
+                    f"Local content path is not a regular file: {relative_path}"
+                )
+
+            snapshot_fd, snapshot_name = tempfile.mkstemp(
+                prefix=".sahara-upload-",
+                dir=self._lock_path.parent,
+            )
+            snapshot_path = Path(snapshot_name)
+            if os.name == "posix":
+                os.fchmod(snapshot_fd, 0o600)
+            with (
+                os.fdopen(source_fd, "rb", closefd=False) as source,
+                os.fdopen(snapshot_fd, "wb") as target,
+            ):
+                snapshot_fd = -1
+                while chunk := source.read(1024 * 1024):
+                    target.write(chunk)
+                target.flush()
+                os.fsync(target.fileno())
+
+            after = os.fstat(source_fd)
+            if os.name == "posix":
+                if source_filename is None:
+                    raise S3ClientError("Unable to verify upload snapshot")
+                current_entry = os.stat(
+                    source_filename,
+                    dir_fd=parent_fd,
+                    follow_symlinks=False,
+                )
+            else:
+                current_entry = os.stat(
+                    self._sync_folder.joinpath(*parts),
+                    follow_symlinks=False,
+                )
+            stable_fields = (
+                "st_dev",
+                "st_ino",
+                "st_size",
+                "st_mtime_ns",
+                "st_ctime_ns",
+            )
+            if any(
+                getattr(before, field) != getattr(after, field)
+                for field in stable_fields
+            ) or any(
+                getattr(before, field) != getattr(current_entry, field)
+                for field in ("st_dev", "st_ino")
+            ) or not stat.S_ISREG(current_entry.st_mode):
+                raise S3ClientError(
+                    f"Local file changed while preparing upload: {relative_path}"
+                )
+
+            checksum = _compute_sha256(snapshot_path)
+            modified_at = datetime.datetime.fromtimestamp(
+                before.st_mtime,
+                tz=datetime.UTC,
+            )
+            return snapshot_path, checksum, modified_at, before.st_size
+        except (FileNotFoundError, OSError) as exc:
+            if snapshot_path is not None:
+                snapshot_path.unlink(missing_ok=True)
+            raise S3ClientError(
+                f"Unable to snapshot local file safely: {relative_path}"
+            ) from exc
+        except Exception:
+            if snapshot_path is not None:
+                snapshot_path.unlink(missing_ok=True)
+            raise
+        finally:
+            if source_fd >= 0:
+                os.close(source_fd)
+            if snapshot_fd >= 0:
+                os.close(snapshot_fd)
+            if parent_fd >= 0:
+                os.close(parent_fd)
+
     def _get_manifest_key(self) -> str:
         """Return the S3 key for this folder's manifest."""
         if self._s3_prefix:
-            safe = self._s3_prefix.replace("/", "-")
+            safe = urllib.parse.quote(self._s3_prefix, safe="")
             return f".sahara/manifest-{safe}.json"
         return self._config.manifest_key
+
+    def _get_legacy_manifest_key(self) -> str | None:
+        if not self._s3_prefix:
+            return None
+        safe = self._s3_prefix.replace("/", "-")
+        legacy = f".sahara/manifest-{safe}.json"
+        return legacy if legacy != self._get_manifest_key() else None
+
+    def _get_manifest_with_legacy(
+        self,
+    ) -> tuple[dict | None, str | None, str, bool]:
+        manifest_key = self._get_manifest_key()
+        current_token = urllib.parse.quote(self._s3_prefix, safe="").casefold()
+        if self._s3_prefix:
+            other_prefixes = {
+                *(
+                    root["storage_prefix"]
+                    for root in self._db.list_content_roots()
+                ),
+                *self._db.list_storage_ownership_prefixes(),
+            }
+            for prefix in other_prefixes:
+                if prefix.casefold() == self._s3_prefix.casefold():
+                    continue
+                if current_token == prefix.replace("/", "-").casefold():
+                    raise S3ClientError(
+                        "This folder's manifest key aliases retained legacy "
+                        f"ownership for storage prefix '{prefix}'."
+                    )
+        manifest, etag = self._s3.get_manifest(key=manifest_key)
+        if manifest is not None:
+            return manifest, etag, manifest_key, False
+
+        legacy_key = self._get_legacy_manifest_key()
+        if legacy_key is None:
+            return None, None, manifest_key, True
+
+        legacy_alias = self._s3_prefix.replace("/", "-").casefold()
+        aliases = {
+            prefix.replace("/", "-").casefold()
+            for prefix in (
+                *(
+                    root["storage_prefix"]
+                    for root in self._db.list_content_roots()
+                ),
+                *self._db.list_storage_ownership_prefixes(),
+            )
+            if prefix.casefold() != self._s3_prefix.casefold()
+        }
+        if legacy_alias in aliases:
+            logger.warning(
+                "Legacy manifest key %s is ambiguous; refusing automatic migration.",
+                legacy_key,
+            )
+            return None, None, manifest_key, True
+        if not self._db.list_files(s3_prefix=self._s3_prefix):
+            logger.warning(
+                "Legacy manifest key %s has no local ownership evidence; "
+                "refusing automatic migration.",
+                legacy_key,
+            )
+            return None, None, manifest_key, True
+
+        legacy_manifest, legacy_etag = self._s3.get_manifest(key=legacy_key)
+        if legacy_manifest is not None:
+            logger.info(
+                "Using legacy manifest %s for mixed-version compatibility.",
+                legacy_key,
+            )
+            return legacy_manifest, legacy_etag, legacy_key, False
+        return None, None, manifest_key, True
 
     # ------------------------------------------------------------------
     # Local scan
@@ -162,6 +592,8 @@ class SyncEngine:
     def _scan_local(self) -> dict[str, LocalFileInfo]:
         """Walk the sync folder and return metadata for every non-ignored file."""
         result: dict[str, LocalFileInfo] = {}
+        portable_identities: dict[str, str] = {}
+        self._unsupported_local_paths.clear()
         base = self._sync_folder
 
         for dirpath, dirnames, filenames in os.walk(base):
@@ -169,13 +601,17 @@ class SyncEngine:
             rel_dir = dp.relative_to(base).as_posix()
 
             # Prune ignored directories in-place
-            dirnames[:] = [
-                d
-                for d in dirnames
-                if not self._ignore.matches(
-                    (rel_dir + "/" + d + "/").lstrip("/")
-                )
-            ]
+            safe_dirnames: list[str] = []
+            for dirname in dirnames:
+                try:
+                    is_symlink = (dp / dirname).is_symlink()
+                except OSError:
+                    continue
+                if not is_symlink and not self._ignore.matches(
+                    (rel_dir + "/" + dirname + "/").lstrip("/")
+                ):
+                    safe_dirnames.append(dirname)
+            dirnames[:] = safe_dirnames
 
             for fname in filenames:
                 fpath = dp / fname
@@ -183,16 +619,30 @@ class SyncEngine:
                 if self._ignore.matches(rel_file):
                     continue
                 try:
-                    stat = fpath.stat()
+                    identity = self._content_path_identity(rel_file)
+                except S3ClientError:
+                    self._unsupported_local_paths.add(rel_file)
+                    continue
+                aliased = portable_identities.get(identity)
+                if aliased is not None and aliased != rel_file:
+                    result.pop(aliased, None)
+                    self._unsupported_local_paths.update({aliased, rel_file})
+                    continue
+                try:
+                    metadata = fpath.lstat()
                 except OSError:
                     continue
+                if not stat.S_ISREG(metadata.st_mode):
+                    self._unsupported_local_paths.add(rel_file)
+                    continue
+                portable_identities[identity] = rel_file
                 result[rel_file] = LocalFileInfo(
                     path=fpath,
                     relative=rel_file,
                     mtime=datetime.datetime.fromtimestamp(
-                        stat.st_mtime, tz=datetime.UTC
+                        metadata.st_mtime, tz=datetime.UTC
                     ),
-                    size=stat.st_size,
+                    size=metadata.st_size,
                 )
 
         return result  # type: ignore[return-value]
@@ -223,8 +673,14 @@ class SyncEngine:
         all_paths: set[str] = (
             set(local_files.keys()) | set(manifest.keys()) | set(db_records.keys())
         )
+        self._validate_distinct_content_paths(
+            all_paths - self._unsupported_local_paths
+        )
 
         for path in all_paths:
+            if path in self._unsupported_local_paths:
+                continue
+            self._content_path_parts(path)
             in_local = path in local_files
             in_manifest = path in manifest
             in_db = path in db_records
@@ -398,19 +854,20 @@ class SyncEngine:
             elif strategy == "backup":
                 # Always backup local side — download remote, rename local
                 backup_path = path + f".conflict-{_now_utc().strftime('%Y%m%dT%H%M%SZ')}"
-                local_abs = self._sync_folder / path
-                backup_abs = self._sync_folder / backup_path
+                snapshot: Path | None = None
                 try:
-                    import shutil
-
-                    shutil.copy2(str(local_abs), str(backup_abs))
+                    snapshot, _, _, _ = self._snapshot_local_file(path)
+                    self._install_download(snapshot, backup_path)
                     download_paths.append(path)
                     result.conflicts.append(
                         f"{path} (local backed up as {backup_path})"
                     )
-                except OSError as exc:
+                except (OSError, S3ClientError) as exc:
                     logger.error("Failed to backup conflict file %s: %s", path, exc)
                     skip_paths.append(path)
+                finally:
+                    if snapshot is not None:
+                        snapshot.unlink(missing_ok=True)
             else:
                 # "ask" or unknown — skip and let caller handle
                 result.conflicts.append(path)
@@ -428,11 +885,11 @@ class SyncEngine:
         storage_class: str = "STANDARD",
     ) -> FileRecord | None:
         """Upload *path* to S3 and return the updated FileRecord."""
-        local_abs = self._sync_folder / path
         s3_key = self._get_s3_key(path)
-        mtime = _local_mtime_utc(local_abs)
+        snapshot_path: Path | None = None
 
         try:
+            snapshot_path, sha256, mtime, size = self._snapshot_local_file(path)
             if self._config.encryption_enabled:
                 passphrase = get_passphrase()
                 if not passphrase:
@@ -444,17 +901,24 @@ class SyncEngine:
 
                 key = _derive_key(passphrase, salt)
 
-                import tempfile as _tmp
-
-                with _tmp.NamedTemporaryFile(
-                    delete=False, suffix=".saha"
-                ) as tf:
-                    tmp_enc_path = Path(tf.name)
+                encrypted_fd, encrypted_name = tempfile.mkstemp(
+                    prefix=".sahara-upload-",
+                    suffix=".saha",
+                    dir=self._lock_path.parent,
+                )
+                os.close(encrypted_fd)
+                tmp_enc_path = Path(encrypted_name)
+                if os.name == "posix":
+                    os.chmod(tmp_enc_path, 0o600)
 
                 try:
                     plaintext_sha = encrypt_file(
-                        local_abs, tmp_enc_path, key, salt
+                        snapshot_path, tmp_enc_path, key, salt
                     )
+                    if plaintext_sha != sha256:
+                        raise S3ClientError(
+                            f"Upload snapshot checksum changed unexpectedly: {path}"
+                        )
                     metadata = {
                         "sahara-sha256": plaintext_sha,
                         "sahara-modified-at": mtime.isoformat(),
@@ -472,20 +936,18 @@ class SyncEngine:
 
                 sha256 = plaintext_sha
             else:
-                sha256 = _compute_sha256(local_abs)
                 metadata = {
                     "sahara-sha256": sha256,
                     "sahara-modified-at": mtime.isoformat(),
                 }
                 etag = self._s3.upload_file(
-                    local_abs,
+                    snapshot_path,
                     s3_key,
                     metadata=metadata,
                     storage_class=storage_class,
                 )
 
             now = _now_utc()
-            size = local_abs.stat().st_size
             record = FileRecord(
                 relative_path=path,
                 sha256_checksum=sha256,
@@ -501,6 +963,9 @@ class SyncEngine:
         except Exception as exc:
             logger.error("Upload failed for %s: %s", path, exc)
             return None
+        finally:
+            if snapshot_path is not None:
+                snapshot_path.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------
     # Execute a single download operation
@@ -512,10 +977,22 @@ class SyncEngine:
         manifest_entry: ManifestEntry,
     ) -> FileRecord | None:
         """Download *path* from S3 and return the updated FileRecord."""
-        local_abs = self._sync_folder / path
+        self._content_path_parts(path)
         s3_key = self._get_s3_key(path)
+        staged_path: Path | None = None
 
         try:
+            mtime = self._validate_manifest_entry(
+                path,
+                manifest_entry,
+                allow_missing_checksum=True,
+            )
+            stage_fd, stage_name = tempfile.mkstemp(
+                prefix=".sahara-download-",
+                dir=self._lock_path.parent,
+            )
+            os.close(stage_fd)
+            staged_path = Path(stage_name)
             if self._config.encryption_enabled:
                 passphrase = get_passphrase()
                 if not passphrase:
@@ -542,25 +1019,23 @@ class SyncEngine:
                     key = derive_key(passphrase, salt)
                     return _df(src, dst, key)
 
-                sha256 = self._s3.download_file(s3_key, local_abs, decrypt_fn=decrypt_fn)
+                self._s3.download_file(
+                    s3_key,
+                    staged_path,
+                    decrypt_fn=decrypt_fn,
+                )
             else:
-                sha256 = self._s3.download_file(s3_key, local_abs)
+                self._s3.download_file(s3_key, staged_path)
 
-            # Verify SHA
-            if sha256 != manifest_entry.sha256:
-                logger.warning(
-                    "SHA-256 mismatch for %s: expected %s, got %s",
-                    path,
-                    manifest_entry.sha256,
-                    sha256,
+            sha256 = _compute_sha256(staged_path)
+            if manifest_entry.sha256 and sha256 != manifest_entry.sha256:
+                raise S3ClientError(
+                    f"SHA-256 mismatch for {path}: expected "
+                    f"{manifest_entry.sha256}, got {sha256}"
                 )
 
+            local_abs = self._install_download(staged_path, path)
             now = _now_utc()
-            mtime_str = manifest_entry.modified_at
-            try:
-                mtime = datetime.datetime.fromisoformat(mtime_str)
-            except ValueError:
-                mtime = now
 
             # Restore local mtime to match remote
             mtime_ts = mtime.timestamp()
@@ -584,6 +1059,9 @@ class SyncEngine:
         except Exception as exc:
             logger.error("Download failed for %s: %s", path, exc)
             return None
+        finally:
+            if staged_path is not None:
+                staged_path.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------
     # Execute a single delete operation
@@ -599,9 +1077,8 @@ class SyncEngine:
             return False
 
     def _execute_delete_local(self, path: str) -> bool:
-        local_abs = self._sync_folder / path
         try:
-            local_abs.unlink(missing_ok=True)
+            self._delete_local_path(path)
             return True
         except Exception as exc:
             logger.error("Local delete failed for %s: %s", path, exc)
@@ -614,31 +1091,62 @@ class SyncEngine:
     def _execute_move(self, old_path: str, new_path: str) -> FileRecord | None:
         old_s3 = self._get_s3_key(old_path)
         new_s3 = self._get_s3_key(new_path)
+        snapshot: Path | None = None
         try:
+            existing = self._db.get_file(old_path, s3_prefix=self._s3_prefix)
+            try:
+                snapshot, local_sha, local_mtime, local_size = (
+                    self._snapshot_local_file(new_path)
+                )
+            except S3ClientError:
+                try:
+                    self._sync_folder.joinpath(
+                        *self._content_path_parts(new_path)
+                    ).lstat()
+                except FileNotFoundError:
+                    if existing is None:
+                        raise
+                else:
+                    raise
+                local_sha = existing.sha256_checksum
+                local_mtime = _now_utc()
+                local_size = existing.size_bytes
+
+            if existing is None or local_sha != existing.sha256_checksum:
+                if snapshot is not None:
+                    snapshot.unlink(missing_ok=True)
+                snapshot = None
+                uploaded = self._execute_upload(
+                    new_path,
+                    existing.tier if existing else "STANDARD",
+                )
+                if uploaded is None:
+                    return None
+                self._s3.delete_object(old_s3)
+                return uploaded
+
             etag = self._s3.copy_object(old_s3, new_s3)
             self._s3.delete_object(old_s3)
 
-            existing = self._db.get_file(old_path, s3_prefix=self._s3_prefix)
             now = _now_utc()
-            local_abs = self._sync_folder / new_path
-
-            sha256 = existing.sha256_checksum if existing else _compute_sha256(local_abs)
-            size = local_abs.stat().st_size if local_abs.exists() else (existing.size_bytes if existing else 0)
 
             record = FileRecord(
                 relative_path=new_path,
-                sha256_checksum=sha256,
-                size_bytes=size,
+                sha256_checksum=local_sha,
+                size_bytes=local_size,
                 tier=(existing.tier if existing else "STANDARD"),
                 s3_etag=etag,
                 last_sync_at=now,
-                local_modified_at=_local_mtime_utc(local_abs) if local_abs.exists() else now,
+                local_modified_at=local_mtime,
                 remote_modified_at=now,
             )
             return record
         except Exception as exc:
             logger.error("Move failed %s -> %s: %s", old_path, new_path, exc)
             return None
+        finally:
+            if snapshot is not None:
+                snapshot.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------
     # Manifest helpers
@@ -650,6 +1158,7 @@ class SyncEngine:
         for record in self._db.list_files(
             include_deleted=False, s3_prefix=self._s3_prefix
         ):
+            self._content_path_parts(record.relative_path)
             entry = ManifestEntry(
                 sha256=record.sha256_checksum,
                 size=record.size_bytes,
@@ -664,28 +1173,77 @@ class SyncEngine:
         self,
         manifest: dict[str, dict],
         current_etag: str | None,
+        *,
+        if_none_match: bool = False,
+        manifest_key: str | None = None,
+        base_manifest: dict[str, dict] | None = None,
     ) -> None:
-        """Write manifest to S3 with conditional PUT, retrying on 412."""
-        mkey = self._get_manifest_key()
+        """Write a manifest delta with conditional retries."""
+        mkey = manifest_key or self._get_manifest_key()
+        desired_manifest = manifest
+        original_manifest = base_manifest if base_manifest is not None else manifest
+        deleted_paths = set(original_manifest) - set(desired_manifest)
+        changed_entries = {
+            path: data
+            for path, data in desired_manifest.items()
+            if original_manifest.get(path) != data
+        }
+
         for attempt in range(_MAX_MANIFEST_RETRIES):
             try:
-                self._s3.put_manifest(manifest, if_match_etag=current_etag, key=mkey)
+                if if_none_match:
+                    put_manifest = self._s3.put_manifest
+                    try:
+                        parameters = inspect.signature(put_manifest).parameters
+                        supports_create_only = (
+                            "if_none_match" in parameters
+                            or any(
+                                parameter.kind
+                                is inspect.Parameter.VAR_KEYWORD
+                                for parameter in parameters.values()
+                            )
+                        )
+                    except (TypeError, ValueError):
+                        supports_create_only = False
+                    if not supports_create_only:
+                        raise S3ClientError(
+                            "Storage backend does not support atomic create-only "
+                            "manifest writes. Upgrade the backend implementation."
+                        )
+                    put_manifest(  # type: ignore[call-arg]
+                        manifest,
+                        if_match_etag=current_etag,
+                        key=mkey,
+                        if_none_match=True,
+                    )
+                else:
+                    self._s3.put_manifest(
+                        manifest,
+                        if_match_etag=current_etag,
+                        key=mkey,
+                    )
                 return
             except ManifestConflictError as exc:
                 if attempt == _MAX_MANIFEST_RETRIES - 1:
                     raise S3ClientError(
-                        f"Failed to write manifest after {_MAX_MANIFEST_RETRIES} attempts "
-                        "due to concurrent modifications."
+                        "Failed to write manifest after conditional retries."
                     ) from exc
-                # Reload remote manifest and merge
-                logger.warning(
-                    "Manifest conflict on attempt %d; reloading…", attempt + 1
-                )
                 remote_manifest, current_etag = self._s3.get_manifest(key=mkey)
-                if remote_manifest:
-                    # Merge: local DB entries win (we just synced)
-                    remote_manifest.update(manifest)
-                    manifest = remote_manifest
+                if remote_manifest is None:
+                    manifest = {}
+                    if_none_match = True
+                    current_etag = None
+                else:
+                    if current_etag is None:
+                        raise S3ClientError(
+                            "Storage backend returned a manifest without an ETag."
+                        )
+                    self._manifest_entries(remote_manifest)
+                    manifest = dict(remote_manifest)
+                    if_none_match = False
+                for path in deleted_paths:
+                    manifest.pop(path, None)
+                manifest.update(changed_entries)
 
     # ------------------------------------------------------------------
     # Bootstrap: build manifest from ListObjectsV2
@@ -717,6 +1275,7 @@ class SyncEngine:
 
             if not rel or rel.startswith(".sahara/") or ".sahara/" in rel:
                 continue
+            self._content_path_parts(rel)
 
             manifest[rel] = ManifestEntry(
                 sha256="",  # Unknown until downloaded
@@ -778,18 +1337,23 @@ class SyncEngine:
         result: SyncResult,
     ) -> SyncResult:
         # Step 2: Fetch manifest (per-folder manifest key)
-        raw_manifest, manifest_etag = self._s3.get_manifest(key=self._get_manifest_key())
+        raw_manifest, manifest_etag, manifest_key, manifest_needs_create = (
+            self._get_manifest_with_legacy()
+        )
 
         if raw_manifest is None:
             manifest_entries = self._bootstrap_manifest()
         else:
-            manifest_entries = {
-                path: ManifestEntry.from_dict(data)
-                for path, data in raw_manifest.items()
-            }
+            manifest_entries = self._manifest_entries(raw_manifest)
+        new_manifest = {
+            path: entry.to_dict()
+            for path, entry in manifest_entries.items()
+        }
+        base_manifest = dict(new_manifest)
 
         # Step 3: Scan local
         local_files = self._scan_local()
+        result.skipped.extend(sorted(self._unsupported_local_paths))
 
         # Step 4: Build DB records map
         db_records = {r.relative_path: r for r in self._db.list_files(include_deleted=True, s3_prefix=self._s3_prefix)}
@@ -806,6 +1370,18 @@ class SyncEngine:
             diff, strategy, result
         )
         result.skipped.extend(conflict_skips)
+        if push_only:
+            result.skipped.extend(
+                diff.remote_new + diff.remote_modified + conflict_downloads
+            )
+        if pull_only:
+            result.skipped.extend(
+                diff.local_new
+                + diff.local_modified
+                + conflict_uploads
+                + diff.local_deleted
+                + [new_path for _, new_path in diff.local_moves]
+            )
 
         if dry_run:
             # Summarise without executing
@@ -869,6 +1445,13 @@ class SyncEngine:
                             s3_prefix=self._s3_prefix,
                         )
                         result.uploaded.append(op_result.relative_path)
+                        new_manifest[op_result.relative_path] = ManifestEntry(
+                            sha256=op_result.sha256_checksum,
+                            size=op_result.size_bytes,
+                            tier=op_result.tier,
+                            modified_at=op_result.remote_modified_at.isoformat(),
+                            etag=op_result.s3_etag,
+                        ).to_dict()
                     else:
                         result.failed.append((path_info, "Upload returned no record"))
 
@@ -883,6 +1466,13 @@ class SyncEngine:
                             s3_prefix=self._s3_prefix,
                         )
                         result.downloaded.append(op_result.relative_path)
+                        new_manifest[op_result.relative_path] = ManifestEntry(
+                            sha256=op_result.sha256_checksum,
+                            size=op_result.size_bytes,
+                            tier=op_result.tier,
+                            modified_at=op_result.remote_modified_at.isoformat(),
+                            etag=op_result.s3_etag,
+                        ).to_dict()
                     else:
                         result.failed.append((path_info, "Download returned no record"))
 
@@ -891,6 +1481,7 @@ class SyncEngine:
                         self._db.mark_deleted(path_info, s3_prefix=self._s3_prefix)
                         self._db.add_history(path_info, "delete_remote", s3_prefix=self._s3_prefix)
                         result.deleted.append(path_info)
+                        new_manifest.pop(path_info, None)
                     else:
                         result.failed.append((path_info, "Remote delete failed"))
 
@@ -899,6 +1490,7 @@ class SyncEngine:
                         self._db.mark_deleted(path_info, s3_prefix=self._s3_prefix)
                         self._db.add_history(path_info, "delete_local", s3_prefix=self._s3_prefix)
                         result.deleted.append(path_info)
+                        new_manifest.pop(path_info, None)
                     else:
                         result.failed.append((path_info, "Local delete failed"))
 
@@ -909,16 +1501,41 @@ class SyncEngine:
                         self._db.upsert_file(op_result, s3_prefix=self._s3_prefix)
                         self._db.add_history(new_p, "move", details=f"from:{old_p}", s3_prefix=self._s3_prefix)
                         result.moved.append((old_p, new_p))
+                        new_manifest.pop(old_p, None)
+                        new_manifest[new_p] = ManifestEntry(
+                            sha256=op_result.sha256_checksum,
+                            size=op_result.size_bytes,
+                            tier=op_result.tier,
+                            modified_at=op_result.remote_modified_at.isoformat(),
+                            etag=op_result.s3_etag,
+                        ).to_dict()
                     else:
                         result.failed.append((path_info, "Move failed"))
 
-        # Step 10: Rebuild manifest and write
-        new_manifest = self._build_manifest_from_db()
-        try:
-            self._write_manifest_with_retry(new_manifest, manifest_etag)
-        except S3ClientError as exc:
-            logger.error("Failed to write manifest: %s", exc)
-            result.failed.append(("manifest", str(exc)))
+        # Step 10: Persist the fetched manifest plus successful operation deltas.
+        # Bootstrap entries have no trusted checksum until downloaded. Do not create
+        # a manifest that the strict reader would reject on the next sync.
+        unresolved_bootstrap = manifest_needs_create and any(
+            not _SHA256_RE.fullmatch(entry.get("sha256", ""))
+            for entry in new_manifest.values()
+        )
+        if unresolved_bootstrap:
+            logger.warning(
+                "Deferring manifest creation until all bootstrapped objects "
+                "have verified checksums."
+            )
+        else:
+            try:
+                self._write_manifest_with_retry(
+                    new_manifest,
+                    manifest_etag,
+                    if_none_match=manifest_needs_create,
+                    manifest_key=manifest_key,
+                    base_manifest=base_manifest,
+                )
+            except S3ClientError as exc:
+                logger.error("Failed to write manifest: %s", exc)
+                result.failed.append(("manifest", str(exc)))
 
         # Verification pass
         if verify and result.uploaded:
@@ -940,15 +1557,12 @@ class SyncEngine:
 
     def get_status(self) -> DiffResult:
         """Return pending changes without executing any operations."""
-        raw_manifest, _ = self._s3.get_manifest(key=self._get_manifest_key())
+        raw_manifest, _, _, _ = self._get_manifest_with_legacy()
 
         if raw_manifest is None:
             manifest_entries = self._bootstrap_manifest()
         else:
-            manifest_entries = {
-                path: ManifestEntry.from_dict(data)
-                for path, data in raw_manifest.items()
-            }
+            manifest_entries = self._manifest_entries(raw_manifest)
 
         local_files = self._scan_local()
         db_records = {r.relative_path: r for r in self._db.list_files(include_deleted=True, s3_prefix=self._s3_prefix)}
@@ -1071,7 +1685,7 @@ class SyncEngine:
             etag="",
         )
         # Fetch real manifest entry if available
-        raw_manifest, _ = self._s3.get_manifest(key=self._get_manifest_key())
+        raw_manifest, _, _, _ = self._get_manifest_with_legacy()
         if raw_manifest and path in raw_manifest:
             entry = ManifestEntry.from_dict(raw_manifest[path])
 

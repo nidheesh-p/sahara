@@ -4,10 +4,12 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import boto3
+import pytest
 from moto import mock_aws
 
 from sahara.config import SaharaConfig
@@ -185,6 +187,45 @@ class TestScanLocal:
             local = engine._scan_local()
             assert "app.js" in local
             assert not any("node_modules" in p for p in local.keys())
+            db.close()
+
+    @pytest.mark.skipif(
+        os.name != "posix",
+        reason="requires symlink support",
+    )
+    def test_scan_preserves_previously_synced_symlink_remote_state(
+        self,
+        tmp_path: Path,
+    ):
+        with mock_aws():
+            boto3.client("s3", region_name=REGION).create_bucket(Bucket=BUCKET)
+            cfg = _make_config(tmp_path)
+            db = _make_db(tmp_path)
+            engine = SyncEngine(cfg, db, MagicMock(spec=S3Client))
+            sync_folder = cfg.get_sync_folder_path()
+            outside = tmp_path / "outside.txt"
+            outside.write_bytes(b"legacy")
+            (sync_folder / "legacy.txt").symlink_to(outside)
+            record = _make_record(
+                "legacy.txt",
+                sha256=hashlib.sha256(b"legacy").hexdigest(),
+            )
+            db.upsert_file(record)
+            manifest = {
+                "legacy.txt": _make_manifest_entry(
+                    sha256=record.sha256_checksum
+                )
+            }
+
+            local = engine._scan_local()
+            diff = engine._three_way_diff(
+                local,
+                manifest,
+                {"legacy.txt": record},
+            )
+
+            assert "legacy.txt" not in local
+            assert diff.is_empty()
             db.close()
 
 

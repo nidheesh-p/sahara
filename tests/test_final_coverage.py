@@ -927,7 +927,7 @@ class TestEncryptedDownload:
         )
 
         entry = ManifestEntry(
-            sha256="sha1",
+            sha256="",
             size=10,
             tier="STANDARD",
             modified_at=now.isoformat(),
@@ -1231,6 +1231,18 @@ class TestFolderCommands:
         db = StateDB(db_path)
         db.connect()
         db.add_sync_target(str(extra), "extra-prefix")
+        db.upsert_content_root(
+            str(extra),
+            "extra-prefix",
+            sync_enabled=True,
+        )
+        db.upsert_embedding(
+            "extra-prefix",
+            "old.txt",
+            "hash",
+            "[0.1]",
+            "stale searchable content",
+        )
         db.close()
 
         db2 = StateDB(db_path)
@@ -1246,6 +1258,9 @@ class TestFolderCommands:
         db2.close()
         assert result.exit_code == 0
         assert "Unregistered" in result.output
+        with StateDB(db_path) as check_db:
+            assert check_db.get_content_root(str(extra)) is None
+            assert check_db.count_embeddings(s3_prefix="extra-prefix") == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1300,6 +1315,24 @@ class TestGetS3KeyWithPrefix:
         key = engine._get_s3_key("report.pdf")
         assert key == "global/team/report.pdf"
 
+    def test_get_s3_key_rejects_control_namespace(self, tmp_path: Path):
+        from sahara.ignore_rules import IgnoreRules
+        from sahara.s3_client import S3ClientError
+        from sahara.sync_engine import SyncEngine
+
+        sync_folder = tmp_path / "sync"
+        sync_folder.mkdir()
+        cfg = SaharaConfig(sync_folder=str(sync_folder), bucket="b")
+        engine = SyncEngine(
+            cfg,
+            MagicMock(),
+            MagicMock(),
+            IgnoreRules(sync_folder),
+        )
+
+        with pytest.raises(S3ClientError, match="control namespace"):
+            engine._get_s3_key(".Sahara/manifest.json")
+
     def test_get_manifest_key_with_s3_prefix(self, tmp_path: Path):
         from sahara.ignore_rules import IgnoreRules
         from sahara.sync_engine import SyncEngine
@@ -1313,6 +1346,208 @@ class TestGetS3KeyWithPrefix:
         key = engine._get_manifest_key()
         assert "myteam" in key
         assert ".sahara/manifest-" in key
+
+    def test_manifest_key_encoding_does_not_alias_prefixes(self, tmp_path: Path):
+        from sahara.ignore_rules import IgnoreRules
+        from sahara.sync_engine import SyncEngine
+
+        sync_folder = tmp_path / "sync"
+        sync_folder.mkdir()
+        cfg = SaharaConfig(sync_folder=str(sync_folder), bucket="b", region="us-east-1")
+        ignore = IgnoreRules(sync_folder)
+        nested = SyncEngine(cfg, MagicMock(), MagicMock(), ignore, s3_prefix="a/b")
+        dashed = SyncEngine(cfg, MagicMock(), MagicMock(), ignore, s3_prefix="a-b")
+
+        assert nested._get_manifest_key() != dashed._get_manifest_key()
+        assert "a%2Fb" in nested._get_manifest_key()
+
+    def test_nested_prefix_reads_unambiguous_legacy_manifest(self, tmp_path: Path):
+        from sahara.ignore_rules import IgnoreRules
+        from sahara.sync_engine import SyncEngine
+
+        sync_folder = tmp_path / "sync"
+        sync_folder.mkdir()
+        cfg = SaharaConfig(sync_folder=str(sync_folder), bucket="b", region="us-east-1")
+        ignore = IgnoreRules(sync_folder)
+        storage = MagicMock()
+        storage.get_manifest.side_effect = [
+            (None, None),
+            ({"legacy.txt": {"sha256": "abc"}}, "legacy-etag"),
+        ]
+        db = MagicMock()
+        db.list_content_roots.return_value = [
+            {"storage_prefix": "a/b"},
+        ]
+        db.list_files.return_value = [MagicMock()]
+        engine = SyncEngine(cfg, db, storage, ignore, s3_prefix="a/b")
+
+        manifest, etag, manifest_key, needs_create = (
+            engine._get_manifest_with_legacy()
+        )
+
+        assert manifest == {"legacy.txt": {"sha256": "abc"}}
+        assert etag == "legacy-etag"
+        assert needs_create is False
+        assert manifest_key.endswith("manifest-a-b.json")
+        assert storage.get_manifest.call_args_list[1].kwargs["key"].endswith(
+            "manifest-a-b.json"
+        )
+        engine._write_manifest_with_retry(
+            manifest,
+            etag,
+            manifest_key=manifest_key,
+        )
+        assert storage.put_manifest.call_args.kwargs["key"] == manifest_key
+        assert storage.put_manifest.call_args.kwargs["if_match_etag"] == (
+            "legacy-etag"
+        )
+
+    def test_nested_prefix_refuses_ambiguous_legacy_manifest(self, tmp_path: Path):
+        from sahara.ignore_rules import IgnoreRules
+        from sahara.sync_engine import SyncEngine
+
+        sync_folder = tmp_path / "sync"
+        sync_folder.mkdir()
+        cfg = SaharaConfig(sync_folder=str(sync_folder), bucket="b", region="us-east-1")
+        storage = MagicMock()
+        storage.get_manifest.return_value = (None, None)
+        db = MagicMock()
+        db.list_content_roots.return_value = [
+            {"storage_prefix": "a/b-c"},
+            {"storage_prefix": "a-b/c"},
+        ]
+        engine = SyncEngine(
+            cfg,
+            db,
+            storage,
+            IgnoreRules(sync_folder),
+            s3_prefix="a/b-c",
+        )
+
+        manifest, etag, key, needs_create = engine._get_manifest_with_legacy()
+        assert (manifest, etag, needs_create) == (None, None, True)
+        assert key.endswith("manifest-a%2Fb-c.json")
+        assert storage.get_manifest.call_count == 1
+
+    def test_nested_prefix_refuses_retained_legacy_alias(
+        self,
+        tmp_path: Path,
+    ):
+        from sahara.ignore_rules import IgnoreRules
+        from sahara.sync_engine import SyncEngine
+
+        sync_folder = tmp_path / "sync"
+        sync_folder.mkdir()
+        cfg = SaharaConfig(sync_folder=str(sync_folder), bucket="b")
+        storage = MagicMock()
+        storage.get_manifest.return_value = (None, None)
+        db = MagicMock()
+        db.list_content_roots.return_value = [{"storage_prefix": "a/b"}]
+        db.list_storage_ownership_prefixes.return_value = ["a/b", "a-b"]
+        engine = SyncEngine(
+            cfg,
+            db,
+            storage,
+            IgnoreRules(sync_folder),
+            s3_prefix="a/b",
+        )
+
+        manifest, etag, key, needs_create = engine._get_manifest_with_legacy()
+
+        assert (manifest, etag, needs_create) == (None, None, True)
+        assert key.endswith("manifest-a%2Fb.json")
+        assert storage.get_manifest.call_count == 1
+
+    def test_current_manifest_key_cannot_claim_other_prefix_legacy_key(
+        self,
+        tmp_path: Path,
+    ):
+        from sahara.ignore_rules import IgnoreRules
+        from sahara.s3_client import S3ClientError
+        from sahara.sync_engine import SyncEngine
+
+        sync_folder = tmp_path / "sync"
+        sync_folder.mkdir()
+        cfg = SaharaConfig(sync_folder=str(sync_folder), bucket="b")
+        storage = MagicMock()
+        db = MagicMock()
+        db.list_content_roots.return_value = [
+            {"storage_prefix": "a-b"},
+            {"storage_prefix": "a/b"},
+        ]
+        db.list_storage_ownership_prefixes.return_value = ["a-b", "a/b"]
+        engine = SyncEngine(
+            cfg,
+            db,
+            storage,
+            IgnoreRules(sync_folder),
+            s3_prefix="a-b",
+        )
+
+        with pytest.raises(S3ClientError, match="aliases retained legacy"):
+            engine._get_manifest_with_legacy()
+
+        storage.get_manifest.assert_not_called()
+
+    def test_encoded_prefix_reads_legacy_manifest(self, tmp_path: Path):
+        from sahara.ignore_rules import IgnoreRules
+        from sahara.sync_engine import SyncEngine
+
+        sync_folder = tmp_path / "sync"
+        sync_folder.mkdir()
+        cfg = SaharaConfig(sync_folder=str(sync_folder), bucket="b", region="us-east-1")
+        storage = MagicMock()
+        storage.get_manifest.side_effect = [
+            (None, None),
+            ({"legacy.txt": {"sha256": "abc"}}, "legacy-etag"),
+        ]
+        db = MagicMock()
+        db.list_content_roots.return_value = [{"storage_prefix": "Team Docs"}]
+        db.list_files.return_value = [MagicMock()]
+        engine = SyncEngine(
+            cfg,
+            db,
+            storage,
+            IgnoreRules(sync_folder),
+            s3_prefix="Team Docs",
+        )
+
+        manifest, etag, manifest_key, needs_create = (
+            engine._get_manifest_with_legacy()
+        )
+
+        assert manifest == {"legacy.txt": {"sha256": "abc"}}
+        assert etag == "legacy-etag"
+        assert needs_create is False
+        assert manifest_key.endswith("manifest-Team Docs.json")
+        assert storage.get_manifest.call_args_list[1].kwargs["key"].endswith(
+            "manifest-Team Docs.json"
+        )
+
+    def test_new_prefix_does_not_claim_stale_legacy_manifest(self, tmp_path: Path):
+        from sahara.ignore_rules import IgnoreRules
+        from sahara.sync_engine import SyncEngine
+
+        sync_folder = tmp_path / "sync"
+        sync_folder.mkdir()
+        cfg = SaharaConfig(sync_folder=str(sync_folder), bucket="b", region="us-east-1")
+        storage = MagicMock()
+        storage.get_manifest.return_value = (None, None)
+        db = MagicMock()
+        db.list_content_roots.return_value = [{"storage_prefix": "a/b"}]
+        db.list_files.return_value = []
+        engine = SyncEngine(
+            cfg,
+            db,
+            storage,
+            IgnoreRules(sync_folder),
+            s3_prefix="a/b",
+        )
+
+        manifest, etag, key, needs_create = engine._get_manifest_with_legacy()
+        assert (manifest, etag, needs_create) == (None, None, True)
+        assert key.endswith("manifest-a%2Fb.json")
+        assert storage.get_manifest.call_count == 1
 
 
 # ---------------------------------------------------------------------------

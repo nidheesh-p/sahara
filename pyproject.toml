@@ -35,7 +35,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "boto3>=1.34.0",
+    "boto3>=1.35.2",
     "click>=8.1.0",
     "watchdog>=4.0.0",
     "cryptography>=42.0.0",
@@ -43,6 +43,7 @@ dependencies = [
     "plyer>=2.1.0",
     "filelock>=3.14.0",
     "pathspec>=0.12.0",
+    "PyYAML>=6.0.0",
 ]
 
 [project.optional-dependencies]
