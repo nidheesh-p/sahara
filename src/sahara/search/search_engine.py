@@ -420,19 +420,30 @@ class SearchEngine:
         query: str,
         top_k: int = 5,
         storage_prefix: str | None = None,
+        candidate_paths: set[str] | None = None,
     ) -> list[dict]:
         """Search for files semantically similar to query.
 
         Returns list of dicts: {storage_prefix, relative_path, score, snippet}.
         """
         query_embs = self._embed([query])
-        if not query_embs:
+        if not query_embs or candidate_paths == set():
             return []
 
         if self._db.has_vec_table():
-            results = self._search_vec(query_embs[0], top_k, storage_prefix)
+            results = self._search_vec(
+                query_embs[0],
+                top_k,
+                storage_prefix,
+                candidate_paths,
+            )
         else:
-            results = self._search_cosine(query_embs[0], top_k, storage_prefix)
+            results = self._search_cosine(
+                query_embs[0],
+                top_k,
+                storage_prefix,
+                candidate_paths,
+            )
         for result in results:
             residency = self._db.get_storage_residency(
                 result["storage_prefix"], result["relative_path"]
@@ -447,12 +458,33 @@ class SearchEngine:
         query_emb: Any,
         top_k: int,
         storage_prefix: str | None,
+        candidate_paths: set[str] | None = None,
     ) -> list[dict]:
         query_bytes = _floats_to_bytes(query_emb)
-        # Fetch top_k*4 to have enough after per-file dedup
-        raw = self._db.vec_knn_search(query_bytes, k=top_k * 4, storage_prefix=storage_prefix)
+        # Candidate filtering must happen before the final result limit. Fetch the
+        # complete scoped chunk set when metadata filters supplied candidate paths.
+        k = (
+            self._db.count_chunks()
+            if candidate_paths is not None
+            else top_k * 4
+        )
+        raw = self._db.vec_knn_search(
+            query_bytes,
+            k=max(1, k),
+            storage_prefix=storage_prefix,
+        )
+        if candidate_paths is not None:
+            raw = [
+                row for row in raw
+                if row["relative_path"] in candidate_paths
+            ]
         if not raw:
-            return self._search_cosine(query_emb, top_k, storage_prefix)
+            return self._search_cosine(
+                query_emb,
+                top_k,
+                storage_prefix,
+                candidate_paths,
+            )
         return self._dedup_to_top_k(raw, top_k)
 
     def _search_cosine(
@@ -460,6 +492,7 @@ class SearchEngine:
         query_emb: Any,
         top_k: int,
         storage_prefix: str | None,
+        candidate_paths: set[str] | None = None,
     ) -> list[dict]:
         """Fallback: O(n) cosine scan against legacy embeddings table."""
         import json
@@ -474,6 +507,11 @@ class SearchEngine:
         rows = self._db.list_embeddings(s3_prefix=storage_prefix)
         scored: list[dict] = []
         for row in rows:
+            if (
+                candidate_paths is not None
+                and row["relative_path"] not in candidate_paths
+            ):
+                continue
             try:
                 doc_vec = np.array(json.loads(row["embedding_json"]), dtype=np.float32)
                 doc_norm = np.linalg.norm(doc_vec)

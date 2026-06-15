@@ -23,6 +23,7 @@ MAX_TAGS = 32
 MAX_TAG_CHARS = 64
 MAX_SOURCE_URL_CHARS = 2_048
 MAX_SOURCE_ID_CHARS = 256
+MAX_IDEMPOTENCY_KEY_CHARS = 256
 
 
 def render_document(metadata: Mapping[str, Any], text: str) -> str:
@@ -80,6 +81,13 @@ def parse_document(raw: str) -> tuple[dict[str, Any], str]:
             raise ValueError("Memory source URL must be absolute HTTP or HTTPS")
     if len(loaded["source_id"]) > MAX_SOURCE_ID_CHARS:
         raise ValueError("Memory source ID is too long")
+    idempotency_key = loaded.get("idempotency_key", "")
+    if (
+        not isinstance(idempotency_key, str)
+        or len(idempotency_key) > MAX_IDEMPOTENCY_KEY_CHARS
+    ):
+        raise ValueError("Memory idempotency key is invalid")
+    loaded["idempotency_key"] = idempotency_key
     if len(tags) > MAX_TAGS or any(
         not tag.strip() or len(tag) > MAX_TAG_CHARS for tag in tags
     ):
