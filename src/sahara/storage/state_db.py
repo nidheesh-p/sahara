@@ -8,6 +8,8 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
+from filelock import FileLock
+
 from sahara.models import FileRecord, StorageTier
 
 __all__ = ["StateDB", "DB_PATH"]
@@ -140,8 +142,8 @@ CREATE INDEX IF NOT EXISTS idx_chunks_path   ON chunks (storage_prefix, relative
 
 def _apply_pragmas(conn: sqlite3.Connection) -> None:
     """Apply required SQLite PRAGMAs to every new connection."""
-    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA foreign_keys = ON")
 
@@ -360,6 +362,11 @@ class StateDB:
         self._path = db_path or DB_PATH
         self._conn: sqlite3.Connection | None = None
 
+    @property
+    def path(self) -> Path:
+        """Filesystem path backing this state database."""
+        return self._path
+
     # ------------------------------------------------------------------
     # Connection lifecycle
     # ------------------------------------------------------------------
@@ -369,15 +376,20 @@ class StateDB:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self._path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        _try_load_sqlite_vec(conn)
-        _apply_pragmas(conn)
-        # Run v2 migration BEFORE SCHEMA_SQL so that old DBs (without s3_prefix)
-        # have their tables upgraded before the index CREATE statements run.
-        _migrate_v2(conn)
-        conn.executescript(_SCHEMA_SQL)
-        conn.commit()
-        _migrate_v3(conn)
-        _migrate_v4(conn)
+        init_lock = self._path.with_name(f"{self._path.name}.init.lock")
+        try:
+            with FileLock(str(init_lock)):
+                _try_load_sqlite_vec(conn)
+                _apply_pragmas(conn)
+                # Run v2 migration before schema indexes reference new columns.
+                _migrate_v2(conn)
+                conn.executescript(_SCHEMA_SQL)
+                conn.commit()
+                _migrate_v3(conn)
+                _migrate_v4(conn)
+        except Exception:
+            conn.close()
+            raise
         self._conn = conn
         return self
 
@@ -500,6 +512,15 @@ class StateDB:
                 (s3_prefix,),
             ).fetchall()
         return [_row_to_file_record(r) for r in rows]
+
+    def list_storage_ownership_prefixes(self) -> list[str]:
+        """Return prefixes with retained file or storage-residency state."""
+        rows = self.conn.execute(
+            "SELECT s3_prefix AS storage_prefix FROM files "
+            "UNION SELECT storage_prefix FROM storage_residency "
+            "ORDER BY storage_prefix"
+        ).fetchall()
+        return [row["storage_prefix"] for row in rows]
 
     def list_files_by_tier(
         self, tier: StorageTier, s3_prefix: str = ""
@@ -782,8 +803,8 @@ class StateDB:
         with self.transaction():
             existing = self.conn.execute(
                 "SELECT id, is_primary, sync_enabled FROM content_roots "
-                "WHERE local_path = ? OR storage_prefix = ?",
-                (resolved, storage_prefix.strip("/")),
+                "WHERE local_path = ?",
+                (resolved,),
             ).fetchone()
             if existing:
                 self.conn.execute(
@@ -811,12 +832,104 @@ class StateDB:
                     ),
                 )
 
+    def replace_primary_content_root(
+        self,
+        local_path: str,
+        *,
+        sync_enabled: bool,
+        clear_index_prefixes: tuple[str, ...] = (),
+        remove_sync_target: bool = False,
+    ) -> None:
+        """Atomically move or promote the unique primary content root."""
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        resolved = str(Path(local_path).expanduser().resolve())
+        with self.transaction():
+            for storage_prefix in dict.fromkeys(clear_index_prefixes):
+                self._delete_index_for_prefix_in_transaction(storage_prefix)
+            if remove_sync_target:
+                self.conn.execute(
+                    "DELETE FROM sync_targets WHERE local_path = ?",
+                    (resolved,),
+                )
+            current = self.conn.execute(
+                "SELECT id, local_path, sync_enabled FROM content_roots "
+                "WHERE is_primary = 1"
+            ).fetchone()
+            target = self.conn.execute(
+                "SELECT id, sync_enabled FROM content_roots WHERE local_path = ?",
+                (resolved,),
+            ).fetchone()
+
+            if current is not None and current["local_path"] == resolved:
+                self.conn.execute(
+                    "UPDATE content_roots SET sync_enabled = ? WHERE id = ?",
+                    (
+                        max(int(sync_enabled), current["sync_enabled"]),
+                        current["id"],
+                    ),
+                )
+                return
+
+            if current is not None:
+                self.conn.execute(
+                    "DELETE FROM content_roots WHERE id = ?",
+                    (current["id"],),
+                )
+
+            if target is not None:
+                self.conn.execute(
+                    "UPDATE content_roots SET storage_prefix = '', is_primary = 1, "
+                    "sync_enabled = ? WHERE id = ?",
+                    (
+                        max(int(sync_enabled), target["sync_enabled"]),
+                        target["id"],
+                    ),
+                )
+            else:
+                self.conn.execute(
+                    "INSERT INTO content_roots "
+                    "(local_path, storage_prefix, is_primary, sync_enabled, added_at) "
+                    "VALUES (?, '', 1, ?, ?)",
+                    (resolved, int(sync_enabled), now),
+                )
+
     def remove_content_root(self, local_path: str) -> None:
         """Remove a non-primary content root registration."""
         with self.transaction():
             self.conn.execute(
                 "DELETE FROM content_roots WHERE local_path = ? AND is_primary = 0",
                 (str(Path(local_path).expanduser().resolve()),),
+            )
+
+    def unregister_content_root(
+        self,
+        local_path: str,
+        storage_prefix: str,
+    ) -> None:
+        """Atomically remove a non-primary root and its searchable local state."""
+        resolved = str(Path(local_path).expanduser().resolve())
+        with self.transaction():
+            root = self.conn.execute(
+                "SELECT is_primary, storage_prefix FROM content_roots "
+                "WHERE local_path = ?",
+                (resolved,),
+            ).fetchone()
+            if root is None:
+                raise ValueError(f"Folder not registered: {resolved}")
+            if root["is_primary"]:
+                raise ValueError("The primary folder cannot be removed.")
+            if root["storage_prefix"] != storage_prefix:
+                raise ValueError(
+                    "Content root storage prefix changed during removal."
+                )
+            self.conn.execute(
+                "DELETE FROM sync_targets WHERE local_path = ?",
+                (resolved,),
+            )
+            self._delete_index_for_prefix_in_transaction(storage_prefix)
+            self.conn.execute(
+                "DELETE FROM content_roots WHERE local_path = ?",
+                (resolved,),
             )
 
     def set_content_root_sync(self, local_path: str, enabled: bool) -> None:
@@ -997,16 +1110,41 @@ class StateDB:
 
     def delete_index_for_prefix(self, storage_prefix: str) -> None:
         """Remove inventory and searchable data for an entire content root."""
-        entries = self.list_index_entries(storage_prefix=storage_prefix)
-        for entry in entries:
-            self.delete_search_index_for_file(
-                storage_prefix, entry["relative_path"]
-            )
         with self.transaction():
-            self.conn.execute(
-                "DELETE FROM index_entries WHERE storage_prefix = ?",
+            self._delete_index_for_prefix_in_transaction(storage_prefix)
+
+    def _delete_index_for_prefix_in_transaction(
+        self,
+        storage_prefix: str,
+    ) -> None:
+        """Remove one prefix's search state inside the caller's transaction."""
+        chunk_ids = [
+            row["id"]
+            for row in self.conn.execute(
+                "SELECT id FROM chunks WHERE storage_prefix = ?",
                 (storage_prefix,),
-            )
+            ).fetchall()
+        ]
+        if chunk_ids and self.has_vec_table():
+            for offset in range(0, len(chunk_ids), 500):
+                batch = chunk_ids[offset : offset + 500]
+                placeholders = ",".join("?" * len(batch))
+                self.conn.execute(
+                    f"DELETE FROM vec_chunks WHERE rowid IN ({placeholders})",
+                    batch,
+                )
+        self.conn.execute(
+            "DELETE FROM chunks WHERE storage_prefix = ?",
+            (storage_prefix,),
+        )
+        self.conn.execute(
+            "DELETE FROM embeddings WHERE s3_prefix = ?",
+            (storage_prefix,),
+        )
+        self.conn.execute(
+            "DELETE FROM index_entries WHERE storage_prefix = ?",
+            (storage_prefix,),
+        )
 
     def count_index_entries_by_status(self) -> dict[str, int]:
         """Return index inventory counts grouped by status."""

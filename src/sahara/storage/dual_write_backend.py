@@ -138,8 +138,14 @@ class DualWriteBackend:
         manifest_dict: dict,
         if_match_etag: str | None = None,
         key: str | None = None,
+        if_none_match: bool = False,
     ) -> str:
-        return self._primary.put_manifest(manifest_dict, if_match_etag, key)
+        return self._primary.put_manifest(  # type: ignore[call-arg]
+            manifest_dict,
+            if_match_etag,
+            key,
+            if_none_match,
+        )
 
     # ------------------------------------------------------------------
     # Read-only operations — primary only

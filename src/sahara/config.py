@@ -126,6 +126,10 @@ class SaharaConfig:
     answer_provider: str = "none"  # none | ollama | openai
     answer_model: str = ""  # empty = provider default
 
+    # Captured knowledge
+    # Empty uses the platform-independent default: ~/Sahara Memory
+    memory_folder: str = ""
+
     # Exclude patterns (appended to DEFAULT_EXCLUDES)
     exclude_patterns: list[str] = field(default_factory=list)
 

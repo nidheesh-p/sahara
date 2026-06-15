@@ -40,8 +40,15 @@ These commands work in basic index-only mode and do not require optional storage
 | `sahara folders` | Alias-style top-level listing of all content roots |
 | `sahara index [--folder PATH] [--force]` | Index all registered folders, one folder, or force unchanged files to re-index |
 | `sahara index-report [--top N] [--sample N]` | Show indexed, unsupported, failed, missing, and unindexed content |
+| `sahara remember [TEXT] [OPTIONS]` | Save captured knowledge as Markdown and index it |
 | `sahara search QUERY [-n N] [-f PATH] [--snippet]` | Search indexed content by meaning |
 | `sahara ask QUESTION [-n N] [-f PATH] [--snippet]` | Retrieve passages and optionally generate an answer with a configured provider |
+
+`sahara remember` accepts text as an argument or through standard input. Its options
+include `--title`, `--source manual|web|conversation|ai-chat|mobile`, `--url`,
+`--source-id`, and repeatable `--tag`. The first capture creates `~/Sahara Memory`
+unless `memory_folder` is configured. The folder starts with storage sync disabled,
+and the Markdown file remains saved if semantic indexing is unavailable.
 
 Answer-provider overrides:
 
