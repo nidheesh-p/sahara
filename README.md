@@ -155,9 +155,9 @@ The broader recall, MCP, mobile, and Siri rollout is described in the
 
 ## Connect an MCP Client
 
-Sahara exposes five read-only MCP tools for search, cited Q&A, chunk reads, folder
-listing, and index status. These tools operate only on Sahara's indexed corpus; they
-cannot browse arbitrary files or modify your data.
+Sahara exposes six read-only MCP tools for search, cited Q&A, chunk reads, folder
+listing, index status, and captured-memory recall. These tools operate only on Sahara's
+indexed corpus; they cannot browse arbitrary files or modify your data.
 
 No standalone Sahara answer provider is required; the MCP client can use Sahara's
 retrieved snippets directly. Claude Desktop is the first tested client:
@@ -165,6 +165,15 @@ retrieved snippets directly. Claude Desktop is the first tested client:
 ```bash
 sahara mcp install-claude
 ```
+
+To let Claude save a memory only when you explicitly ask it to, opt in locally:
+
+```bash
+sahara mcp install-claude --enable-memory-write
+```
+
+This adds the create-only `sahara_remember` tool. It is unavailable over HTTP/SSE and
+cannot edit, delete, sync, browse arbitrary paths, or run shell commands.
 
 Fully quit and reopen Claude Desktop, then confirm **sahara** appears under
 **Connectors**. The installer preserves existing settings and MCP servers, uses Sahara's
@@ -223,7 +232,9 @@ deletion is not treated as offload.
 - Indexing, embeddings, and `sahara search` stay local.
 - Ollama answer generation stays local when explicitly enabled.
 - OpenAI receives the question and retrieved snippets when explicitly selected.
-- MCP is read-only and scoped to indexed content.
+- MCP is read-only by default and scoped to indexed content.
+- Optional MCP memory capture is create-only, local-stdio-only, explicitly enabled,
+  size-limited, idempotent, and audited without storing captured text in the audit log.
 - Remote MCP requires authentication by default and supports tool, folder, and snippet
   limits.
 - Optional storage encryption uses client-side AES-256-GCM.
@@ -279,8 +290,8 @@ root you add (without overwriting a `.saharaignore` that already exists there).
 | `sahara memory ...` | List, show, edit, delete, or rebuild captured memories |
 | `sahara search QUERY` | Find files and passages by meaning |
 | `sahara ask --snippet QUESTION` | Retrieve cited sources and optionally generate an answer |
-| `sahara mcp install-claude` | Connect Sahara to Claude Desktop |
-| `sahara mcp serve` | Run the read-only MCP server |
+| `sahara mcp install-claude` | Connect Sahara to Claude Desktop, read-only by default |
+| `sahara mcp serve` | Run MCP retrieval with optional local memory capture |
 
 <details>
 <summary><strong>Storage and operational command groups</strong></summary>

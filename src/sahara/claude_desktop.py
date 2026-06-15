@@ -144,6 +144,7 @@ def install_claude_server(
     executable_path: Path,
     *,
     sahara_config_path: Path | None = None,
+    enable_memory_write: bool = False,
 ) -> ClaudeDesktopInstallResult:
     """Merge Sahara's stdio MCP server into Claude Desktop configuration."""
     config_path = config_path.expanduser().resolve()
@@ -169,6 +170,8 @@ def install_claude_server(
             ]
         )
     args.extend(["mcp", "serve", "--transport", "stdio"])
+    if enable_memory_write:
+        args.append("--enable-memory-write")
 
     server_config = {
         "command": str(executable_path),

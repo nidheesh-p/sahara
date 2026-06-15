@@ -71,9 +71,11 @@ Answer-provider overrides:
 
 | Command | Purpose |
 |---|---|
-| `sahara mcp install-claude` | Merge Sahara into the detected Claude Desktop configuration |
+| `sahara mcp install-claude` | Merge read-only Sahara tools into the detected Claude Desktop configuration |
+| `sahara mcp install-claude --enable-memory-write` | Also enable create-only local memory capture |
 | `sahara mcp install-claude --claude-config PATH --executable PATH` | Override automatic config or executable detection |
-| `sahara mcp serve` | Run the read-only MCP server over stdio |
+| `sahara mcp serve` | Run read-only MCP retrieval, including `sahara_recall`, over stdio |
+| `sahara mcp serve --enable-memory-write` | Also expose `sahara_remember` over local stdio |
 | `sahara mcp serve --transport http --auth-token TOKEN` | Run authenticated streamable HTTP MCP on `127.0.0.1:8765` |
 
 Useful `mcp serve` options:
@@ -86,10 +88,16 @@ Useful `mcp serve` options:
 | `--allow-tool TOOL` | Expose only one named tool; repeat to allow several |
 | `--allow-storage-prefix PREFIX` | Restrict MCP to one indexed folder scope; repeatable |
 | `--max-snippet-chars N` | Limit text returned per snippet or chunk |
+| `--enable-memory-write` | Enable create-only memory capture; valid only with stdio |
 | `--allow-insecure-http` | Disable bearer-token enforcement for temporary local experiments |
 
 Remote transports require authentication unless `--allow-insecure-http` is explicitly
-used. Binding beyond loopback prints a security warning.
+used. They never expose memory writes. Binding beyond loopback prints a security warning.
+
+`sahara_recall` is read-only and enabled by default. The optional `sahara_remember`
+tool requires `explicit_user_request=true`, a non-empty idempotency key, and text no
+longer than 20,000 characters. It returns `saved_and_indexed`,
+`saved_index_pending`, or `already_saved`.
 
 ## Optional Storage
 

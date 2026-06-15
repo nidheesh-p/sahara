@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +11,9 @@ from click.testing import CliRunner
 
 from sahara.cli import main
 from sahara.config import SaharaConfig
+from sahara.library import IndexingService
 from sahara.mcp_server import (
+    MCP_MEMORY_MAX_CHARS,
     StaticTokenVerifier,
     _require_compatible_mcp_sdk,
     ask_question,
@@ -17,11 +21,24 @@ from sahara.mcp_server import (
     index_status,
     list_folders,
     read_chunk,
+    recall_memories,
+    remember_memory,
     search_files,
     serve,
 )
 from sahara.search.ask_engine import AskResult
+from sahara.search.search_engine import IndexFileResult, SearchEngine
 from sahara.storage.state_db import StateDB
+
+
+def _memory_config(tmp_path: Path) -> SaharaConfig:
+    primary = tmp_path / "primary"
+    primary.mkdir()
+    return SaharaConfig(
+        sync_folder=str(primary),
+        storage_mode="none",
+        memory_folder=str(tmp_path / "memory"),
+    )
 
 
 def test_read_chunk_returns_indexed_chunk(tmp_path: Path) -> None:
@@ -262,6 +279,213 @@ def test_build_mcp_server_accepts_static_token_with_supported_sdk() -> None:
     assert server is not None
 
 
+def test_default_mcp_tools_include_recall_but_not_remember() -> None:
+    pytest.importorskip("mcp.server.fastmcp")
+
+    server = build_mcp_server()
+    tool_names = {
+        tool.name for tool in server._tool_manager.list_tools()
+    }
+
+    assert "sahara_recall" in tool_names
+    assert "sahara_remember" not in tool_names
+
+
+def test_memory_write_tool_requires_explicit_local_opt_in() -> None:
+    pytest.importorskip("mcp.server.fastmcp")
+
+    with pytest.raises(ValueError, match="enable-memory-write"):
+        build_mcp_server(allowed_tools=("sahara_remember",))
+    with pytest.raises(ValueError, match="local stdio"):
+        build_mcp_server(
+            transport="streamable-http",
+            enable_memory_write=True,
+        )
+
+    server = build_mcp_server(enable_memory_write=True)
+    tool_names = {
+        tool.name for tool in server._tool_manager.list_tools()
+    }
+    assert "sahara_recall" in tool_names
+    assert "sahara_remember" in tool_names
+
+
+def test_recall_memories_returns_body_citations_and_filters(
+    tmp_path: Path,
+) -> None:
+    config = _memory_config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            wanted = remember_memory(
+                "Visible cited body",
+                title="Private ranking title",
+                source_type="web",
+                tags=("research",),
+                idempotency_key="recall-1",
+                explicit_user_request=True,
+                config=config,
+                db=db,
+            )
+
+        with patch.object(
+            SearchEngine,
+            "search",
+            return_value=[
+                {
+                    "storage_prefix": "memory",
+                    "relative_path": wanted["relative_path"],
+                    "score": 0.91,
+                    "snippet": (
+                        "Private ranking title\n\n"
+                        "Tags: research\n\nVisible cited body"
+                    ),
+                }
+            ],
+        ) as search:
+            results = recall_memories(
+                "visible",
+                source_types=("web",),
+                tags=("research",),
+                max_snippet_chars=12,
+                config=config,
+                db=db,
+            )
+
+    assert results[0]["memory_id"] == wanted["memory_id"]
+    assert results[0]["snippet"] == "Visible cite"
+    assert results[0]["source_type"] == "web"
+    assert results[0]["tags"] == ["research"]
+    assert search.call_args.kwargs["candidate_paths"] == {
+        wanted["relative_path"]
+    }
+
+
+def test_remember_memory_requires_explicit_user_request_and_audits_rejection(
+    tmp_path: Path,
+) -> None:
+    config = _memory_config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        with pytest.raises(ValueError, match="explicit user request"):
+            remember_memory(
+                "Do not save this",
+                idempotency_key="denied-1",
+                explicit_user_request=False,
+                config=config,
+                db=db,
+            )
+
+        audits = db.list_mcp_memory_audit()
+
+    assert audits[0]["outcome"] == "rejected"
+    assert audits[0]["details"] == "explicit_user_request_required"
+    assert audits[0]["idempotency_key_hash"] == hashlib.sha256(
+        b"denied-1"
+    ).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("text", "idempotency_key", "message", "detail"),
+    [
+        (
+            "valid text",
+            "",
+            "non-empty idempotency key",
+            "idempotency_key_required",
+        ),
+        (
+            "x" * (MCP_MEMORY_MAX_CHARS + 1),
+            "oversized-1",
+            "20,000-character limit",
+            "request_too_large",
+        ),
+    ],
+)
+def test_remember_memory_enforces_request_limits(
+    tmp_path: Path,
+    text: str,
+    idempotency_key: str,
+    message: str,
+    detail: str,
+) -> None:
+    config = _memory_config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        with pytest.raises(ValueError, match=message):
+            remember_memory(
+                text,
+                idempotency_key=idempotency_key,
+                explicit_user_request=True,
+                config=config,
+                db=db,
+            )
+        assert db.list_mcp_memory_audit()[0]["details"] == detail
+
+
+def test_remember_memory_is_idempotent_and_audit_omits_content(
+    tmp_path: Path,
+) -> None:
+    config = _memory_config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            first = remember_memory(
+                "Sensitive captured text",
+                idempotency_key="retry-key",
+                explicit_user_request=True,
+                config=config,
+                db=db,
+            )
+            retry = remember_memory(
+                "Different retry body",
+                idempotency_key="retry-key",
+                explicit_user_request=True,
+                config=config,
+                db=db,
+            )
+        audits = db.list_mcp_memory_audit()
+
+    assert first["status"] == "saved_and_indexed"
+    assert retry["status"] == "already_saved"
+    assert retry["memory_id"] == first["memory_id"]
+    assert [audit["outcome"] for audit in audits] == [
+        "already_saved",
+        "saved_and_indexed",
+    ]
+    serialized = json.dumps(audits)
+    assert "Sensitive captured text" not in serialized
+    assert "Different retry body" not in serialized
+    assert "retry-key" not in serialized
+
+
+def test_remember_memory_reports_saved_index_pending(tmp_path: Path) -> None:
+    config = _memory_config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        with patch.object(
+            IndexingService,
+            "index_path",
+            side_effect=RuntimeError("model unavailable"),
+        ):
+            result = remember_memory(
+                "Saved before indexing",
+                idempotency_key="pending-1",
+                explicit_user_request=True,
+                config=config,
+                db=db,
+            )
+        audit = db.list_mcp_memory_audit()[0]
+
+    assert result["status"] == "saved_index_pending"
+    assert result["indexed"] is False
+    assert audit["outcome"] == "saved_index_pending"
+    assert audit["memory_id"] == result["memory_id"]
+
+
 def test_mcp_serve_cli_invokes_server() -> None:
     runner = CliRunner()
     server = MagicMock()
@@ -272,12 +496,14 @@ def test_mcp_serve_cli_invokes_server() -> None:
     assert result.exit_code == 0
     build.assert_called_once_with(
         config_path=None,
+        transport="stdio",
         host="127.0.0.1",
         port=8765,
         auth_token=None,
         allowed_tools=None,
         allowed_storage_prefixes=None,
         max_snippet_chars=500,
+        enable_memory_write=False,
     )
     server.run.assert_called_once_with(transport="stdio")
 
@@ -338,12 +564,14 @@ def test_mcp_serve_cli_accepts_http_transport_options() -> None:
     assert result.exit_code == 0
     build.assert_called_once_with(
         config_path=None,
+        transport="streamable-http",
         host="127.0.0.1",
         port=8765,
         auth_token="secret",
         allowed_tools=("sahara_search",),
         allowed_storage_prefixes=("work",),
         max_snippet_chars=120,
+        enable_memory_write=False,
     )
     server.run.assert_called_once_with(transport="streamable-http")
 
@@ -371,6 +599,39 @@ def test_mcp_serve_cli_warns_for_public_bind_and_insecure_http() -> None:
     assert "without bearer-token authentication" in result.output
 
 
+def test_mcp_serve_cli_rejects_remote_memory_write() -> None:
+    result = CliRunner().invoke(
+        main,
+        [
+            "mcp",
+            "serve",
+            "--transport",
+            "http",
+            "--auth-token",
+            "secret",
+            "--enable-memory-write",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "only over the local stdio transport" in result.output
+
+
+def test_mcp_serve_cli_passes_memory_write_opt_in() -> None:
+    runner = CliRunner()
+    server = MagicMock()
+
+    with patch("sahara.mcp_server.build_mcp_server", return_value=server) as build:
+        result = runner.invoke(
+            main,
+            ["mcp", "serve", "--enable-memory-write"],
+        )
+
+    assert result.exit_code == 0
+    assert build.call_args.kwargs["enable_memory_write"] is True
+    assert build.call_args.kwargs["transport"] == "stdio"
+
+
 def test_mcp_serve_function_passes_transport() -> None:
     server = MagicMock()
 
@@ -388,11 +649,13 @@ def test_mcp_serve_function_passes_transport() -> None:
 
     build.assert_called_once_with(
         config_path="config.toml",
+        transport="streamable-http",
         host="0.0.0.0",
         port=9000,
         auth_token="secret",
         allowed_tools=("sahara_search",),
         allowed_storage_prefixes=("work",),
         max_snippet_chars=120,
+        enable_memory_write=False,
     )
     server.run.assert_called_once_with(transport="streamable-http")

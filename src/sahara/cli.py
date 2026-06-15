@@ -1532,11 +1532,17 @@ def mcp() -> None:
     default=None,
     help="Override the detected Sahara executable.",
 )
+@click.option(
+    "--enable-memory-write",
+    is_flag=True,
+    help="Opt in to the create-only sahara_remember tool for this local client.",
+)
 @click.pass_context
 def mcp_install_claude(
     ctx: click.Context,
     claude_config: Path | None,
     executable: Path | None,
+    enable_memory_write: bool,
 ) -> None:
     """Install Sahara as a local MCP server in Claude Desktop."""
     from sahara.claude_desktop import (
@@ -1552,6 +1558,7 @@ def mcp_install_claude(
             config_path,
             executable_path,
             sahara_config_path=ctx.obj.get("config_path"),
+            enable_memory_write=enable_memory_write,
         )
     except RuntimeError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -1563,6 +1570,11 @@ def mcp_install_claude(
     else:
         _ok(f"Sahara is already configured in Claude Desktop: {result.config_path}")
     _info(f"Command: {result.executable_path}")
+    if enable_memory_write:
+        _warn(
+            "Memory capture is enabled for this local Claude Desktop connection. "
+            "Recall remains read-only unless the user explicitly asks to save something."
+        )
     _info("Fully quit and reopen Claude Desktop, then look for Sahara in Connectors.")
 
 
@@ -1609,6 +1621,8 @@ def mcp_install_claude(
             "sahara_read_chunk",
             "sahara_list_folders",
             "sahara_index_status",
+            "sahara_recall",
+            "sahara_remember",
         ]
     ),
     help="Expose only this MCP tool. Repeat to allow multiple tools.",
@@ -1626,6 +1640,11 @@ def mcp_install_claude(
     type=click.IntRange(min=0),
     help="Maximum text characters returned per snippet/chunk by MCP tools.",
 )
+@click.option(
+    "--enable-memory-write",
+    is_flag=True,
+    help="Expose create-only sahara_remember over local stdio.",
+)
 @click.pass_context
 def mcp_serve(
     ctx: click.Context,
@@ -1637,8 +1656,9 @@ def mcp_serve(
     allowed_tools: tuple[str, ...],
     allowed_storage_prefixes: tuple[str, ...],
     max_snippet_chars: int,
+    enable_memory_write: bool,
 ) -> None:
-    """Serve read-only Sahara search/ask tools over MCP."""
+    """Serve Sahara retrieval tools and optional local memory capture."""
     from sahara.mcp_server import serve
 
     config_path = ctx.obj.get("config_path")
@@ -1653,6 +1673,15 @@ def mcp_serve(
         raise click.ClickException(
             "HTTP/SSE MCP transports require --auth-token or SAHARA_MCP_AUTH_TOKEN. "
             "Use --allow-insecure-http only for temporary local experiments."
+        )
+
+    if enable_memory_write and remote_transport:
+        raise click.ClickException(
+            "MCP memory writes are available only over the local stdio transport."
+        )
+    if "sahara_remember" in allowed_tools and not enable_memory_write:
+        raise click.ClickException(
+            "sahara_remember requires --enable-memory-write."
         )
 
     if remote_transport and host not in loopback_hosts:
@@ -1680,8 +1709,9 @@ def mcp_serve(
             allowed_tools=cast(tuple[Any, ...], allowed_tools) if allowed_tools else None,
             allowed_storage_prefixes=allowed_storage_prefixes or None,
             max_snippet_chars=max_snippet_chars,
+            enable_memory_write=enable_memory_write,
         )
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 
 

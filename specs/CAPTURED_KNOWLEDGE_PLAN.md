@@ -160,6 +160,10 @@ Write capture is a separate `sahara_remember` tool with these constraints:
 Remote HTTP MCP remains read-only until write authorization has a separate security
 design and test matrix.
 
+The initial MCP implementation uses a 20,000-character capture limit, requires a
+non-empty idempotency key and `explicit_user_request=true`, and stores metadata-only
+audit events with the idempotency key hashed.
+
 ## Background Ingestion
 
 The current daemon couples filesystem events to storage sync. Before inbox ingestion,

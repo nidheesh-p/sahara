@@ -1,9 +1,8 @@
 # Sahara Chat and Agent Integrations
 
-Sahara can expose its local index to chat clients and agent runtimes through a
-read-only MCP server. The chat client provides the conversation surface. Sahara
-retrieves indexed local context, returns snippets and citations, and does not grant
-write access to the filesystem.
+Sahara exposes its local index to chat clients and agent runtimes through MCP. The
+default surface is read-only. A separate create-only memory tool can be enabled for a
+local stdio client; remote transports remain read-only.
 
 ## Install
 
@@ -55,7 +54,7 @@ python -m pip install --upgrade "mcp>=1.14.0"
 
 ## MCP Tools
 
-The first MCP surface is read-only:
+The default MCP surface is read-only:
 
 | Tool | Purpose |
 |---|---|
@@ -64,10 +63,18 @@ The first MCP surface is read-only:
 | `sahara_read_chunk` | Return one indexed chunk by id |
 | `sahara_list_folders` | List primary and additional Sahara folders |
 | `sahara_index_status` | Show indexed file/chunk counts and vector-index availability |
+| `sahara_recall` | Search only managed captured memories with metadata filters |
 
 The server does not expose sync mutation, file writes, shell execution, or arbitrary
 filesystem reads. Search results identify intentionally offloaded files, but MCP does
 not expose offload or fetch operations.
+
+For a local stdio client, `--enable-memory-write` adds `sahara_remember`. It is
+create-only and routes through `MemoryService`; it cannot choose a path, edit or delete
+memories, sync files, or execute commands. Every request must attest that the user
+explicitly asked to save the information, include a non-empty idempotency key, and stay
+within 20,000 characters. Audit events store outcomes and a hash of the idempotency key,
+not captured text.
 
 No standalone answer provider is required. By default, `sahara_ask` returns ranked
 cited snippets for the MCP client's model to use. Ollama and OpenAI are optional
@@ -82,6 +89,12 @@ editing JSON:
 sahara mcp install-claude
 ```
 
+Memory writes remain disabled unless separately enabled:
+
+```bash
+sahara mcp install-claude --enable-memory-write
+```
+
 Then fully quit and reopen Claude Desktop. Use the complete
 [Claude Desktop guide](../CLAUDE_DESKTOP.md) for verification, manual fallback,
 the exact tool contract, security boundaries, and troubleshooting.
@@ -91,6 +104,9 @@ the exact tool contract, security boundaries, and troubleshooting.
 Claude mobile cannot launch Sahara as a local stdio process. To use Sahara from mobile,
 run Sahara's authenticated HTTP MCP transport locally, expose it through a secure tunnel,
 then add the public HTTPS MCP URL as a custom connector from Claude on the web.
+
+Remote MCP remains read-only. `--enable-memory-write` is rejected for HTTP and SSE
+transports.
 
 ```bash
 export SAHARA_MCP_AUTH_TOKEN="$(openssl rand -hex 32)"
