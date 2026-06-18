@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "version": "2026.06.1",
+  "name": "Remember in Sahara",
+  "siri_phrase": "Siri, Remember in Sahara",
+  "summary": "Capture dictated text, selected text, URLs, share-sheet input, or clipboard text into Sahara memory.",
+  "mobile_api": {
+    "method": "POST",
+    "endpoint_path": "/v1/memories",
+    "required_scope": "memory:capture",
+    "headers": {
+      "Authorization": "Bearer ${SAHARA_MOBILE_TOKEN}",
+      "Content-Type": "application/json"
+    },
+    "json_body_fields": [
+      "text",
+      "title",
+      "source_type",
+      "source_url",
+      "source_id",
+      "tags",
+      "idempotency_key"
+    ]
+  },
+  "inputs": [
+    "siri_dictation",
+    "ios_share_sheet_text",
+    "ios_share_sheet_url",
+    "clipboard_fallback",
+    "manual_text"
+  ],
+  "privacy": {
+    "scrapes_source_apps": false,
+    "whatsapp_mode": "explicit_share_or_copy_only",
+    "stores_token_in_shortcut_only": true,
+    "captures_sender_metadata": false,
+    "speaks_results": true,
+    "spoken_content": "status_only"
+  },
+  "steps": [
+    {
+      "name": "Load paired endpoint and token",
+      "shortcut_action": "Dictionary",
+      "notes": "Values come from `sahara mobile pair --json`. Store endpoint and token inside the Shortcut or an iCloud Keychain-backed secure note."
+    },
+    {
+      "name": "Read share input",
+      "shortcut_action": "Get Shortcut Input",
+      "notes": "Accept text and URLs from the iOS share sheet. Do not inspect app-specific data beyond what iOS passes explicitly."
+    },
+    {
+      "name": "Fallback to clipboard",
+      "shortcut_action": "Get Clipboard",
+      "notes": "Used for WhatsApp or apps that do not pass selected text cleanly. The user must copy the message first."
+    },
+    {
+      "name": "Ask for dictation when empty",
+      "shortcut_action": "Dictate Text",
+      "notes": "Allows the Siri phrase to capture spoken knowledge when there is no share input or clipboard text."
+    },
+    {
+      "name": "Ask for optional tags",
+      "shortcut_action": "Ask for Input",
+      "notes": "Comma-separated tags are split and trimmed before sending."
+    },
+    {
+      "name": "Ask for optional source note",
+      "shortcut_action": "Ask for Input",
+      "notes": "Stored as source_id when present. This is user-authored provenance, not scraped app metadata."
+    },
+    {
+      "name": "Generate idempotency key",
+      "shortcut_action": "Generate UUID",
+      "notes": "Generate once before the POST. Reuse the same UUID for a retry of the same capture."
+    },
+    {
+      "name": "POST capture JSON",
+      "shortcut_action": "Get Contents of URL",
+      "notes": "POST to endpoint + /v1/memories with Authorization bearer token and JSON body."
+    },
+    {
+      "name": "Show and speak status",
+      "shortcut_action": "Show Result",
+      "notes": "Display saved, already_saved, or saved_index_pending. Speaking is limited to status, never full memory content."
+    }
+  ],
+  "tests": {
+    "requires_idempotency_key": true,
+    "forbidden_json_fields": [
+      "path",
+      "relative_path",
+      "storage_prefix",
+      "sync_enabled"
+    ],
+    "whatsapp_requires_explicit_user_action": true,
+    "share_sheet_preserves_url_as_source_url": true
+  }
+}

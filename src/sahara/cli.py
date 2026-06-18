@@ -3238,6 +3238,35 @@ def mobile_audit(limit: int) -> None:
         )
 
 
+@mobile.group("shortcuts")
+def mobile_shortcuts() -> None:
+    """Inspect and export Apple Shortcuts artifacts."""
+
+
+@mobile_shortcuts.command("list")
+def mobile_shortcuts_list() -> None:
+    """List packaged Apple Shortcuts artifacts."""
+    from sahara.shortcuts import load_shortcut_artifacts
+
+    _section("Apple Shortcuts")
+    for artifact in load_shortcut_artifacts():
+        _info(f"{artifact.name} {artifact.version}")
+        _info(f"  file : {artifact.filename}")
+        _info(f"  scope: {artifact.required_scope}")
+
+
+@mobile_shortcuts.command("export")
+@click.argument("destination", type=click.Path(path_type=Path))
+def mobile_shortcuts_export(destination: Path) -> None:
+    """Export versioned Apple Shortcuts blueprints to a folder."""
+    from sahara.shortcuts import copy_shortcut_artifacts
+
+    written = copy_shortcut_artifacts(destination)
+    _ok(f"Exported {len(written)} Shortcut artifact(s).")
+    for path in written:
+        _info(str(path))
+
+
 # ---------------------------------------------------------------------------
 # daemon group
 # ---------------------------------------------------------------------------

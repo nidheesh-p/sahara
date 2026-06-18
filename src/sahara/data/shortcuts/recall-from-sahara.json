@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "version": "2026.06.1",
+  "name": "Recall from Sahara",
+  "siri_phrase": "Siri, Recall from Sahara",
+  "summary": "Send a query to Sahara and display matching memory snippets without speaking sensitive content automatically.",
+  "mobile_api": {
+    "method": "POST",
+    "endpoint_path": "/v1/recall",
+    "required_scope": "memory:recall",
+    "headers": {
+      "Authorization": "Bearer ${SAHARA_MOBILE_TOKEN}",
+      "Content-Type": "application/json"
+    },
+    "json_body_fields": [
+      "query",
+      "top_k",
+      "source_types",
+      "tags"
+    ]
+  },
+  "inputs": [
+    "siri_dictation",
+    "manual_text"
+  ],
+  "privacy": {
+    "scrapes_source_apps": false,
+    "whatsapp_mode": "not_applicable",
+    "stores_token_in_shortcut_only": true,
+    "captures_sender_metadata": false,
+    "speaks_results": false,
+    "spoken_content": "none"
+  },
+  "steps": [
+    {
+      "name": "Load paired endpoint and token",
+      "shortcut_action": "Dictionary",
+      "notes": "Use a token paired with memory:recall scope."
+    },
+    {
+      "name": "Ask for query",
+      "shortcut_action": "Ask for Input",
+      "notes": "If launched from Siri, allow dictation of the query."
+    },
+    {
+      "name": "POST recall JSON",
+      "shortcut_action": "Get Contents of URL",
+      "notes": "POST to endpoint + /v1/recall with Authorization bearer token and JSON body."
+    },
+    {
+      "name": "Display results",
+      "shortcut_action": "Show Result",
+      "notes": "Display snippets and titles. Do not use Speak Text automatically because memory content may be sensitive."
+    }
+  ],
+  "tests": {
+    "requires_recall_scope": true,
+    "does_not_speak_sensitive_results": true,
+    "forbidden_json_fields": [
+      "path",
+      "relative_path",
+      "storage_prefix",
+      "sync_enabled"
+    ]
+  }
+}
