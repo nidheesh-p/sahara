@@ -224,6 +224,9 @@ def _daemon_main(config_path: Path | None) -> None:
 
     config = load_config(config_path)
 
+    from sahara.index_watcher import LocalIndexWatcherService
+    from sahara.storage.dual_write_backend import DualWriteBackend
+    from sahara.storage.local_drive_client import LocalDriveClient
     from sahara.storage.s3_client import S3Client
     from sahara.storage.state_db import StateDB
     from sahara.sync.file_watcher import SaharaEventHandler, start_watching
@@ -232,14 +235,33 @@ def _daemon_main(config_path: Path | None) -> None:
     from sahara.utils.notifier import notify_sync_complete, notify_sync_error
 
     db = StateDB().connect()
-    s3 = S3Client(config)
+
+    def _create_storage_backend():
+        if config.storage_mode == "local":
+            return LocalDriveClient(config)
+        if config.storage_mode == "local+glacier":
+            primary = LocalDriveClient(config)
+            secondary = S3Client(config)
+            return DualWriteBackend(
+                primary,
+                secondary,
+                glacier_keep_deleted=config.glacier_keep_deleted,
+            )
+        return S3Client(config)
 
     def _make_engine_and_handler(
-        folder: Path, s3_prefix: str = ""
+        folder: Path, backend, s3_prefix: str = ""
     ) -> tuple[SyncEngine, SaharaEventHandler]:
         """Build a SyncEngine + SaharaEventHandler for a single folder."""
         ig = IgnoreRules(folder, extra_patterns=config.exclude_patterns)
-        eng = SyncEngine(config, db, s3, ig, sync_folder=folder, s3_prefix=s3_prefix)
+        eng = SyncEngine(
+            config,
+            db,
+            backend,
+            ig,
+            sync_folder=folder,
+            s3_prefix=s3_prefix,
+        )
 
         def _on_changes(changed_paths: set[str]) -> None:
             if _is_paused():
@@ -269,34 +291,51 @@ def _daemon_main(config_path: Path | None) -> None:
         )
         return eng, h
 
-    # Build engines for primary folder + all registered additional targets
-    primary_folder = config.get_sync_folder_path()
+    # Always watch local content roots for incremental semantic indexing.
+    index_service = LocalIndexWatcherService(config, db)
     engines: list[SyncEngine] = []
-    watch_pairs: list[tuple[Path, SaharaEventHandler]] = []
+    watch_pairs = index_service.watch_pairs(is_paused=_is_paused)
 
-    primary_engine, primary_handler = _make_engine_and_handler(primary_folder, "")
-    engines.append(primary_engine)
-    watch_pairs.append((primary_folder, primary_handler))
+    restore_backend = None
 
-    for row in db.list_sync_targets():
-        add_folder = Path(row["local_path"])
-        if not add_folder.exists():
-            logger.warning("Registered sync target missing: %s — skipping", add_folder)
-            continue
-        add_engine, add_handler = _make_engine_and_handler(add_folder, row["s3_prefix"])
-        engines.append(add_engine)
-        watch_pairs.append((add_folder, add_handler))
+    if config.has_storage_backend:
+        backend = _create_storage_backend()
+        restore_backend = (
+            S3Client(config)
+            if config.storage_mode in ("s3", "local+glacier")
+            else None
+        )
+
+        for row in db.list_content_roots(sync_enabled=True):
+            folder = Path(row["local_path"])
+            if not folder.exists():
+                logger.warning("Registered sync target missing: %s — skipping", folder)
+                continue
+            engine, handler = _make_engine_and_handler(
+                folder,
+                backend,
+                row["storage_prefix"],
+            )
+            engines.append(engine)
+            watch_pairs.append((folder, handler))
 
     observer = start_watching(watch_pairs)
 
     # Initial sync for all folders
-    logger.info("Running initial sync for %d folder(s)…", len(engines))
-    for eng in engines:
-        try:
-            result = eng.sync()
-            logger.info("Initial sync complete for %s: %s", eng._sync_folder, result.summary_lines())
-        except Exception as exc:
-            logger.error("Initial sync failed for %s: %s", eng._sync_folder, exc)
+    if engines:
+        logger.info("Running initial sync for %d folder(s)…", len(engines))
+        for eng in engines:
+            try:
+                result = eng.sync()
+                logger.info(
+                    "Initial sync complete for %s: %s",
+                    eng._sync_folder,
+                    result.summary_lines(),
+                )
+            except Exception as exc:
+                logger.error("Initial sync failed for %s: %s", eng._sync_folder, exc)
+    else:
+        logger.info("Storage sync disabled; local index watcher is active.")
 
     # Main poll loop
     def _handle_sigterm(*_: object) -> None:
@@ -317,10 +356,11 @@ def _daemon_main(config_path: Path | None) -> None:
         if now - last_poll >= config.poll_interval_seconds:
             last_poll = now
             if not _is_paused():
-                try:
-                    poll_restores(db, s3)
-                except Exception as exc:
-                    logger.error("Restore poll failed: %s", exc)
+                if restore_backend is not None:
+                    try:
+                        poll_restores(db, restore_backend)
+                    except Exception as exc:
+                        logger.error("Restore poll failed: %s", exc)
                 try:
                     poll_restore_expiries(db)
                 except Exception as exc:

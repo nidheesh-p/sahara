@@ -183,7 +183,7 @@ class SaharaEventHandler(FileSystemEventHandler):
 
 
 def start_watching(
-    folders: list[tuple[Path, SaharaEventHandler]],
+    folders: list[tuple[Path, FileSystemEventHandler]],
     recursive: bool = True,
     observer_factory: Callable[[], ObserverProtocol] = Observer,
 ) -> ObserverProtocol:
