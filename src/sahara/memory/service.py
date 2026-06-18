@@ -138,6 +138,13 @@ class MemoryService:
     def root(self) -> Path:
         return self._root
 
+    def inbox_path(self) -> Path:
+        """Return and create the managed inbox for raw memory drops."""
+        root, _ = self._ensure_root()
+        inbox = root / ".sahara" / "inbox"
+        self._ensure_private_directory_tree(inbox, boundary=root)
+        return inbox
+
     def capture(self, request: CaptureRequest) -> CaptureResult:
         normalized = self._normalize_request(request)
         setup_lock = self._setup_lock_path()
