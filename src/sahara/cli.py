@@ -3069,6 +3069,176 @@ def fetch_cmd(ctx: click.Context, path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# mobile API
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def mobile() -> None:
+    """Manage the private mobile capture API."""
+
+
+@mobile.command("pair")
+@click.argument("name")
+@click.option(
+    "--scope",
+    "scopes",
+    multiple=True,
+    default=("memory:capture",),
+    help="Device scope. Repeat for memory:recall.",
+)
+@click.option(
+    "--endpoint",
+    default="http://127.0.0.1:8765",
+    show_default=True,
+    help="Endpoint mobile clients should call.",
+)
+@click.option("--json", "as_json", is_flag=True, help="Print raw pairing JSON.")
+@click.pass_context
+def mobile_pair(
+    ctx: click.Context,
+    name: str,
+    scopes: tuple[str, ...],
+    endpoint: str,
+    as_json: bool,
+) -> None:
+    """Create a named, revocable mobile device token."""
+    import json
+
+    from sahara.mobile_api import create_mobile_device_pairing, pairing_uri
+    from sahara.storage.state_db import StateDB
+
+    _require_library_config(ctx.obj["config"])
+    db = StateDB().connect()
+    try:
+        try:
+            pairing = create_mobile_device_pairing(
+                db,
+                name=name,
+                endpoint=endpoint,
+                scopes=scopes,
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        payload = pairing.payload()
+        if as_json:
+            click.echo(json.dumps(payload, indent=2))
+            return
+        _ok(f"Paired device: {pairing.name}")
+        _info(f"Device id : {pairing.device_id}")
+        _info(f"Endpoint  : {pairing.endpoint}")
+        _info(f"Scopes    : {', '.join(pairing.scopes)}")
+        _info(f"Token     : {pairing.token}")
+        _info(f"Pair URI  : {pairing_uri(payload)}")
+        _warn("The token is shown once. Store it only on the paired device.")
+    finally:
+        db.close()
+
+
+@mobile.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=8765, show_default=True, type=int)
+@click.option(
+    "--allow-private-network",
+    is_flag=True,
+    help="Allow binding to a trusted private/VPN address. Public/wildcard binds are refused.",
+)
+@click.pass_context
+def mobile_serve(
+    ctx: click.Context,
+    host: str,
+    port: int,
+    allow_private_network: bool,
+) -> None:
+    """Run the authenticated mobile capture API."""
+    from sahara.mobile_api import serve_mobile_api, validate_bind_host
+
+    _require_library_config(ctx.obj["config"])
+    try:
+        bind_host = validate_bind_host(
+            host,
+            allow_private_network=allow_private_network,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    _ok(f"Mobile API listening on http://{bind_host}:{port}")
+    _info("Press Ctrl+C to stop.")
+    try:
+        serve_mobile_api(
+            config_path=ctx.obj.get("config_path"),
+            host=bind_host,
+            port=port,
+            allow_private_network=allow_private_network,
+        )
+    except KeyboardInterrupt:
+        click.echo()
+        _ok("Mobile API stopped.")
+
+
+@mobile.command("devices")
+@click.option("--include-revoked", is_flag=True, help="Show revoked devices too.")
+def mobile_devices(include_revoked: bool) -> None:
+    """List paired mobile devices without token material."""
+    from sahara.storage.state_db import StateDB
+
+    db = StateDB().connect()
+    try:
+        rows = db.list_mobile_devices(include_revoked=include_revoked)
+    finally:
+        db.close()
+    if not rows:
+        _info("No paired mobile devices.")
+        return
+    _section("Mobile Devices")
+    for row in rows:
+        revoked = " revoked" if row["revoked_at"] else ""
+        _info(f"{row['name']} ({row['device_id']}){revoked}")
+        _info(f"  scopes: {', '.join(row['scopes'])}")
+        if row["last_used_at"]:
+            _info(f"  last used: {row['last_used_at']}")
+
+
+@mobile.command("revoke")
+@click.argument("identifier")
+def mobile_revoke(identifier: str) -> None:
+    """Revoke a mobile device by name or id."""
+    from sahara.storage.state_db import StateDB
+
+    db = StateDB().connect()
+    try:
+        revoked = db.revoke_mobile_device(identifier)
+    finally:
+        db.close()
+    if revoked:
+        _ok(f"Revoked mobile device: {identifier}")
+    else:
+        raise click.ClickException(f"Mobile device not found: {identifier}")
+
+
+@mobile.command("audit")
+@click.option("--limit", default=20, show_default=True)
+def mobile_audit(limit: int) -> None:
+    """Show recent metadata-only mobile API audit events."""
+    from sahara.storage.state_db import StateDB
+
+    db = StateDB().connect()
+    try:
+        rows = db.list_mobile_memory_audit(limit=limit)
+    finally:
+        db.close()
+    if not rows:
+        _info("No mobile API audit events.")
+        return
+    _section("Mobile API Audit")
+    for row in rows:
+        device = row["device_name"] or "unknown"
+        _info(
+            f"{row['requested_at']} {row['outcome']} "
+            f"{device} {row['scope']} {row['details'] or ''}".rstrip()
+        )
+
+
+# ---------------------------------------------------------------------------
 # daemon group
 # ---------------------------------------------------------------------------
 

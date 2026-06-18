@@ -190,6 +190,37 @@ CREATE TABLE IF NOT EXISTS mcp_memory_audit (
 
 CREATE INDEX IF NOT EXISTS idx_mcp_memory_audit_requested
     ON mcp_memory_audit (requested_at DESC);
+
+CREATE TABLE IF NOT EXISTS mobile_devices (
+    device_id       TEXT    PRIMARY KEY,
+    name            TEXT    NOT NULL UNIQUE,
+    token_hash      TEXT    NOT NULL UNIQUE,
+    scopes_json     TEXT    NOT NULL,
+    created_at      TEXT    NOT NULL,
+    revoked_at      TEXT,
+    last_used_at    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_mobile_devices_token
+    ON mobile_devices (token_hash);
+
+CREATE TABLE IF NOT EXISTS mobile_memory_audit (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    requested_at         TEXT    NOT NULL,
+    completed_at         TEXT,
+    outcome              TEXT    NOT NULL,
+    device_id            TEXT,
+    device_name          TEXT,
+    scope                TEXT    NOT NULL,
+    source_type          TEXT    NOT NULL,
+    idempotency_key_hash TEXT    NOT NULL,
+    memory_id            TEXT,
+    client_addr          TEXT    NOT NULL DEFAULT '',
+    details              TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_mobile_memory_audit_requested
+    ON mobile_memory_audit (requested_at DESC);
 """
 
 
@@ -1646,6 +1677,152 @@ class StateDB:
         """Return recent metadata-only MCP memory audit events."""
         rows = self.conn.execute(
             "SELECT * FROM mcp_memory_audit "
+            "ORDER BY requested_at DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def create_mobile_device(
+        self,
+        *,
+        device_id: str,
+        name: str,
+        token_hash: str,
+        scopes: tuple[str, ...],
+    ) -> None:
+        """Store one paired mobile device with a hashed bearer token."""
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        with self.transaction():
+            self.conn.execute(
+                """
+                INSERT INTO mobile_devices (
+                    device_id, name, token_hash, scopes_json, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    device_id,
+                    name,
+                    token_hash,
+                    json.dumps(list(scopes)),
+                    now,
+                ),
+            )
+
+    def get_mobile_device_by_hash(self, token_hash: str) -> dict | None:
+        """Return one active mobile device by hashed token."""
+        row = self.conn.execute(
+            """
+            SELECT * FROM mobile_devices
+            WHERE token_hash = ? AND revoked_at IS NULL
+            """,
+            (token_hash,),
+        ).fetchone()
+        if row is None:
+            return None
+        device = dict(row)
+        device["scopes"] = tuple(json.loads(device["scopes_json"]))
+        return device
+
+    def list_mobile_devices(self, *, include_revoked: bool = False) -> list[dict]:
+        """Return paired mobile devices without exposing token hashes."""
+        where = "" if include_revoked else "WHERE revoked_at IS NULL"
+        rows = self.conn.execute(
+            "SELECT device_id, name, scopes_json, created_at, revoked_at, last_used_at "
+            f"FROM mobile_devices {where} ORDER BY created_at DESC"
+        ).fetchall()
+        devices: list[dict] = []
+        for row in rows:
+            device = dict(row)
+            device["scopes"] = tuple(json.loads(device.pop("scopes_json")))
+            devices.append(device)
+        return devices
+
+    def revoke_mobile_device(self, identifier: str) -> bool:
+        """Revoke one mobile device by id or name."""
+        now = datetime.datetime.now(datetime.UTC).isoformat()
+        with self.transaction():
+            cursor = self.conn.execute(
+                """
+                UPDATE mobile_devices
+                SET revoked_at = COALESCE(revoked_at, ?)
+                WHERE device_id = ? OR name = ?
+                """,
+                (now, identifier, identifier),
+            )
+        return cursor.rowcount > 0
+
+    def mark_mobile_device_used(self, device_id: str) -> None:
+        """Update last-used metadata for a mobile device."""
+        with self.transaction():
+            self.conn.execute(
+                "UPDATE mobile_devices SET last_used_at = ? WHERE device_id = ?",
+                (datetime.datetime.now(datetime.UTC).isoformat(), device_id),
+            )
+
+    def begin_mobile_memory_audit(
+        self,
+        *,
+        scope: str,
+        source_type: str,
+        idempotency_key_hash: str,
+        device_id: str | None = None,
+        device_name: str | None = None,
+        client_addr: str = "",
+    ) -> int:
+        """Start a metadata-only audit event for a mobile API request."""
+        with self.transaction():
+            cursor = self.conn.execute(
+                """
+                INSERT INTO mobile_memory_audit (
+                    requested_at, outcome, device_id, device_name, scope,
+                    source_type, idempotency_key_hash, client_addr
+                ) VALUES (?, 'requested', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    datetime.datetime.now(datetime.UTC).isoformat(),
+                    device_id,
+                    device_name,
+                    scope,
+                    source_type,
+                    idempotency_key_hash,
+                    client_addr,
+                ),
+            )
+        if cursor.lastrowid is None:
+            raise RuntimeError("Could not create mobile memory audit event")
+        return cursor.lastrowid
+
+    def finish_mobile_memory_audit(
+        self,
+        audit_id: int,
+        *,
+        outcome: str,
+        memory_id: str | None = None,
+        details: str | None = None,
+    ) -> None:
+        """Finish one mobile API audit event without storing captured text."""
+        with self.transaction():
+            cursor = self.conn.execute(
+                """
+                UPDATE mobile_memory_audit
+                SET completed_at = ?, outcome = ?, memory_id = ?, details = ?
+                WHERE id = ?
+                """,
+                (
+                    datetime.datetime.now(datetime.UTC).isoformat(),
+                    outcome,
+                    memory_id,
+                    details,
+                    audit_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Mobile memory audit event is missing")
+
+    def list_mobile_memory_audit(self, limit: int = 100) -> list[dict]:
+        """Return recent metadata-only mobile API audit events."""
+        rows = self.conn.execute(
+            "SELECT * FROM mobile_memory_audit "
             "ORDER BY requested_at DESC, id DESC LIMIT ?",
             (limit,),
         ).fetchall()
