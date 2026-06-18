@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Protocol
 
@@ -183,7 +183,7 @@ class SaharaEventHandler(FileSystemEventHandler):
 
 
 def start_watching(
-    folders: list[tuple[Path, SaharaEventHandler]],
+    folders: Sequence[tuple[Path, FileSystemEventHandler]],
     recursive: bool = True,
     observer_factory: Callable[[], ObserverProtocol] = Observer,
 ) -> ObserverProtocol:

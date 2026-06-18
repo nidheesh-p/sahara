@@ -2435,6 +2435,18 @@ def index_report_cmd(ctx: click.Context, top: int, sample: int) -> None:
     help="Optional retry key used to prevent duplicate captures.",
 )
 @click.option("--tag", "tags", multiple=True, help="Tag this memory. Repeat as needed.")
+@click.option(
+    "--editor",
+    "from_editor",
+    is_flag=True,
+    help="Compose the memory in $EDITOR.",
+)
+@click.option(
+    "--clipboard",
+    "from_clipboard",
+    is_flag=True,
+    help="Capture memory text from the system clipboard.",
+)
 @click.pass_context
 def remember_cmd(
     ctx: click.Context,
@@ -2445,12 +2457,26 @@ def remember_cmd(
     source_id: str,
     idempotency_key: str,
     tags: tuple[str, ...],
+    from_editor: bool,
+    from_clipboard: bool,
 ) -> None:
     """Save knowledge as a durable Markdown memory."""
     config: SaharaConfig = ctx.obj["config"]
     _require_library_config(config)
 
+    if from_editor and from_clipboard:
+        raise click.UsageError("Use either --editor or --clipboard, not both.")
+    if from_clipboard and text:
+        raise click.UsageError("--clipboard cannot be combined with text arguments.")
+
     content = " ".join(text)
+    if from_clipboard:
+        content = _read_clipboard_text()
+    elif from_editor:
+        edited = click.edit(content)
+        if edited is None:
+            raise click.UsageError("Editor closed without saving memory text.")
+        content = edited
     if not content.strip() and not sys.stdin.isatty():
         from sahara.memory.format import MAX_MEMORY_CHARS
 
@@ -2499,6 +2525,47 @@ def remember_cmd(
                 _info(f"Indexing detail: {result.index_error}")
     finally:
         db.close()
+
+
+def _read_clipboard_text() -> str:
+    """Read text from the platform clipboard using native command-line tools."""
+    import shutil
+    import subprocess
+
+    commands: list[list[str]] = []
+    if sys.platform == "darwin" and shutil.which("pbpaste"):
+        commands.append(["pbpaste"])
+    elif os.name == "nt" and shutil.which("powershell"):
+        commands.append(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "Get-Clipboard -Raw",
+            ]
+        )
+    else:
+        if shutil.which("wl-paste"):
+            commands.append(["wl-paste", "--no-newline"])
+        if shutil.which("xclip"):
+            commands.append(["xclip", "-selection", "clipboard", "-out"])
+        if shutil.which("xsel"):
+            commands.append(["xsel", "--clipboard", "--output"])
+
+    for command in commands:
+        try:
+            completed = subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return completed.stdout
+        except (OSError, subprocess.CalledProcessError):
+            continue
+    raise click.ClickException(
+        "Could not read the clipboard. Pipe text into `sahara remember` instead."
+    )
 
 
 # ---------------------------------------------------------------------------
