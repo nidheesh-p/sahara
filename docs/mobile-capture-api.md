@@ -3,6 +3,9 @@
 Sahara mobile capture is a private API for trusted devices that need to save
 knowledge into the desktop Sahara instance.
 
+For the Siri, iOS Share Sheet, and WhatsApp Shortcut flow, see
+`docs/ios-shortcuts.md`.
+
 The API is local-first:
 
 - it binds to `127.0.0.1` by default;
