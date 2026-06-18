@@ -44,7 +44,7 @@ class LocalIndexEventHandler(FileSystemEventHandler):
     def __init__(
         self,
         root: Path,
-        on_paths: Callable[[set[Path]], None],
+        on_paths: Callable[[set[Path]], object],
         *,
         debounce_seconds: float = 2.0,
         is_paused: Callable[[], bool] = lambda: False,
@@ -52,8 +52,12 @@ class LocalIndexEventHandler(FileSystemEventHandler):
         super().__init__()
         self._root = root.expanduser().resolve()
         self._is_paused = is_paused
+
+        def _on_debounced(paths: set[str]) -> None:
+            on_paths({Path(path) for path in paths})
+
         self._debouncer = Debouncer(
-            callback=lambda paths: on_paths({Path(path) for path in paths}),
+            callback=_on_debounced,
             debounce_seconds=debounce_seconds,
         )
 

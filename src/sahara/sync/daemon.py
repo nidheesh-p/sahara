@@ -14,6 +14,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 
+from watchdog.events import FileSystemEventHandler
+
 from sahara.config import load_config
 
 if TYPE_CHECKING:
@@ -294,7 +296,12 @@ def _daemon_main(config_path: Path | None) -> None:
     # Always watch local content roots for incremental semantic indexing.
     index_service = LocalIndexWatcherService(config, db)
     engines: list[SyncEngine] = []
-    watch_pairs = index_service.watch_pairs(is_paused=_is_paused)
+    watch_pairs: list[tuple[Path, FileSystemEventHandler]] = (
+        [
+            (folder, handler)
+            for folder, handler in index_service.watch_pairs(is_paused=_is_paused)
+        ]
+    )
 
     restore_backend = None
 
