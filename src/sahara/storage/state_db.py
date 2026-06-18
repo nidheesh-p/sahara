@@ -176,6 +176,20 @@ CREATE TABLE IF NOT EXISTS memory_delete_journal (
     state                TEXT NOT NULL CHECK(state IN ('prepared', 'committed')),
     created_at           TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS mcp_memory_audit (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    requested_at         TEXT    NOT NULL,
+    completed_at         TEXT,
+    outcome              TEXT    NOT NULL,
+    memory_id            TEXT,
+    source_type          TEXT    NOT NULL,
+    idempotency_key_hash TEXT    NOT NULL,
+    details              TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_memory_audit_requested
+    ON mcp_memory_audit (requested_at DESC);
 """
 
 
@@ -1576,6 +1590,66 @@ class StateDB:
             params,
         ).fetchone()
         return self._memory_row(row) if row else None
+
+    def begin_mcp_memory_audit(
+        self,
+        *,
+        source_type: str,
+        idempotency_key_hash: str,
+    ) -> int:
+        """Start a metadata-only audit event for an MCP capture request."""
+        with self.transaction():
+            cursor = self.conn.execute(
+                """
+                INSERT INTO mcp_memory_audit (
+                    requested_at, outcome, source_type, idempotency_key_hash
+                ) VALUES (?, 'requested', ?, ?)
+                """,
+                (
+                    datetime.datetime.now(datetime.UTC).isoformat(),
+                    source_type,
+                    idempotency_key_hash,
+                ),
+            )
+        if cursor.lastrowid is None:
+            raise RuntimeError("Could not create MCP memory audit event")
+        return cursor.lastrowid
+
+    def finish_mcp_memory_audit(
+        self,
+        audit_id: int,
+        *,
+        outcome: str,
+        memory_id: str | None = None,
+        details: str | None = None,
+    ) -> None:
+        """Finish one MCP capture audit event without storing captured text."""
+        with self.transaction():
+            cursor = self.conn.execute(
+                """
+                UPDATE mcp_memory_audit
+                SET completed_at = ?, outcome = ?, memory_id = ?, details = ?
+                WHERE id = ?
+                """,
+                (
+                    datetime.datetime.now(datetime.UTC).isoformat(),
+                    outcome,
+                    memory_id,
+                    details,
+                    audit_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("MCP memory audit event is missing")
+
+    def list_mcp_memory_audit(self, limit: int = 100) -> list[dict]:
+        """Return recent metadata-only MCP memory audit events."""
+        rows = self.conn.execute(
+            "SELECT * FROM mcp_memory_audit "
+            "ORDER BY requested_at DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def prepare_memory_delete(
         self,

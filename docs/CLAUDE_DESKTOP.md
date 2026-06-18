@@ -1,8 +1,8 @@
 # Connect Sahara to Claude Desktop
 
-Sahara exposes a read-only Model Context Protocol (MCP) server for Claude Desktop.
-Claude launches Sahara as a local subprocess over **stdio**. HTTP is not needed for
-Claude Desktop on the same computer.
+Sahara exposes read-only Model Context Protocol (MCP) retrieval tools for Claude
+Desktop by default. Claude launches Sahara as a local subprocess over **stdio**. HTTP
+is not needed for Claude Desktop on the same computer.
 
 ## Prerequisites
 
@@ -24,6 +24,15 @@ alternative.
 ```bash
 sahara mcp install-claude
 ```
+
+This default installation includes memory recall but cannot save or modify anything.
+To add create-only memory capture:
+
+```bash
+sahara mcp install-claude --enable-memory-write
+```
+
+Only enable it when you want Claude to save information after you explicitly ask.
 
 The installer:
 
@@ -107,9 +116,9 @@ standard input.
 1. Start a new Claude Desktop conversation.
 2. Click the **Add files, connectors, and more** plus icon in the chat input.
 3. Open or hover over **Connectors**.
-4. Confirm that **sahara** appears and exposes five tools:
+4. Confirm that **sahara** appears and exposes six read-only tools:
    `sahara_search`, `sahara_ask`, `sahara_read_chunk`, `sahara_list_folders`, and
-   `sahara_index_status`.
+   `sahara_index_status`, plus `sahara_recall`.
 5. Ask:
 
    ```text
@@ -122,9 +131,10 @@ Sahara's indexed corpus.
 
 ## MCP Tool Contract
 
-Sahara exposes exactly five tools. There is no separate `list_documents` tool;
+Sahara exposes six read-only tools by default. There is no separate `list_documents` tool;
 `sahara_search` returns matching documents and `sahara_list_folders` reports configured
-index scopes.
+index scopes. An explicitly enabled local installation exposes a seventh,
+create-only tool: `sahara_remember`.
 
 ### `sahara_search`
 
@@ -200,17 +210,48 @@ Inputs: none.
 Output: an object containing `indexed_files`, `indexed_chunks`, `latest_indexed_at`,
 `vector_index_available`, and `embedding_model`.
 
+### `sahara_recall`
+
+Search only the managed Sahara memory root.
+
+Inputs include `query`, optional `top_k`, optional lists of `source_types` and `tags`,
+and optional `since`/`until` timestamps. Results contain the memory UUID, title,
+relative path, score, body-only snippet, source metadata, tags, and update timestamp.
+
+### `sahara_remember` (Opt-In)
+
+Create one durable Markdown memory. This tool exists only when Claude Desktop was
+installed with `--enable-memory-write`.
+
+Required inputs:
+
+| Name | Type | Meaning |
+|---|---|---|
+| `text` | string | Knowledge to save, limited to 20,000 characters |
+| `idempotency_key` | string | Stable retry key chosen by the client |
+| `explicit_user_request` | boolean | Must be true only after the user explicitly asks to save |
+
+Optional inputs are `title`, `source_type`, `source_url`, `source_id`, and `tags`.
+Responses report `saved_and_indexed`, `saved_index_pending`, or `already_saved`.
+
 ## Security Boundary
 
-The MCP surface is read-only and scoped to Sahara's configured and indexed corpus.
+The default MCP surface is read-only and scoped to Sahara's configured and indexed
+corpus.
 
-- It cannot write, rename, delete, sync, archive, restore, or execute shell commands.
+- Default tools cannot write, rename, delete, sync, archive, restore, or execute shell
+  commands.
 - It cannot accept an arbitrary filesystem path and read that file.
 - `sahara_read_chunk` can only return text already stored in Sahara's index.
 - `sahara_search` and `sahara_ask` can only retrieve indexed content.
 - `sahara_list_folders` reveals configured local folder paths but does not read
   arbitrary files from those paths.
 - Snippets and chunks are limited to 500 characters by default.
+- `sahara_remember` is local-stdio-only, create-only, explicitly enabled, size-limited,
+  and idempotent. It cannot edit or delete memories.
+- Capture audit events contain outcome metadata and a hashed idempotency key, never the
+  captured text.
+- HTTP and SSE transports reject `--enable-memory-write`, even when authenticated.
 
 For tighter scope, add repeated `--allow-tool` and `--allow-storage-prefix` arguments,
 or reduce `--max-snippet-chars` in the Claude configuration.

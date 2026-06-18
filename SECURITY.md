@@ -14,9 +14,20 @@ contact a standalone answer provider. When Ollama is explicitly selected, answer
 generation stays local. When OpenAI is selected, the question and retrieved snippets
 needed to answer it are sent to OpenAI.
 
-The read-only MCP server returns indexed snippets to the connected MCP client. That
+The default MCP server returns indexed snippets to the connected MCP client. That
 client may process the snippets locally or send them to its own model provider, so its
 privacy and data-retention policy also applies.
+
+`sahara_remember` is absent by default. Enabling it requires
+`--enable-memory-write` on a local stdio server or Claude Desktop installation. Remote
+HTTP/SSE transports reject the option. Each capture also requires
+`explicit_user_request=true`, a non-empty idempotency key, and no more than 20,000
+characters. The tool is create-only and cannot edit, delete, sync, browse arbitrary
+paths, or execute shell commands.
+
+MCP capture audit rows are stored in `~/.sahara/state.db`. They contain timestamps,
+outcome, source type, memory ID, a SHA-256 hash of the idempotency key, and a reason
+code when rejected. They do not contain captured text or the raw idempotency key.
 
 Storage encryption applies only after a local-drive, MinIO, or AWS backend is
 configured. It does not encrypt the local source files or local semantic index.

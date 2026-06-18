@@ -162,6 +162,27 @@ def test_install_includes_non_default_sahara_config(tmp_path: Path) -> None:
     ]
 
 
+def test_install_memory_write_requires_explicit_flag(tmp_path: Path) -> None:
+    config_path = tmp_path / "claude_desktop_config.json"
+    executable = tmp_path / "sahara"
+    executable.write_text("", encoding="utf-8")
+
+    install_claude_server(
+        config_path,
+        executable,
+        enable_memory_write=True,
+    )
+
+    installed = json.loads(config_path.read_text(encoding="utf-8"))
+    assert installed["mcpServers"]["sahara"]["args"] == [
+        "mcp",
+        "serve",
+        "--transport",
+        "stdio",
+        "--enable-memory-write",
+    ]
+
+
 def test_install_is_idempotent(tmp_path: Path) -> None:
     config_path = tmp_path / "claude_desktop_config.json"
     executable = tmp_path / "sahara"
@@ -265,6 +286,32 @@ def test_install_claude_cli_preserves_custom_sahara_config(tmp_path: Path) -> No
         "--config",
         str(sahara_config.resolve()),
     ]
+
+
+def test_install_claude_cli_enables_memory_write_only_on_request(
+    tmp_path: Path,
+) -> None:
+    claude_config = tmp_path / "claude_desktop_config.json"
+    executable = tmp_path / "sahara"
+    executable.write_text("", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "mcp",
+            "install-claude",
+            "--claude-config",
+            str(claude_config),
+            "--executable",
+            str(executable),
+            "--enable-memory-write",
+        ],
+    )
+
+    installed = json.loads(claude_config.read_text(encoding="utf-8"))
+    assert result.exit_code == 0
+    assert "--enable-memory-write" in installed["mcpServers"]["sahara"]["args"]
+    assert "Memory capture is enabled" in result.output
 
 
 def test_install_claude_cli_reports_detection_error() -> None:
