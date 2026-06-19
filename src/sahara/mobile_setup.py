@@ -362,7 +362,10 @@ def _socket_candidates() -> Iterable[ipaddress.IPv4Address]:
     except OSError:
         infos = []
     for info in infos:
-        ip = _to_ipv4(info[4][0])
+        address = info[4][0]
+        if not isinstance(address, str):
+            continue
+        ip = _to_ipv4(address)
         if ip is not None:
             yield ip
 
