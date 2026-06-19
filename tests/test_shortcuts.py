@@ -9,6 +9,8 @@ from click.testing import CliRunner
 
 from sahara.cli import main
 from sahara.shortcuts import (
+    configure_shortcut_artifact,
+    copy_configured_shortcut_artifacts,
     copy_shortcut_artifacts,
     load_shortcut_artifact,
     load_shortcut_artifacts,
@@ -65,6 +67,46 @@ def test_shortcut_export_writes_valid_json_files(tmp_path: Path) -> None:
         validate_shortcut_artifact(json.loads(path.read_text(encoding="utf-8")))
 
 
+def test_configured_shortcut_export_injects_endpoint_and_token(tmp_path: Path) -> None:
+    written = copy_configured_shortcut_artifacts(
+        tmp_path,
+        endpoint="http://100.64.1.10:8765",
+        token="sahara_example_token",
+    )
+
+    assert {path.name for path in written} == {
+        "remember-in-sahara.configured.json",
+        "recall-from-sahara.configured.json",
+    }
+    remember = json.loads(
+        (tmp_path / "remember-in-sahara.configured.json").read_text(encoding="utf-8")
+    )
+    recall = json.loads(
+        (tmp_path / "recall-from-sahara.configured.json").read_text(encoding="utf-8")
+    )
+    assert remember["mobile_api"]["endpoint"] == "http://100.64.1.10:8765/v1/memories"
+    assert recall["mobile_api"]["endpoint"] == "http://100.64.1.10:8765/v1/recall"
+    assert remember["mobile_api"]["headers"]["Authorization"] == (
+        "Bearer sahara_example_token"
+    )
+    assert recall["mobile_api"]["headers"]["Authorization"] == (
+        "Bearer sahara_example_token"
+    )
+
+
+def test_configure_shortcut_artifact_preserves_contract() -> None:
+    artifact = load_shortcut_artifact("remember-in-sahara.json")
+
+    configured = configure_shortcut_artifact(
+        artifact,
+        endpoint="http://100.64.1.10:8765",
+        token="sahara_example_token",
+    )
+
+    validate_shortcut_artifact(configured.payload)
+    assert configured.payload["setup"]["base_url"] == "http://100.64.1.10:8765"
+
+
 def test_mobile_shortcuts_cli_lists_and_exports(tmp_path: Path) -> None:
     runner = CliRunner()
 
@@ -80,3 +122,51 @@ def test_mobile_shortcuts_cli_lists_and_exports(tmp_path: Path) -> None:
     assert exported.exit_code == 0
     assert (tmp_path / "remember-in-sahara.json").is_file()
     assert (tmp_path / "recall-from-sahara.json").is_file()
+
+
+def test_mobile_setup_ios_cli_writes_guided_bundle(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    from sahara.config import SaharaConfig, save_config
+
+    config_path = tmp_path / "config.toml"
+    save_config(
+        SaharaConfig(sync_folder=str(tmp_path / "content"), storage_mode="none"),
+        config_path,
+    )
+    runner = CliRunner()
+    destination = tmp_path / "ios-setup"
+
+    with patch("sahara.storage.state_db.DB_PATH", tmp_path / "state.db"):
+        result = runner.invoke(
+            main,
+            [
+                "--config",
+                str(config_path),
+                "mobile",
+                "setup-ios",
+                str(destination),
+                "--name",
+                "Nidheesh iPhone",
+                "--endpoint",
+                "http://100.64.1.10:8765",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Created iPhone setup bundle" in result.output
+    assert (destination / "README.md").is_file()
+    assert (destination / "index.html").is_file()
+    assert (destination / "pairing.json").is_file()
+    assert (destination / "pairing-uri.txt").is_file()
+    assert (destination / "setup-summary.json").is_file()
+    remember = json.loads(
+        (destination / "shortcuts" / "remember-in-sahara.configured.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert remember["mobile_api"]["endpoint"] == "http://100.64.1.10:8765/v1/memories"
+    assert remember["mobile_api"]["headers"]["Authorization"].startswith("Bearer sahara_")
+    assert "--allow-private-network" in (destination / "README.md").read_text(
+        encoding="utf-8"
+    )

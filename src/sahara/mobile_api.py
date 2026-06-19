@@ -500,7 +500,14 @@ class MobileAPIService:
 
     @staticmethod
     def _tags(payload: dict[str, Any]) -> tuple[str, ...]:
-        raw = payload.get("tags") or ()
+        raw = payload.get("tags")
+        if raw is None:
+            return ()
+        if isinstance(raw, str):
+            value = raw.strip()
+            if not value or value == "[]":
+                return ()
+            return tuple(tag.strip() for tag in value.split(",") if tag.strip())
         if not isinstance(raw, list):
             raise MobileAPIError(
                 HTTPStatus.BAD_REQUEST,

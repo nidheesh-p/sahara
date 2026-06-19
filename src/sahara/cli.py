@@ -3238,6 +3238,62 @@ def mobile_audit(limit: int) -> None:
         )
 
 
+@mobile.command("setup-ios")
+@click.argument("destination", type=click.Path(path_type=Path))
+@click.option("--name", default="iPhone", show_default=True, help="Paired device name.")
+@click.option(
+    "--endpoint",
+    help="Base endpoint for the phone, for example http://100.64.0.10:8765. "
+    "Defaults to auto-detection.",
+)
+@click.option("--port", default=8765, show_default=True, type=int)
+@click.pass_context
+def mobile_setup_ios(
+    ctx: click.Context,
+    destination: Path,
+    name: str,
+    endpoint: str | None,
+    port: int,
+) -> None:
+    """Create a guided iPhone onboarding bundle with prefilled Shortcuts values."""
+    from sahara.mobile_api import CAPTURE_SCOPE, RECALL_SCOPE, create_mobile_device_pairing
+    from sahara.mobile_setup import resolve_mobile_endpoint, write_ios_setup_bundle
+    from sahara.storage.state_db import StateDB
+
+    _require_library_config(ctx.obj["config"])
+    try:
+        recommendation = resolve_mobile_endpoint(endpoint, port=port)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    db = StateDB().connect()
+    try:
+        pairing = create_mobile_device_pairing(
+            db,
+            name=name,
+            endpoint=recommendation.endpoint,
+            scopes=(CAPTURE_SCOPE, RECALL_SCOPE),
+        )
+    finally:
+        db.close()
+
+    written = write_ios_setup_bundle(
+        destination,
+        pairing=pairing,
+        endpoint=recommendation,
+    )
+    _ok(f"Created iPhone setup bundle at {destination}")
+    _info(f"Endpoint      : {recommendation.endpoint}")
+    _info(f"Source        : {recommendation.source}")
+    _info(f"Device        : {pairing.name} ({pairing.device_id})")
+    _info(f"Health check  : {pairing.endpoint.rstrip('/')}/healthz")
+    _info(f"Serve command : sahara mobile serve --host {recommendation.host} --port {recommendation.port}"
+          f"{' --allow-private-network' if recommendation.requires_private_bind else ''}")
+    _warn("The setup bundle includes the one-time bearer token. Treat the folder as a secret.")
+    for path in written:
+        _info(str(path))
+
+
 @mobile.group("shortcuts")
 def mobile_shortcuts() -> None:
     """Inspect and export Apple Shortcuts artifacts."""

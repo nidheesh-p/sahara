@@ -144,6 +144,43 @@ def test_mobile_capture_is_idempotent_and_audited_without_content(
     assert hashlib.sha256(b"mobile-retry-1").hexdigest() in serialized
 
 
+def test_mobile_capture_accepts_shortcuts_friendly_tags(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        pairing = create_mobile_device_pairing(
+            db,
+            name="Shortcut",
+            endpoint="http://127.0.0.1:8765",
+        )
+        service = MobileAPIService(config, db)
+        with patch.object(
+            IndexingService,
+            "index_path",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ):
+            service.handle_capture(
+                _headers(pairing.token),
+                _body(tags="phone-test, siri", idempotency_key="shortcut-tags"),
+            )
+            service.handle_capture(
+                _headers(pairing.token),
+                _body(
+                    text="Shortcut capture without tags.",
+                    tags=None,
+                    idempotency_key="shortcut-no-tags",
+                ),
+            )
+
+        items = MemoryService(config, db).list()
+
+    assert {item.idempotency_key: item.tags for item in items} == {
+        "shortcut-tags": ("phone-test", "siri"),
+        "shortcut-no-tags": (),
+    }
+
+
 def test_capture_rejects_path_selection_large_requests_and_rate_limits(
     tmp_path: Path,
 ) -> None:
