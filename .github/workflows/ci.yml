@@ -36,10 +36,20 @@ jobs:
       - name: Type check
         run: mypy src/
 
+  ios-foundation:
+    name: Test iOS foundation package
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Swift package tests
+        run: swift test --package-path apps/ios/SaharaMobileCore
+
   build:
     name: Build package
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, ios-foundation]
 
     steps:
       - uses: actions/checkout@v4
