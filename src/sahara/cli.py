@@ -2296,6 +2296,37 @@ def history(ctx: click.Context, path: str | None, limit: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# models
+# ---------------------------------------------------------------------------
+
+
+@main.group("models")
+def models_group() -> None:
+    """Manage Sahara's local embedding model."""
+
+
+@models_group.command("prepare")
+def models_prepare() -> None:
+    """Download and verify the local embedding model before indexing."""
+    from sahara.search.search_engine import EMBEDDING_MODEL_NAME, load_embedding_model
+
+    _info(f"Preparing local embedding model: {EMBEDDING_MODEL_NAME}")
+    _info("First-time setup downloads the model (~200 MB); cached runs are fast.")
+    _info(
+        "Hugging Face authentication is optional; its anonymous-download "
+        "warning is harmless."
+    )
+    try:
+        model = load_embedding_model()
+    except RuntimeError as exc:
+        _abort(str(exc))
+
+    # Readiness check: a tiny embedding proves the model is usable.
+    list(model.embed(["sahara"]))
+    _ok(f"Model {EMBEDDING_MODEL_NAME} is ready.")
+
+
+# ---------------------------------------------------------------------------
 # index
 # ---------------------------------------------------------------------------
 

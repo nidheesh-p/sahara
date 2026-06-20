@@ -27,6 +27,10 @@ The first `sahara index` run downloads the local embedding model (roughly
 no account or token is required. `HF_TOKEN` is optional for higher download
 rate limits.
 
+To fetch and verify the model ahead of time — for example before going offline —
+run `sahara models prepare`. It needs no configuration and can be run before
+`sahara init`.
+
 This command is non-interactive. It requires no bucket, credentials, drive, storage
 validation, or standalone answer provider.
 
