@@ -120,18 +120,32 @@ def test_write_ios_setup_bundle_writes_expected_files(tmp_path: Path) -> None:
     assert {
         "pairing.json",
         "pairing-uri.txt",
+        "pairing-qr.svg",
         "setup-summary.json",
+        "healthcheck-qr.svg",
         "README.md",
         "index.html",
     }.issubset(written_names)
     summary = json.loads((tmp_path / "setup-summary.json").read_text(encoding="utf-8"))
     assert summary["capture_url"] == "http://100.64.0.10:8765/v1/memories"
     assert summary["recall_url"] == "http://100.64.0.10:8765/v1/recall"
+    assert summary["pairing_uri"].startswith("sahara://pair?")
     html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert "Verify from iPhone" in html
+    assert "Run Smoke Tests" in html
     assert "Copy Authorization value" in html
-    assert "sahara mobile serve --host 100.64.0.10 --port 8765 --allow-private-network" in html
+    assert "Copy capture JSON" in html
+    assert "pairing-qr.svg" in html
+    assert "healthcheck-qr.svg" in html
+    assert (
+        "sahara mobile serve --host 100.64.0.10 --port 8765 --allow-private-network"
+        in html
+    )
     readme = (tmp_path / "README.md").read_text(encoding="utf-8")
+    assert "Suggested manual smoke tests" in readme
     assert "Treat this folder like a secret" in readme
+    assert "<svg" in (tmp_path / "pairing-qr.svg").read_text(encoding="utf-8")
+    assert "<svg" in (tmp_path / "healthcheck-qr.svg").read_text(encoding="utf-8")
     assert (tmp_path / "shortcuts" / "remember-in-sahara.configured.json").is_file()
     assert (tmp_path / "shortcuts" / "recall-from-sahara.configured.json").is_file()
 

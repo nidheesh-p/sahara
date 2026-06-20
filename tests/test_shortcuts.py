@@ -159,6 +159,8 @@ def test_mobile_setup_ios_cli_writes_guided_bundle(tmp_path: Path) -> None:
     assert (destination / "index.html").is_file()
     assert (destination / "pairing.json").is_file()
     assert (destination / "pairing-uri.txt").is_file()
+    assert (destination / "pairing-qr.svg").is_file()
+    assert (destination / "healthcheck-qr.svg").is_file()
     assert (destination / "setup-summary.json").is_file()
     remember = json.loads(
         (destination / "shortcuts" / "remember-in-sahara.configured.json").read_text(

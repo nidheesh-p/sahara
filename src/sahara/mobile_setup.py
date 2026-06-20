@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import io
 import ipaddress
 import json
 import re
@@ -14,6 +15,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
+
+import qrcode
+from qrcode.constants import ERROR_CORRECT_M
+from qrcode.image.svg import SvgPathImage
 
 from sahara.mobile_api import DevicePairing, pairing_uri, validate_bind_host
 from sahara.shortcuts import copy_configured_shortcut_artifacts
@@ -110,6 +115,7 @@ def write_ios_setup_bundle(
                 "capture_url": pairing.endpoint.rstrip("/") + "/v1/memories",
                 "recall_url": pairing.endpoint.rstrip("/") + "/v1/recall",
                 "healthcheck_url": pairing.endpoint.rstrip("/") + "/healthz",
+                "pairing_uri": pairing_uri(pairing.payload()),
                 "requires_private_bind": endpoint.requires_private_bind,
             },
             indent=2,
@@ -122,6 +128,20 @@ def write_ios_setup_bundle(
     readme_path = destination / "README.md"
     readme_path.write_text(_render_setup_readme(pairing, endpoint), encoding="utf-8")
     written.append(readme_path)
+
+    pairing_qr_path = destination / "pairing-qr.svg"
+    pairing_qr_path.write_text(
+        _build_qr_svg(pairing_uri(pairing.payload())),
+        encoding="utf-8",
+    )
+    written.append(pairing_qr_path)
+
+    health_qr_path = destination / "healthcheck-qr.svg"
+    health_qr_path.write_text(
+        _build_qr_svg(pairing.endpoint.rstrip("/") + "/healthz"),
+        encoding="utf-8",
+    )
+    written.append(health_qr_path)
 
     html_path = destination / "index.html"
     html_path.write_text(_render_setup_html(pairing, endpoint), encoding="utf-8")
@@ -163,6 +183,8 @@ def _parse_explicit_endpoint(endpoint: str) -> EndpointRecommendation:
 def _render_setup_readme(pairing: DevicePairing, endpoint: EndpointRecommendation) -> str:
     serve_command = _serve_command(endpoint)
     base_url = pairing.endpoint.rstrip("/")
+    capture_payload = _capture_test_payload()
+    recall_payload = _recall_test_payload()
     return (
         "# Sahara iPhone Setup\n\n"
         "This folder contains a preconfigured iPhone onboarding bundle for Sahara.\n\n"
@@ -177,13 +199,24 @@ def _render_setup_readme(pairing: DevicePairing, endpoint: EndpointRecommendatio
         "- `shortcuts/recall-from-sahara.configured.json`: prefilled recall blueprint.\n"
         "- `pairing.json`: the one-time device token payload.\n"
         "- `pairing-uri.txt`: compact pairing URI for future QR/import tooling.\n"
-        "- `index.html`: browser-friendly setup page with copy buttons.\n\n"
+        "- `pairing-qr.svg`: QR for the pairing URI.\n"
+        "- `healthcheck-qr.svg`: QR for the network health test.\n"
+        "- `index.html`: browser-friendly setup page with copy buttons and step-by-step testing.\n\n"
         "## Important values\n\n"
         f"- Device name: `{pairing.name}`\n"
         f"- Endpoint: `{base_url}`\n"
         f"- Capture URL: `{base_url}/v1/memories`\n"
         f"- Recall URL: `{base_url}/v1/recall`\n"
         f"- Endpoint source: `{endpoint.source}`\n\n"
+        "## Suggested manual smoke tests\n\n"
+        "Capture body:\n\n"
+        "```json\n"
+        f"{capture_payload}\n"
+        "```\n\n"
+        "Recall body:\n\n"
+        "```json\n"
+        f"{recall_payload}\n"
+        "```\n\n"
         "Treat this folder like a secret because it includes the bearer token.\n"
     )
 
@@ -193,8 +226,11 @@ def _render_setup_html(pairing: DevicePairing, endpoint: EndpointRecommendation)
     capture_url = base_url + "/v1/memories"
     recall_url = base_url + "/v1/recall"
     health_url = base_url + "/healthz"
+    pairing_value = pairing_uri(pairing.payload())
     auth_header = f"Bearer {pairing.token}"
     serve_command = _serve_command(endpoint)
+    capture_payload = html.escape(_capture_test_payload())
+    recall_payload = html.escape(_recall_test_payload())
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -211,6 +247,7 @@ def _render_setup_html(pairing: DevicePairing, endpoint: EndpointRecommendation)
       --accent: #0f766e;
       --line: #d8d2c8;
       --code: #f1ede5;
+      --card: #fbf6ee;
     }}
     body {{
       margin: 0;
@@ -223,6 +260,9 @@ def _render_setup_html(pairing: DevicePairing, endpoint: EndpointRecommendation)
       margin: 0 auto;
       padding: 32px 20px 56px;
     }}
+    p {{
+      line-height: 1.55;
+    }}
     h1, h2 {{
       line-height: 1.1;
     }}
@@ -233,6 +273,29 @@ def _render_setup_html(pairing: DevicePairing, endpoint: EndpointRecommendation)
       padding: 18px;
       margin: 16px 0;
       box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+    }}
+    .grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+    }}
+    .card {{
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+    }}
+    .step {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+      margin-right: 8px;
     }}
     code, pre {{
       font-family: "SFMono-Regular", Menlo, monospace;
@@ -266,6 +329,14 @@ def _render_setup_html(pairing: DevicePairing, endpoint: EndpointRecommendation)
     .muted {{
       color: var(--muted);
     }}
+    img.qr {{
+      width: min(100%, 220px);
+      height: auto;
+      border-radius: 12px;
+      background: white;
+      border: 1px solid var(--line);
+      padding: 8px;
+    }}
   </style>
 </head>
 <body>
@@ -274,7 +345,8 @@ def _render_setup_html(pairing: DevicePairing, endpoint: EndpointRecommendation)
     <p class="muted">This bundle is preconfigured for <strong>{html.escape(pairing.name)}</strong>. Treat it like a secret because it contains the mobile bearer token.</p>
 
     <section class="panel">
-      <h2>1. Start Sahara</h2>
+      <h2><span class="step">1</span>Start Sahara</h2>
+      <p>Run the mobile API on the desktop Sahara machine before touching the phone.</p>
       <pre>{html.escape(serve_command)}</pre>
       <div class="row">
         <div><strong>Health check</strong></div>
@@ -284,7 +356,27 @@ def _render_setup_html(pairing: DevicePairing, endpoint: EndpointRecommendation)
     </section>
 
     <section class="panel">
-      <h2>2. Shortcut Values</h2>
+      <h2><span class="step">2</span>Verify from iPhone</h2>
+      <p>Open the health URL or scan the QR code from the phone. A successful response is <code>{{"status":"ok"}}</code>.</p>
+      <div class="grid">
+        <div class="card">
+          <div><strong>Health URL</strong></div>
+          <code id="health-duplicate">{html.escape(health_url)}</code>
+          <p><img class="qr" src="healthcheck-qr.svg" alt="QR code for Sahara health check"></p>
+          <button data-copy="health-duplicate">Copy health URL</button>
+        </div>
+        <div class="card">
+          <div><strong>Pairing URI</strong></div>
+          <code id="pairing-uri">{html.escape(pairing_value)}</code>
+          <p><img class="qr" src="pairing-qr.svg" alt="QR code for Sahara pairing URI"></p>
+          <button data-copy="pairing-uri">Copy pairing URI</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2><span class="step">3</span>Wire the Shortcuts</h2>
+      <p>The configured blueprint files live in the <code>shortcuts/</code> folder. If you still need to edit values manually, these are the three fields that matter most.</p>
       <div class="row">
         <div><strong>Capture URL</strong></div>
         <code id="capture">{html.escape(capture_url)}</code>
@@ -303,9 +395,20 @@ def _render_setup_html(pairing: DevicePairing, endpoint: EndpointRecommendation)
     </section>
 
     <section class="panel">
-      <h2>3. Bundle Files</h2>
-      <p class="muted">The configured Shortcut blueprints live in the <code>shortcuts/</code> folder. The pairing URI is ready for future QR or import tooling.</p>
-      <pre>{html.escape(pairing_uri(pairing.payload()))}</pre>
+      <h2><span class="step">4</span>Run Smoke Tests</h2>
+      <p>These JSON bodies are ready for a first capture and first recall test from the phone.</p>
+      <div class="grid">
+        <div class="card">
+          <div><strong>Capture test body</strong></div>
+          <pre id="capture-payload">{capture_payload}</pre>
+          <button data-copy="capture-payload">Copy capture JSON</button>
+        </div>
+        <div class="card">
+          <div><strong>Recall test body</strong></div>
+          <pre id="recall-payload">{recall_payload}</pre>
+          <button data-copy="recall-payload">Copy recall JSON</button>
+        </div>
+      </div>
     </section>
   </main>
   <script>
@@ -314,9 +417,10 @@ def _render_setup_html(pairing: DevicePairing, endpoint: EndpointRecommendation)
         const id = button.getAttribute("data-copy");
         const value = document.getElementById(id)?.textContent ?? "";
         await navigator.clipboard.writeText(value);
+        const original = button.textContent;
         button.textContent = "Copied";
         setTimeout(() => {{
-          button.textContent = button.textContent === "Copied" ? "Copy" : button.textContent;
+          button.textContent = original ?? "Copy";
         }}, 1200);
       }});
     }});
@@ -331,6 +435,43 @@ def _serve_command(endpoint: EndpointRecommendation) -> str:
     if endpoint.requires_private_bind:
         parts.append("--allow-private-network")
     return " ".join(shlex.quote(part) for part in parts)
+
+
+def _capture_test_payload() -> str:
+    return json.dumps(
+        {
+            "text": "Testing Sahara mobile capture from iPhone setup.",
+            "source_type": "mobile",
+            "tags": "phone-test",
+            "idempotency_key": "iphone-setup-test-1",
+        },
+        indent=2,
+    )
+
+
+def _recall_test_payload() -> str:
+    return json.dumps(
+        {
+            "query": "Testing Sahara mobile capture from iPhone setup",
+            "top_k": 3,
+        },
+        indent=2,
+    )
+
+
+def _build_qr_svg(data: str) -> str:
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=ERROR_CORRECT_M,
+        box_size=8,
+        border=2,
+    )
+    qr.add_data(data)
+    qr.make(fit=True)
+    image = qr.make_image(image_factory=SvgPathImage)
+    buffer = io.BytesIO()
+    image.save(buffer)
+    return buffer.getvalue().decode("utf-8")
 
 
 def _endpoint_rank(ip: ipaddress.IPv4Address) -> tuple[int, str]:
