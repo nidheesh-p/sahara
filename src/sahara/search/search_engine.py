@@ -24,7 +24,24 @@ logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 1600       # chars ≈ 400 tokens
 CHUNK_OVERLAP = 320     # chars ≈ 80 tokens overlap between adjacent chunks
+EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIM = 384     # BAAI/bge-small-en-v1.5 output dimension
+
+
+def load_embedding_model() -> Any:
+    """Load the local embedding model, downloading it on first use.
+
+    Raises RuntimeError with an install hint when the optional ``search`` extra
+    (which provides fastembed) is not installed.
+    """
+    try:
+        from fastembed import TextEmbedding  # type: ignore[import]
+    except ImportError:
+        raise RuntimeError(
+            "fastembed is required for semantic search. "
+            "Install it with: pip install 'sahara-memory[search]'"
+        )
+    return TextEmbedding(model_name=EMBEDDING_MODEL_NAME)
 
 
 @dataclass(frozen=True)
@@ -303,14 +320,7 @@ class SearchEngine:
 
     def _get_model(self) -> Any:
         if self._model is None:
-            try:
-                from fastembed import TextEmbedding  # type: ignore[import]
-                self._model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
-            except ImportError:
-                raise RuntimeError(
-                    "fastembed is required for semantic search. "
-                    "Install it with: pip install 'sahara-memory[search]'"
-                )
+            self._model = load_embedding_model()
         return self._model
 
     def _embed(self, texts: list[str]) -> list[Any]:

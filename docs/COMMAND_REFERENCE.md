@@ -38,6 +38,7 @@ These commands work in basic index-only mode and do not require optional storage
 | `sahara folder list` | List indexed folders and their sync state |
 | `sahara folder remove PATH [--force]` | Remove a non-primary folder and its local search index |
 | `sahara folders` | Alias-style top-level listing of all content roots |
+| `sahara models prepare` | Download and verify the local embedding model before your first index |
 | `sahara index [--folder PATH] [--force]` | Index all registered folders, one folder, or force unchanged files to re-index |
 | `sahara index-report [--top N] [--sample N]` | Show indexed, unsupported, failed, missing, and unindexed content |
 | `sahara remember [TEXT] [OPTIONS]` | Save captured knowledge as Markdown and index it |

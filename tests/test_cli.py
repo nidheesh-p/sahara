@@ -725,3 +725,59 @@ class TestDaemonLogs:
             result = runner.invoke(main, ["daemon", "logs"])
             assert result.exit_code == 0
             assert "test log line" in result.output
+
+
+# ---------------------------------------------------------------------------
+# models prepare
+# ---------------------------------------------------------------------------
+
+
+class _FakeEmbeddingModel:
+    """Drop-in for fastembed.TextEmbedding that avoids real downloads."""
+
+    def embed(self, texts):
+        for _ in texts:
+            yield [0.1, 0.2, 0.3]
+
+
+class TestModelsPrepare:
+    def test_prepare_succeeds_without_config(self, tmp_path: Path):
+        runner = _runner()
+        nonexistent = tmp_path / "no-config.toml"
+        with patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeEmbeddingModel(),
+        ):
+            result = runner.invoke(
+                main, ["--config", str(nonexistent), "models", "prepare"]
+            )
+        assert result.exit_code == 0
+        assert "BAAI/bge-small-en-v1.5" in result.output
+        assert "ready" in result.output.lower()
+
+    def test_prepare_reports_missing_search_extra(self):
+        runner = _runner()
+        with patch(
+            "sahara.search.search_engine.load_embedding_model",
+            side_effect=RuntimeError(
+                "fastembed is required for semantic search. "
+                "Install it with: pip install 'sahara-memory[search]'"
+            ),
+        ):
+            result = runner.invoke(main, ["models", "prepare"])
+        assert result.exit_code != 0
+        assert "sahara-memory[search]" in result.output
+
+    def test_prepare_is_idempotent(self):
+        runner = _runner()
+        with patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeEmbeddingModel(),
+        ) as mock_load:
+            first = runner.invoke(main, ["models", "prepare"])
+            second = runner.invoke(main, ["models", "prepare"])
+        assert first.exit_code == 0
+        assert second.exit_code == 0
+        assert "ready" in second.output.lower()
+        # Each run loads the model independently; both succeed the same way.
+        assert mock_load.call_count == 2
