@@ -239,6 +239,12 @@ def load_config(path: Path | None = None) -> SaharaConfig:
     return SaharaConfig(**kwargs)
 
 
+def _toml_quote(value: str) -> str:
+    """Return value as a TOML basic string with backslashes and quotes escaped."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def save_config(config: SaharaConfig, path: Path | None = None) -> None:
     """Persist a SaharaConfig to a TOML file."""
     config_path = path or DEFAULT_CONFIG_PATH
@@ -258,13 +264,12 @@ def save_config(config: SaharaConfig, path: Path | None = None) -> None:
         elif isinstance(value, float):
             lines.append(f"{f_name} = {value}\n")
         elif isinstance(value, str):
-            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-            lines.append(f'{f_name} = "{escaped}"\n')
+            lines.append(f"{f_name} = {_toml_quote(value)}\n")
         elif isinstance(value, list):
             if not value:
                 lines.append(f"{f_name} = []\n")
             else:
-                items_str = ", ".join(f'"{v}"' for v in value)
+                items_str = ", ".join(_toml_quote(item) for item in value)
                 lines.append(f"{f_name} = [{items_str}]\n")
 
     config_path.write_text("".join(lines), encoding="utf-8")

@@ -266,6 +266,22 @@ class TestSaveConfig:
         assert "*.log" in loaded.exclude_patterns
         assert "build/" in loaded.exclude_patterns
 
+    def test_round_trip_list_values_with_special_characters(self, tmp_path: Path):
+        # Windows drive paths contain backslashes, and exclude patterns may
+        # contain quotes or backslashes; these must survive a save/load cycle.
+        original = SaharaConfig(
+            sync_folder="/tmp/sync",
+            storage_mode="local",
+            drive_paths=[r"C:\Users\me\Sahara", "/mnt/data"],
+            exclude_patterns=[r"logs\*.tmp", 'name"with"quotes'],
+        )
+        config_path = tmp_path / "cfg.toml"
+        save_config(original, config_path)
+        loaded = load_config(config_path)
+
+        assert loaded.drive_paths == original.drive_paths
+        assert loaded.exclude_patterns == original.exclude_patterns
+
     def test_save_bool_values(self, tmp_path: Path):
         cfg = SaharaConfig(encryption_enabled=True, notifications_enabled=False)
         config_path = tmp_path / "cfg.toml"
