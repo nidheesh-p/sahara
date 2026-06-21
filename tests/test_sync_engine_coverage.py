@@ -1047,6 +1047,40 @@ class TestSyncWithMoto:
             assert set(persisted or {}) == {"good.txt"}
             db.close()
 
+    def test_nonportable_legacy_manifest_name_is_preserved_and_skipped(
+        self,
+        tmp_path: Path,
+    ):
+        with mock_aws():
+            raw = boto3.client("s3", region_name=REGION)
+            raw.create_bucket(Bucket=BUCKET)
+            cfg = _make_config(tmp_path)
+            (cfg.get_sync_folder_path() / "good.txt").write_text("good")
+            legacy_entry = {
+                "sha256": "a" * 64,
+                "size": 1,
+                "tier": "STANDARD",
+                "modified_at": NOW.isoformat(),
+                "etag": "etag",
+            }
+            raw.put_object(
+                Bucket=BUCKET,
+                Key=".sahara/manifest.json",
+                Body=json.dumps({"bad:name.txt": legacy_entry}).encode(),
+            )
+            db = StateDB(tmp_path / "state.db").connect()
+            engine = SyncEngine(cfg, db, S3Client(cfg))
+
+            result = engine.sync()
+
+            persisted, _ = engine._s3.get_manifest()
+            assert "good.txt" in result.uploaded
+            assert "bad:name.txt" in result.skipped
+            assert persisted is not None
+            assert persisted["bad:name.txt"] == legacy_entry
+            assert "good.txt" in persisted
+            db.close()
+
     def test_sync_with_delete_operations(self, tmp_path: Path):
         """Test that delete_remote and delete_local ops work."""
         with mock_aws():

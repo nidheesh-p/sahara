@@ -144,6 +144,24 @@ class TestSyncCommand:
             assert result.exit_code == 0
             assert "Error" in result.output or "error" in result.output.lower()
 
+    def test_sync_exception_names_target_folder(self, tmp_path: Path):
+        cfg, config_path = _make_config(tmp_path)
+        runner = _runner()
+
+        mock_db = _make_mock_db()
+        mock_s3 = _make_mock_s3()
+        mock_engine = _make_mock_engine()
+        mock_engine.sync.side_effect = RuntimeError("boom")
+
+        with patch("sahara.state_db.StateDB", return_value=mock_db), \
+             patch("sahara.s3_client.S3Client", return_value=mock_s3), \
+             patch("sahara.sync_engine.SyncEngine", return_value=mock_engine), \
+             patch("sahara.ignore_rules.IgnoreRules"):
+            result = runner.invoke(main, ["--config", str(config_path), "sync"])
+            assert result.exit_code == 1
+            assert f"Sync failed for {cfg.get_sync_folder_path()}" in result.output
+            assert "Sync failed for None" not in result.output
+
     def test_sync_no_config_aborts(self, tmp_path: Path):
         runner = _runner()
         empty = tmp_path / "empty.toml"

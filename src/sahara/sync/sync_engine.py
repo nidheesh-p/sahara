@@ -245,15 +245,87 @@ class SyncEngine:
                 )
             identities[identity] = path
 
-    def _manifest_entries(self, raw_manifest: dict) -> dict[str, ManifestEntry]:
+    @classmethod
+    def _validate_three_way_content_paths(
+        cls,
+        local_paths: set[str],
+        manifest_paths: set[str],
+        db_paths: set[str],
+    ) -> None:
+        """Validate portable paths without blocking DB-backed case-only renames."""
+        cls._validate_distinct_content_paths(local_paths)
+        cls._validate_distinct_content_paths(manifest_paths)
+        cls._validate_distinct_content_paths(db_paths)
+
+        identity_paths: dict[str, set[str]] = {}
+        for paths in (local_paths, manifest_paths, db_paths):
+            for path in paths:
+                identity_paths.setdefault(
+                    cls._content_path_identity(path), set()
+                ).add(path)
+
+        for paths in identity_paths.values():
+            if len(paths) <= 1:
+                continue
+
+            local_aliases = paths & local_paths
+            manifest_aliases = paths & manifest_paths
+            db_aliases = paths & db_paths
+            is_db_backed_local_case_rename = (
+                len(paths) == 2
+                and len(local_aliases) == 1
+                and len(manifest_aliases) == 1
+                and manifest_aliases == db_aliases
+                and not local_aliases & db_paths
+            )
+            if is_db_backed_local_case_rename:
+                continue
+
+            ordered = sorted(paths)
+            raise S3ClientError(
+                "Content paths alias across filesystems: "
+                f"{ordered[0]!r} and {ordered[1]!r}"
+            )
+
+    def _manifest_entries(
+        self,
+        raw_manifest: dict,
+        *,
+        allow_unsupported_paths: bool = False,
+        unsupported_paths: set[str] | None = None,
+    ) -> dict[str, ManifestEntry]:
         """Parse a remote manifest only after validating every content path."""
         if not isinstance(raw_manifest, dict):
             raise S3ClientError("Remote manifest must be a JSON object.")
         if not all(isinstance(path, str) for path in raw_manifest):
             raise S3ClientError("Remote manifest paths must be text.")
-        self._validate_distinct_content_paths(set(raw_manifest))
+        manifest_paths: list[str] = []
+        if allow_unsupported_paths:
+            identities: dict[str, str] = {}
+            for path in raw_manifest:
+                try:
+                    identity = self._content_path_identity(path)
+                except S3ClientError as exc:
+                    if "not portable" not in str(exc):
+                        raise
+                    if unsupported_paths is not None:
+                        unsupported_paths.add(path)
+                    continue
+                existing = identities.get(identity)
+                if existing is not None and existing != path:
+                    raise S3ClientError(
+                        "Content paths alias across filesystems: "
+                        f"{existing!r} and {path!r}"
+                    )
+                identities[identity] = path
+                manifest_paths.append(path)
+        else:
+            self._validate_distinct_content_paths(set(raw_manifest))
+            manifest_paths = list(raw_manifest)
+
         entries: dict[str, ManifestEntry] = {}
-        for path, data in raw_manifest.items():
+        for path in manifest_paths:
+            data = raw_manifest[path]
             self._content_path_parts(path)
             if not isinstance(data, dict):
                 raise S3ClientError(f"Invalid manifest entry for {path!r}")
@@ -589,11 +661,12 @@ class SyncEngine:
     # Local scan
     # ------------------------------------------------------------------
 
-    def _scan_local(self) -> dict[str, LocalFileInfo]:
+    def _scan_local(self, *, clear_unsupported: bool = True) -> dict[str, LocalFileInfo]:
         """Walk the sync folder and return metadata for every non-ignored file."""
         result: dict[str, LocalFileInfo] = {}
         portable_identities: dict[str, str] = {}
-        self._unsupported_local_paths.clear()
+        if clear_unsupported:
+            self._unsupported_local_paths.clear()
         base = self._sync_folder
 
         for dirpath, dirnames, filenames in os.walk(base):
@@ -670,11 +743,23 @@ class SyncEngine:
         """
         result = DiffResult()
 
-        all_paths: set[str] = (
-            set(local_files.keys()) | set(manifest.keys()) | set(db_records.keys())
-        )
-        self._validate_distinct_content_paths(
-            all_paths - self._unsupported_local_paths
+        local_paths = set(local_files.keys()) - self._unsupported_local_paths
+        manifest_paths = set(manifest.keys())
+        active_db_paths: set[str] = set()
+        for path, record in db_records.items():
+            if record.is_deleted:
+                continue
+            try:
+                self._content_path_identity(path)
+            except S3ClientError:
+                self._unsupported_local_paths.add(path)
+                continue
+            active_db_paths.add(path)
+        all_paths: set[str] = local_paths | manifest_paths | active_db_paths
+        self._validate_three_way_content_paths(
+            local_paths,
+            manifest_paths,
+            active_db_paths,
         )
 
         for path in all_paths:
@@ -1238,7 +1323,11 @@ class SyncEngine:
                         raise S3ClientError(
                             "Storage backend returned a manifest without an ETag."
                         )
-                    self._manifest_entries(remote_manifest)
+                    self._manifest_entries(
+                        remote_manifest,
+                        allow_unsupported_paths=True,
+                        unsupported_paths=self._unsupported_local_paths,
+                    )
                     manifest = dict(remote_manifest)
                     if_none_match = False
                 for path in deleted_paths:
@@ -1249,7 +1338,11 @@ class SyncEngine:
     # Bootstrap: build manifest from ListObjectsV2
     # ------------------------------------------------------------------
 
-    def _bootstrap_manifest(self) -> dict[str, ManifestEntry]:
+    def _bootstrap_manifest(
+        self,
+        *,
+        unsupported_paths: set[str] | None = None,
+    ) -> dict[str, ManifestEntry]:
         """Used ONLY when no manifest exists yet — list S3 objects for this folder."""
         logger.info("No manifest found; bootstrapping from S3 listing…")
         # Build the S3 listing prefix scoped to this folder
@@ -1275,7 +1368,14 @@ class SyncEngine:
 
             if not rel or rel.startswith(".sahara/") or ".sahara/" in rel:
                 continue
-            self._content_path_parts(rel)
+            try:
+                self._content_path_parts(rel)
+            except S3ClientError as exc:
+                if "not portable" not in str(exc):
+                    raise
+                if unsupported_paths is not None:
+                    unsupported_paths.add(rel)
+                continue
 
             manifest[rel] = ManifestEntry(
                 sha256="",  # Unknown until downloaded
@@ -1336,30 +1436,41 @@ class SyncEngine:
         verify: bool,
         result: SyncResult,
     ) -> SyncResult:
+        self._unsupported_local_paths.clear()
+
         # Step 2: Fetch manifest (per-folder manifest key)
         raw_manifest, manifest_etag, manifest_key, manifest_needs_create = (
             self._get_manifest_with_legacy()
         )
 
         if raw_manifest is None:
-            manifest_entries = self._bootstrap_manifest()
+            manifest_entries = self._bootstrap_manifest(
+                unsupported_paths=self._unsupported_local_paths
+            )
         else:
-            manifest_entries = self._manifest_entries(raw_manifest)
-        new_manifest = {
-            path: entry.to_dict()
-            for path, entry in manifest_entries.items()
-        }
+            manifest_entries = self._manifest_entries(
+                raw_manifest,
+                allow_unsupported_paths=True,
+                unsupported_paths=self._unsupported_local_paths,
+            )
+        if raw_manifest is None:
+            new_manifest = {
+                path: entry.to_dict()
+                for path, entry in manifest_entries.items()
+            }
+        else:
+            new_manifest = dict(raw_manifest)
         base_manifest = dict(new_manifest)
 
         # Step 3: Scan local
-        local_files = self._scan_local()
-        result.skipped.extend(sorted(self._unsupported_local_paths))
+        local_files = self._scan_local(clear_unsupported=False)
 
         # Step 4: Build DB records map
         db_records = {r.relative_path: r for r in self._db.list_files(include_deleted=True, s3_prefix=self._s3_prefix)}
 
         # Step 5: Three-way diff
         diff = self._three_way_diff(local_files, manifest_entries, db_records)
+        result.skipped.extend(sorted(self._unsupported_local_paths))
 
         # Step 6: Rename detection
         diff = self._detect_renames(diff, local_files, manifest_entries)
