@@ -107,6 +107,7 @@ def test_pyproject_standard_maintainer_and_doc_urls():
 
     maintainer_names = [m.get("name") for m in data["project"].get("maintainers", [])]
     assert "Nidheesh Puthalath" in maintainer_names
+    assert "Rajeeve Kuriakose" in maintainer_names
 
     urls = data["project"]["urls"]
     assert "Documentation" in urls
