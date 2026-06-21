@@ -18,6 +18,7 @@ These options appear before the command:
 
 | Command | Purpose |
 |---|---|
+| `sahara setup [--folder PATH] [--add-folder PATH ...] [-y] [--no-index] [--no-mcp]` | Guided onboarding: configure basic indexing, build the first index, and connect Claude Desktop when detected |
 | `sahara init [--mode MODE] [--folder PATH]` | Configure a new library; omit options for the interactive wizard |
 | `sahara init --mode basic --folder PATH` | Create an index-only library with no storage backend |
 | `sahara init --mode local --folder PATH --storage-drive PATH` | Create a library backed by a mounted drive, NAS, or network share |
@@ -27,6 +28,13 @@ These options appear before the command:
 
 `--mode` accepts `basic`, `local`, `aws`, `minio`, or `local+glacier`.
 Non-interactive MinIO setup is not currently supported.
+
+`sahara setup` is the recommended first command. It composes `init`, folder
+registration, the embedding-model download, indexing, and the Claude Desktop MCP
+installer into one idempotent flow that defaults to basic, index-only mode and
+configures no storage or answer provider. It is safe to re-run: existing
+configuration, content roots, and indexes are preserved. Use `-y/--yes` with
+`--folder`, `--no-index`, and `--no-mcp` for non-interactive runs.
 
 ## Indexing and Search
 
