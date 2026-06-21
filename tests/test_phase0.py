@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -96,6 +97,25 @@ def test_pyproject_extras_exist():
     assert "ocr" in content
     assert "dev" in content
     assert '"mcp>=1.14.0"' in content
+
+
+def test_pyproject_standard_maintainer_and_doc_urls():
+    # Parse rather than substring-match: the literal "Maintainer" is a substring
+    # of the standard "maintainers" field and would otherwise false-match.
+    toml_path = Path(__file__).parent.parent / "pyproject.toml"
+    data = tomllib.loads(toml_path.read_text())
+
+    maintainer_names = [m.get("name") for m in data["project"].get("maintainers", [])]
+    assert "Nidheesh Puthalath" in maintainer_names
+    assert "Rajeeve Kuriakose" in maintainer_names
+
+    urls = data["project"]["urls"]
+    assert "Documentation" in urls
+    assert "Changelog" in urls
+    assert "Maintainer" not in urls
+    assert "Homepage" in urls
+    assert "Repository" in urls
+    assert "Issues" in urls
 
 
 # ---------------------------------------------------------------------------
