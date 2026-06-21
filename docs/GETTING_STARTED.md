@@ -9,10 +9,22 @@ the distribution named `sahara` is an unrelated OpenStack project.
 
 ## Basic: Local Indexing
 
-Use this when you only need semantic search and MCP access:
+Use this when you only need semantic search and MCP access. The quickest path is
+the guided `sahara setup`, which configures basic indexing, builds the first
+index, and connects Claude Desktop when it is detected:
 
 ```bash
 pipx install "sahara-memory[search,mcp]"
+sahara setup --folder ~/Documents
+sahara search "known phrase" --snippet
+```
+
+`sahara setup` is idempotent and safe to re-run; it preserves existing
+configuration, content roots, and indexes. Add `--yes` for a non-interactive run,
+and `--no-index` or `--no-mcp` to skip those steps. Prefer the individual commands?
+Run them directly instead:
+
+```bash
 sahara init --mode basic --folder ~/Documents
 sahara index
 sahara search "known phrase" --snippet
