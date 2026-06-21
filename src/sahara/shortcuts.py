@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -10,7 +11,9 @@ from typing import Any
 
 __all__ = [
     "ShortcutArtifact",
+    "configure_shortcut_artifact",
     "copy_shortcut_artifacts",
+    "copy_configured_shortcut_artifacts",
     "load_shortcut_artifact",
     "load_shortcut_artifacts",
     "validate_shortcut_artifact",
@@ -21,6 +24,7 @@ ARTIFACT_NAMES = (
     "remember-in-sahara.json",
     "recall-from-sahara.json",
 )
+TOKEN_PLACEHOLDER = "${SAHARA_MOBILE_TOKEN}"
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,55 @@ def copy_shortcut_artifacts(destination: Path) -> list[Path]:
         target = destination / artifact.filename
         target.write_text(
             json.dumps(artifact.payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        written.append(target)
+    return written
+
+
+def configure_shortcut_artifact(
+    artifact: ShortcutArtifact,
+    *,
+    endpoint: str,
+    token: str,
+) -> ShortcutArtifact:
+    """Return a configured artifact with endpoint and token injected."""
+    configured = deepcopy(artifact.payload)
+    base_url = endpoint.rstrip("/")
+    api = configured["mobile_api"]
+    api["endpoint"] = base_url + str(api["endpoint_path"])
+    api["headers"]["Authorization"] = str(api["headers"]["Authorization"]).replace(
+        TOKEN_PLACEHOLDER,
+        token,
+    )
+    configured["setup"] = {
+        "base_url": base_url,
+        "authorization_header": api["headers"]["Authorization"],
+    }
+    return ShortcutArtifact(
+        filename=artifact.filename.removesuffix(".json") + ".configured.json",
+        payload=configured,
+    )
+
+
+def copy_configured_shortcut_artifacts(
+    destination: Path,
+    *,
+    endpoint: str,
+    token: str,
+) -> list[Path]:
+    """Copy configured Shortcut artifacts into *destination*."""
+    destination.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    for artifact in load_shortcut_artifacts():
+        configured = configure_shortcut_artifact(
+            artifact,
+            endpoint=endpoint,
+            token=token,
+        )
+        target = destination / configured.filename
+        target.write_text(
+            json.dumps(configured.payload, indent=2) + "\n",
             encoding="utf-8",
         )
         written.append(target)
