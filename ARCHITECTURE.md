@@ -9,23 +9,29 @@ This document explains how Sahara is structured so contributors can find their w
 ```
 ┌─────────────┐   ┌────────────────┐   ┌──────────────────────┐
 │ CLI / MCP   │──▶│ IndexingService│──▶│ SearchEngine         │
-│ public APIs │   │ library.py     │   │ fastembed + vec      │
+│ Mobile API  │   │ library.py     │   │ fastembed + vec      │
 └─────────────┘   └────────────────┘   └──────────────────────┘
        │                   │                      │
-       │                   ▼                      ▼
-       │             ┌──────────┐             AskEngine
-       │             │ StateDB  │             none / Ollama / OpenAI
-       │             └──────────┘
-       │                   ▲
-       ▼                   │
+       │          ┌────────┴────────┐             ▼
+       │          ▼                 ▼         AskEngine
+       │    MemoryService    LocalIndexWatcher  none / Ollama / OpenAI
+       │    memory/          index_watcher.py
+       │          │                 │
+       │          ▼                 ▼
+       │    ┌──────────┐      content roots + inbox
+       │    │ StateDB  │
+       │    └──────────┘
+       │          ▲
+       ▼          │
 ┌─────────────┐   ┌──────────────────────┐
 │ SyncEngine  │──▶│ Optional StorageBackend│
 └─────────────┘   │ S3 / LocalDrive      │
                   └──────────────────────┘
 ```
 
-The Click CLI and read-only MCP server are Sahara's public surfaces. They compose the
-same internal indexing, retrieval, state, and optional storage services.
+The Click CLI, read-only MCP server (with optional stdio-only memory capture), and
+private mobile capture API are Sahara's public surfaces. They compose the same
+indexing, retrieval, memory, state, and optional storage services.
 
 ---
 
@@ -34,22 +40,30 @@ same internal indexing, retrieval, state, and optional storage services.
 ```
 src/sahara/
 ├── cli.py                  # All Click commands — the public API
-├── mcp_server.py           # Read-only MCP tools and transports
+├── mcp_server.py           # MCP tools: search, ask, recall, optional remember
+├── mobile_api.py           # Authenticated mobile capture and recall HTTP API
+├── index_watcher.py        # Always-local incremental indexing and memory inbox
+├── shortcuts.py            # iOS Shortcut artifact export helpers
 ├── config.py               # SaharaConfig dataclass + TOML I/O
-├── library.py              # Content-root migration and local indexing service
+├── library.py              # Content-root registration and IndexingService
 ├── models.py               # FileRecord, SyncOperation, ManifestEntry, ...
+│
+├── memory/
+│   ├── format.py           # Markdown frontmatter parse/render for captured knowledge
+│   └── service.py          # MemoryService — capture, recall, lifecycle
 │
 ├── storage/
 │   ├── backend.py          # StorageBackend Protocol (the interface)
 │   ├── s3_client.py        # AWS S3 + MinIO implementation
 │   ├── local_drive_client.py  # Local filesystem implementation
 │   ├── dual_write_backend.py  # local+glacier dual-write wrapper
-│   ├── state_db.py         # SQLite state — files, history, chunks, ...
+│   ├── state_db.py         # SQLite state — files, chunks, memory, mobile, ...
+│   ├── lifecycle.py        # Offload/fetch with checksum verification
 │   └── cost_estimator.py   # S3 pricing estimates
 │
 ├── sync/
 │   ├── sync_engine.py      # Three-way diff, conflict resolution, execution
-│   ├── daemon.py           # Background sync loop
+│   ├── daemon.py           # Index watcher + optional sync loop
 │   ├── file_watcher.py     # watchdog integration
 │   └── ignore_rules.py     # .saharaignore parser
 │
@@ -57,11 +71,95 @@ src/sahara/
 │   ├── search_engine.py    # Text extraction, chunking, embedding, sqlite-vec KNN
 │   └── ask_engine.py       # Retrieval-only ask + optional Ollama/OpenAI answers
 │
+├── data/
+│   ├── saharaignore.template
+│   └── shortcuts/          # Versioned iOS Shortcut JSON blueprints
+│
 └── utils/
     ├── encryption.py       # AES-256-GCM, PBKDF2, keyring
     ├── hash.py             # SHA-256 helpers (shared between sync and search)
     └── notifier.py         # OS desktop notification
 ```
+
+---
+
+## Onboarding
+
+`sahara setup` orchestrates existing commands rather than duplicating business logic:
+
+1. Create or reuse basic/index-only configuration via `init`
+2. Register additional content roots via `folder add`
+3. Optionally run `models prepare` and `index`
+4. Optionally run `mcp install-claude` when Claude Desktop is detected
+
+The flow is idempotent: existing configuration, content roots, indexes, and MCP
+settings are preserved.
+
+---
+
+## Captured knowledge
+
+Captured memories are portable Markdown files under a managed content root (default
+`~/Sahara Memory/`). Markdown is the source of truth; SQLite caches metadata for
+listing and filtering.
+
+```
+1. MemoryService.capture(CaptureRequest):
+   a. Validate content, tags, URLs, and size limits
+   b. Ensure managed memory root exists without overlapping other content roots
+   c. Atomically write versioned Markdown with YAML frontmatter
+   d. Update rebuildable memory_items cache
+   e. Index only the new path via IndexingService.index_path()
+
+2. sahara recall / sahara_recall MCP tool:
+   a. Scope retrieval to the managed memory storage prefix
+   b. Apply metadata filters (tags, source_type, date range)
+   c. Return ranked chunks from the shared chunks/vec_chunks tables
+
+3. Opt-in sahara_remember MCP tool (stdio only):
+   a. Create-only; requires explicit installer opt-in
+   b. Size limits, idempotency key, metadata-only audit events
+```
+
+All capture adapters (CLI, inbox, mobile API, MCP) call `MemoryService.capture()`;
+adapters do not implement their own storage or indexing behavior.
+
+See [specs/CAPTURED_KNOWLEDGE_PLAN.md](specs/CAPTURED_KNOWLEDGE_PLAN.md) for the full
+design, security boundaries, and mobile/Siri rollout.
+
+---
+
+## Local index watcher
+
+`index_watcher.py` provides always-local filesystem watching independent of storage
+backends. The daemon starts `LocalIndexWatcherService` for every registered content
+root and optionally adds sync handlers when a storage backend is configured.
+
+```
+1. watchdog debounces create/modify/delete/move events
+2. LocalIndexWatcherService.handle_path():
+   a. Memory inbox files → MemoryService.capture(), then delete inbox file
+   b. Supported files under content roots → IndexingService.index_path()
+   c. Deletions → remove chunks/embeddings and mark index_entries missing
+```
+
+This replaces the previous model where only sync-enabled folders were watched for
+changes. Basic index-only users get incremental indexing when the daemon runs.
+
+---
+
+## Mobile capture API
+
+`mobile_api.py` exposes a minimal authenticated HTTP API for trusted mobile devices.
+It is not MCP; Shortcuts and future companion apps POST JSON to loopback (or a private
+network address such as Tailscale).
+
+- Device tokens stored as hashes with scoped permissions (`memory:capture`, `memory:recall`)
+- Rate limiting, idempotency, and audit logging
+- All writes routed through `MemoryService.capture()`
+
+See [docs/mobile-capture-api.md](docs/mobile-capture-api.md) and
+[docs/ios-shortcuts.md](docs/ios-shortcuts.md).
 
 ---
 
@@ -145,10 +243,10 @@ root directly; it does not depend on sync records or a storage backend.
    d. Call SearchEngine for supported local files
 
 2. SearchEngine.index_file(path):
-   a. Extract text (TextExtractor) — supports .txt, .md, .py, .pdf, .docx, and plain-text heuristic
+   a. Extract text (TextExtractor) — PDF, DOCX, EPUB, plain text, code, and heuristics
    b. Chunk text: 1600-char chunks with 320-char overlap
-   c. Embed each chunk independently with BAAI/bge-small-en-v1.5 (384-dim) via fastembed
-   d. Insert rows into `chunks` table and `vec_chunks` virtual table (sqlite-vec)
+   c. Embed each chunk with BAAI/bge-small-en-v1.5 (384-dim) via fastembed
+   d. Insert rows into `chunks` and `vec_chunks` (sqlite-vec)
 
 3. search(query):
    a. Embed the query string
@@ -157,6 +255,9 @@ root directly; it does not depend on sync records or a storage backend.
    d. Deduplicate: keep best chunk score per file
    e. Return ranked list of {relative_path, score, snippet}
 ```
+
+Use `load_embedding_model()` or `sahara models prepare` to download the embedding model
+before the first index run.
 
 ### Why chunked indexing?
 
@@ -191,9 +292,14 @@ retrieved sources.
 
 ## Daemon and file watcher
 
-`sync/daemon.py` runs a background loop that calls `SyncEngine.sync()` on a configurable interval. `sync/file_watcher.py` wraps watchdog's `Observer` and triggers an immediate partial sync when specific files change, rather than waiting for the interval.
+`sync/daemon.py` runs two complementary watchers:
 
-The daemon writes a PID file to `~/.sahara/daemon.pid` and logs to `~/.sahara/daemon.log`. The CLI's `sahara daemon start/stop/status` commands manage it.
+1. **Local index watcher** — `LocalIndexWatcherService` on all content roots (always)
+2. **Storage sync watcher** — `SaharaEventHandler` on sync-enabled roots (optional)
+
+A periodic poll loop handles scheduled syncs and Glacier restore polling when storage
+is configured. The daemon writes a PID file to `~/.sahara/daemon.pid` and logs to
+`~/.sahara/daemon.log`.
 
 ---
 
@@ -214,6 +320,11 @@ All state is stored in `~/.sahara/state.db`. WAL mode is enabled on every connec
 | `embeddings` | Legacy single-vector-per-file index (superseded by `chunks`) |
 | `chunks` | One row per text chunk — path, chunk_index, content_hash, chunk_text |
 | `vec_chunks` | sqlite-vec virtual table — one float[384] vector per chunk (rowid matches `chunks.id`) |
+| `memory_items` | Rebuildable cache of captured Markdown memory metadata |
+| `memory_delete_journal` | Tombstone journal for deleted memories during rebuild |
+| `mcp_memory_audit` | Metadata-only audit log for opt-in MCP memory capture |
+| `mobile_devices` | Hashed device tokens and scopes for mobile capture API |
+| `mobile_memory_audit` | Audit log for mobile capture and recall requests |
 
 The `chunks` and `vec_chunks` tables work as a pair. `vec_chunks` stores the raw vectors; `chunks` stores the text and metadata. A JOIN on `rowid = id` links them.
 
@@ -242,9 +353,11 @@ The TOML format is stable and user-editable. Do not add auto-generated comments 
 ## Known limitations
 
 - **No reranker yet.** Results from sqlite-vec KNN are re-sorted by score but not re-ranked by a cross-encoder. Precision is good but not state-of-the-art for ambiguous queries.
+- **No hybrid keyword search yet.** Pure vector retrieval can miss exact identifiers and rare terms.
 - **Single embedding model.** Only `BAAI/bge-small-en-v1.5` (384-dim) is supported. Switching models requires re-indexing all files.
-- **No incremental re-indexing.** `sahara index` re-indexes the whole collection. Content-hash tracking means only changed files are re-embedded, but the check is O(n) on the files table.
+- **Full index scan on manual `sahara index`.** Content-hash tracking skips unchanged files, but discovery is O(n). The daemon watcher indexes incrementally between runs.
 - **Single-user only.** The manifest + SQLite architecture assumes one writer at a time. Multiple machines syncing to the same bucket will serialize through the manifest ETag check.
+- **No OCR.** Scanned PDFs and images are not searchable yet.
 
 ---
 
@@ -255,7 +368,9 @@ The TOML format is stable and user-editable. Do not add auto-generated comments 
 | New storage backend | `storage/backend.py` (Protocol) → `storage/local_drive_client.py` (simplest impl) |
 | New file parser | `search/search_engine.py` `TextExtractor.extract()` |
 | Improve search ranking | `search/search_engine.py` `SearchEngine.search()` |
+| Captured knowledge | `memory/service.py`, `memory/format.py` |
+| Mobile capture | `mobile_api.py`, `docs/mobile-capture-api.md` |
+| Index watcher | `index_watcher.py`, `sync/daemon.py` |
 | New CLI command | `cli.py` — add a `@main.command()` function |
 | Sync bug | `sync/sync_engine.py` `DiffResult` and `_execute_operations()` |
-| Daemon / watcher | `sync/daemon.py`, `sync/file_watcher.py` |
 | Encryption | `utils/encryption.py` |

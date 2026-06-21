@@ -725,3 +725,270 @@ class TestDaemonLogs:
             result = runner.invoke(main, ["daemon", "logs"])
             assert result.exit_code == 0
             assert "test log line" in result.output
+
+
+# ---------------------------------------------------------------------------
+# models prepare
+# ---------------------------------------------------------------------------
+
+
+class _FakeEmbeddingModel:
+    """Drop-in for fastembed.TextEmbedding that avoids real downloads."""
+
+    def embed(self, texts):
+        for _ in texts:
+            yield [0.1, 0.2, 0.3]
+
+
+class TestModelsPrepare:
+    def test_prepare_succeeds_without_config(self, tmp_path: Path):
+        runner = _runner()
+        nonexistent = tmp_path / "no-config.toml"
+        with patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeEmbeddingModel(),
+        ):
+            result = runner.invoke(
+                main, ["--config", str(nonexistent), "models", "prepare"]
+            )
+        assert result.exit_code == 0
+        assert "BAAI/bge-small-en-v1.5" in result.output
+        assert "ready" in result.output.lower()
+
+    def test_prepare_reports_missing_search_extra(self):
+        runner = _runner()
+        with patch(
+            "sahara.search.search_engine.load_embedding_model",
+            side_effect=RuntimeError(
+                "fastembed is required for semantic search. "
+                "Install it with: pip install 'sahara-memory[search]'"
+            ),
+        ):
+            result = runner.invoke(main, ["models", "prepare"])
+        assert result.exit_code != 0
+        assert "sahara-memory[search]" in result.output
+
+    def test_prepare_is_idempotent(self):
+        runner = _runner()
+        with patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeEmbeddingModel(),
+        ) as mock_load:
+            first = runner.invoke(main, ["models", "prepare"])
+            second = runner.invoke(main, ["models", "prepare"])
+        assert first.exit_code == 0
+        assert second.exit_code == 0
+        assert "ready" in second.output.lower()
+        assert mock_load.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# setup
+# ---------------------------------------------------------------------------
+
+
+def _fake_embedding(text: str, dim: int = 384) -> list[float]:
+    """Deterministic 384-dim unit vector so real indexing/search runs offline."""
+    import hashlib
+    import math
+
+    seed = int(hashlib.md5(text.encode()).hexdigest(), 16) % (2**31)
+    vec = [(math.sin(seed + i) + 1) / 2 for i in range(dim)]
+    magnitude = sum(x * x for x in vec) ** 0.5
+    return [x / magnitude for x in vec]
+
+
+class _FakeSearchModel:
+    """Drop-in for fastembed.TextEmbedding producing real-dimension vectors."""
+
+    def embed(self, texts):
+        import numpy as np
+
+        for text in texts:
+            yield np.array(_fake_embedding(text), dtype=np.float32)
+
+
+class TestSetup:
+    def _isolate(self, tmp_path: Path, monkeypatch):
+        home = tmp_path / "home"
+        home.mkdir(exist_ok=True)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        return tmp_path / "config.toml", tmp_path / "state.db"
+
+    def _content_root_count(self, db_path: Path) -> int:
+        return len(self._content_root_paths(db_path))
+
+    def _content_root_paths(self, db_path: Path) -> list[str]:
+        from sahara.storage.state_db import StateDB
+
+        db = StateDB(db_path).connect()
+        try:
+            return [row["local_path"] for row in db.list_content_roots()]
+        finally:
+            db.close()
+
+    def test_setup_fresh_noninteractive_reaches_search(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        (folder / "note.txt").write_text("The quarterly budget meeting is on Tuesday")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeSearchModel(),
+        ):
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "setup", "--yes",
+                 "--folder", str(folder), "--no-mcp"],
+            )
+            assert result.exit_code == 0, result.output
+            search = runner.invoke(
+                main, ["--config", str(config_path), "search", "budget meeting"]
+            )
+
+        cfg = load_config(config_path)
+        assert cfg.storage_mode == "none"
+        assert Path(cfg.sync_folder) == folder.resolve()
+        assert search.exit_code == 0
+        assert "note.txt" in search.output
+
+    def test_setup_rerun_is_idempotent(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        (folder / "note.txt").write_text("content for indexing")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeSearchModel(),
+        ):
+            args = ["--config", str(config_path), "setup", "--yes",
+                    "--folder", str(folder), "--no-mcp"]
+            first = runner.invoke(main, args)
+            second = runner.invoke(main, args)
+
+        assert first.exit_code == 0, first.output
+        assert second.exit_code == 0, second.output
+        assert self._content_root_count(db_path) == 1
+
+    def test_setup_preserves_existing_storage_config(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        cfg, _ = _make_config(tmp_path)
+        save_config(cfg, config_path)
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "setup", "--yes",
+                 "--no-index", "--no-mcp"],
+            )
+
+        assert result.exit_code == 0, result.output
+        after = load_config(config_path)
+        assert after.storage_mode == "s3"
+        assert after.bucket == BUCKET
+        assert after.sync_folder == cfg.sync_folder
+
+    def test_setup_no_index_does_not_load_model(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.search.search_engine.load_embedding_model",
+            side_effect=AssertionError("model must not load when --no-index is set"),
+        ):
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "setup", "--yes",
+                 "--folder", str(folder), "--no-index", "--no-mcp"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert Path(load_config(config_path).sync_folder) == folder.resolve()
+
+    def test_setup_interactive_fresh(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        (folder / "note.txt").write_text("interactive setup content")
+        runner = _runner()
+        feed = f"{folder}\n\ny\n"
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeSearchModel(),
+        ):
+            result = runner.invoke(
+                main, ["--config", str(config_path), "setup"], input=feed
+            )
+
+        assert result.exit_code == 0, result.output
+        cfg = load_config(config_path)
+        assert cfg.storage_mode == "none"
+        assert Path(cfg.sync_folder) == folder.resolve()
+        assert self._content_root_count(db_path) == 1
+
+    def test_setup_skips_overlapping_add_folder(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        sub = folder / "sub"
+        sub.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "setup", "--yes",
+                 "--folder", str(folder), "--add-folder", str(sub),
+                 "--no-index", "--no-mcp"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert self._content_root_count(db_path) == 1
+
+    def test_setup_adds_distinct_folder(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        other = tmp_path / "other"
+        other.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "setup", "--yes",
+                 "--folder", str(folder), "--add-folder", str(other),
+                 "--no-index", "--no-mcp"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert self._content_root_count(db_path) == 2
+
+    def test_setup_skips_nonexistent_add_folder(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        missing = tmp_path / "missing"
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(
+                main,
+                ["--config", str(config_path), "setup", "--yes",
+                 "--folder", str(folder), "--add-folder", str(missing),
+                 "--no-index", "--no-mcp"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Skipping" in result.output
+        assert str(missing.resolve()) not in [
+            str(p) for p in self._content_root_paths(db_path)
+        ]

@@ -8,15 +8,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+---
+
+## [0.3.0] — 2026-06-08
+
+### Added
+
+- **`sahara setup`** — idempotent guided onboarding that configures basic indexing,
+  optionally prepares the embedding model, builds the first index, and connects Claude
+  Desktop when detected ([#49](https://github.com/nidheesh-p/sahara/issues/49))
+- **`sahara models prepare`** — download and verify the local embedding model before
+  indexing ([#36](https://github.com/nidheesh-p/sahara/issues/36))
+- **Captured knowledge** — `sahara remember`, `recall`, and `memory` commands; durable
+  Markdown memories in a managed `~/Sahara Memory` content root
+- **Local index watcher** — always-on incremental indexing in the daemon; memory inbox
+  drop folder for quick capture
+- **MCP memory tools** — read-only `sahara_recall`; opt-in stdio-only `sahara_remember`
+  via `sahara mcp install-claude --enable-memory-write`
+- **Mobile capture API** — authenticated `sahara mobile` commands for device pairing,
+  capture, recall, and audit
+- **iOS Shortcuts** — exportable `Remember in Sahara` and `Recall from Sahara` blueprints
+- **EPUB extraction** — stdlib-based EPUB text extraction in spine order
+- **Capture helpers** — `--clipboard` and `--editor` options on `sahara remember`
+- Auto-scaffold `.saharaignore` when registering new content roots
+
 ### Changed
 
-- Standalone answer generation is now disabled by default on new configurations;
-  semantic search, retrieval-only `sahara ask`, and MCP access no longer require
-  Ollama or OpenAI
-- User installation guidance now recommends `pipx` and documents a virtual-environment
-  fallback for PEP 668 `externally-managed-environment` errors
-- The MCP extra now requires MCP SDK 1.14.0 or newer for authenticated HTTP token
-  verification, with a concise upgrade error for stale environments
+- Standalone answer generation is disabled by default on new configurations; semantic
+  search, retrieval-only `sahara ask`, and MCP access no longer require Ollama or OpenAI
+- User installation guidance recommends `pipx` with a virtual-environment fallback for
+  PEP 668 `externally-managed-environment` errors
+- The MCP extra requires MCP SDK 1.14.0 or newer for authenticated HTTP token verification
+- Daemon runs the local index watcher in all modes; storage sync remains optional
+- Documentation updated for captured knowledge, mobile capture, and architecture
 
 ---
 

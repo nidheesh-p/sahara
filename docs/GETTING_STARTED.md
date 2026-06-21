@@ -9,7 +9,19 @@ the distribution named `sahara` is an unrelated OpenStack project.
 
 ## Basic: Local Indexing
 
-Use this when you only need semantic search and MCP access:
+Use this when you only need semantic search and MCP access. The quickest path is
+the guided `sahara setup`, which configures basic indexing, builds the first index,
+and connects Claude Desktop when it is detected:
+
+```bash
+pipx install "sahara-memory[search,mcp]"
+sahara setup --folder ~/Documents
+sahara search "known phrase" --snippet
+```
+
+`sahara setup` is idempotent and safe to re-run; it preserves existing configuration,
+content roots, and indexes. Add `--yes` for a non-interactive run, and `--no-index` or
+`--no-mcp` to skip those steps. Prefer the individual commands? Run them directly:
 
 ```bash
 pipx install "sahara-memory[search,mcp]"
@@ -26,6 +38,10 @@ The first `sahara index` run downloads the local embedding model (roughly
 70 MB). A Hugging Face warning about unauthenticated requests is informational:
 no account or token is required. `HF_TOKEN` is optional for higher download
 rate limits.
+
+To fetch and verify the model ahead of time — for example before going offline —
+run `sahara models prepare`. It needs no configuration and can be run before
+`sahara init`.
 
 This command is non-interactive. It requires no bucket, credentials, drive, storage
 validation, or standalone answer provider.

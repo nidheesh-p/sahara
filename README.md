@@ -14,10 +14,9 @@ External drives, MinIO, and AWS storage are optional extensions, not prerequisit
 **Local-first:** indexing and semantic search run on your computer. No account, API
 key, storage bucket, or additional drive is required for the core search experience.
 
-**Latest release:** [v0.2.1](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.1)
-(June 7, 2026) adds index-only setup, multiple content roots, verified offload/fetch,
-one-command Claude Desktop setup, and trusted `sahara-memory` packaging. See the
-[changelog](CHANGELOG.md).
+**Latest release:** [v0.3.0](https://github.com/nidheesh-p/sahara/releases/tag/v0.3.0)
+adds guided `sahara setup`, captured knowledge, mobile capture, local index watching,
+EPUB support, and opt-in MCP memory tools. See the [changelog](CHANGELOG.md).
 
 ![Fictional Sahara retrieval examples: timeline reconstruction, vendor lookup, and honest missing-data handling](docs/images/sahara-memory-demo.svg)
 
@@ -48,6 +47,15 @@ project.
 Install Sahara from PyPI with
 [pipx](https://pipx.pypa.io/stable/installation/), which keeps CLI applications
 isolated from the system Python:
+
+```bash
+pipx install "sahara-memory[search,mcp]"
+
+sahara setup --folder ~/Documents
+sahara search "my tax return from 2024" --snippet
+```
+
+Or run the steps individually:
 
 ```bash
 pipx install "sahara-memory[search,mcp]"
@@ -281,6 +289,7 @@ root you add (without overwriting a `.saharaignore` that already exists there).
 
 | Command | Purpose |
 |---|---|
+| `sahara setup --folder PATH` | Guided onboarding from install to first search |
 | `sahara init --mode basic --folder PATH` | Create an index-only local library |
 | `sahara folder add/list/remove` | Manage indexed folders |
 | `sahara index [--force]` | Build or refresh the semantic index |
