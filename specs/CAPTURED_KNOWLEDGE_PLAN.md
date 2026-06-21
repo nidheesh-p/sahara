@@ -243,7 +243,8 @@ Unofficial WhatsApp Web automation is out of scope.
 ### Companion App
 
 A lightweight mobile companion is considered after the Shortcut and API validate the
-workflow. It should provide:
+workflow. See `specs/COMPANION_APP_SPIKE.md` for the framework evaluation and
+recommended rollout order. It should provide:
 
 - iOS share extension and Android share target;
 - quick text and voice capture;
@@ -357,6 +358,10 @@ Deliver:
 - Siri App Intent and Android App Action.
 
 Depends on: issues 5 and 6 plus validated user demand.
+
+The current recommendation from the spike is to keep this issue as the decision
+record and begin implementation with the iOS-first app in
+[#74](https://github.com/nidheesh-p/sahara/issues/74) once demand is validated.
 
 ## First Release Acceptance
 

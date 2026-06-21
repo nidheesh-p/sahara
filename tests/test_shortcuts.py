@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from sahara.cli import main
@@ -80,3 +82,84 @@ def test_mobile_shortcuts_cli_lists_and_exports(tmp_path: Path) -> None:
     assert exported.exit_code == 0
     assert (tmp_path / "remember-in-sahara.json").is_file()
     assert (tmp_path / "recall-from-sahara.json").is_file()
+
+
+def test_load_shortcut_artifact_rejects_unknown_filename() -> None:
+    with pytest.raises(ValueError, match="Unknown Shortcut artifact"):
+        load_shortcut_artifact("missing.json")
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda payload: payload.pop("tests"),
+            "Shortcut artifact missing fields",
+        ),
+        (
+            lambda payload: payload.__setitem__("schema_version", 2),
+            "Unsupported Shortcut artifact schema_version",
+        ),
+        (
+            lambda payload: payload["mobile_api"].__setitem__("method", "GET"),
+            "Shortcut mobile_api.method must be POST",
+        ),
+        (
+            lambda payload: payload["mobile_api"].__setitem__("endpoint_path", "/v1/other"),
+            "Shortcut endpoint_path is not supported",
+        ),
+        (
+            lambda payload: payload["mobile_api"].__setitem__("required_scope", "memory:delete"),
+            "Shortcut required_scope is not supported",
+        ),
+        (
+            lambda payload: payload["mobile_api"]["headers"].pop("Authorization"),
+            "Shortcut must send Authorization header",
+        ),
+        (
+            lambda payload: payload["mobile_api"]["headers"].__setitem__("Content-Type", "text/plain"),
+            "Shortcut must send JSON",
+        ),
+        (
+            lambda payload: payload["privacy"].__setitem__("scrapes_source_apps", True),
+            "Shortcut must not scrape source apps",
+        ),
+        (
+            lambda payload: payload["privacy"].__setitem__("speaks_results", True),
+            "Recall Shortcut must not speak sensitive results automatically",
+        ),
+        (
+            lambda payload: payload["mobile_api"].__setitem__(
+                "json_body_fields",
+                ["title"],
+            ),
+            "Capture Shortcut is missing required JSON fields",
+        ),
+        (
+            lambda payload: payload["mobile_api"].__setitem__(
+                "json_body_fields",
+                ["text", "source_type", "idempotency_key", "path"],
+            ),
+            "Shortcut cannot select paths or sync behavior",
+        ),
+        (
+            lambda payload: payload.__setitem__(
+                "inputs",
+                [item for item in payload["inputs"] if item != "clipboard_fallback"],
+            ),
+            "Capture Shortcut must include clipboard fallback",
+        ),
+    ],
+)
+def test_validate_shortcut_artifact_rejects_invalid_contract(
+    mutate,
+    message: str,
+) -> None:
+    if "Recall" in message:
+        payload = copy.deepcopy(load_shortcut_artifact("recall-from-sahara.json").payload)
+    else:
+        payload = copy.deepcopy(load_shortcut_artifact("remember-in-sahara.json").payload)
+    mutate(payload)
+
+    with pytest.raises(ValueError, match=message):
+        validate_shortcut_artifact(payload)
