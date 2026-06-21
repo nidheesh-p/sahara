@@ -540,6 +540,166 @@ def init(
 
 
 # ---------------------------------------------------------------------------
+# setup
+# ---------------------------------------------------------------------------
+
+
+def _claude_desktop_detected() -> bool:
+    """Return True when Claude Desktop appears installed on this machine."""
+    from sahara.claude_desktop import detect_claude_config_path
+
+    try:
+        config_path = detect_claude_config_path()
+    except RuntimeError:
+        return False
+    return config_path.parent.exists()
+
+
+def _content_root_conflict(config: SaharaConfig, folder: Path) -> bool:
+    """Return True (and report why) when folder duplicates or overlaps a root.
+
+    Checks against the current content roots so setup can skip such folders
+    instead of letting folder_add abort the whole guided flow.
+    """
+    from sahara.library import validate_content_root_path
+    from sahara.storage.state_db import StateDB
+
+    db = StateDB().connect()
+    try:
+        roots = _content_roots(config, db)
+    finally:
+        db.close()
+    try:
+        validate_content_root_path(folder, roots)
+    except ValueError as exc:
+        _info(f"Skipping {folder}: {exc}")
+        return True
+    return False
+
+
+@main.command()
+@click.option(
+    "--folder",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Primary local folder to index.",
+)
+@click.option(
+    "--add-folder",
+    "add_folders",
+    type=click.Path(path_type=Path),
+    multiple=True,
+    help="Additional folder to register for indexing. Repeat for several.",
+)
+@click.option(
+    "-y",
+    "--yes",
+    "assume_yes",
+    is_flag=True,
+    help="Run without prompts, accepting defaults and supplied options.",
+)
+@click.option(
+    "--no-index",
+    is_flag=True,
+    help="Skip preparing the embedding model and building the first index.",
+)
+@click.option(
+    "--no-mcp",
+    is_flag=True,
+    help="Skip the Claude Desktop connection step.",
+)
+@click.pass_context
+def setup(
+    ctx: click.Context,
+    folder: Path | None,
+    add_folders: tuple[Path, ...],
+    assume_yes: bool,
+    no_index: bool,
+    no_mcp: bool,
+) -> None:
+    """Take Sahara from an installed CLI to a working local semantic index."""
+    _section("Sahara Setup")
+    config_path = ctx.obj.get("config_path") or DEFAULT_CONFIG_PATH
+
+    # 1. Configuration and primary folder.
+    if config_path.exists():
+        _ok(f"Using existing configuration at {config_path}")
+        if ctx.obj["config"].sync_folder:
+            _info(f"Primary folder: {ctx.obj['config'].sync_folder}")
+    else:
+        default_folder = Path.home() / "Sahara"
+        if folder is not None:
+            primary = folder
+        elif assume_yes:
+            primary = default_folder
+        else:
+            primary = Path(
+                click.prompt("  Primary folder", default=str(default_folder))
+            )
+        ctx.invoke(init, mode="basic", folder=primary.expanduser().resolve())
+        # init wrote the file; refresh so later steps see the new config.
+        ctx.obj["config"] = load_config(config_path)
+
+    config: SaharaConfig = ctx.obj["config"]
+
+    # 2. Additional folders.
+    folders_to_add = list(add_folders)
+    if not assume_yes:
+        while True:
+            extra = click.prompt(
+                "  Add another folder (press Enter to finish)",
+                default="",
+                show_default=False,
+            ).strip()
+            if not extra:
+                break
+            folders_to_add.append(Path(extra))
+
+    for candidate in folders_to_add:
+        resolved = candidate.expanduser().resolve()
+        if not resolved.is_dir():
+            _warn(f"Skipping {resolved}: not an existing directory.")
+            continue
+        if _content_root_conflict(config, resolved):
+            continue
+        ctx.invoke(folder_add, path=resolved, name=None)
+
+    # 3. Embedding model and first index.
+    if not no_index:
+        build = assume_yes or click.confirm(
+            "  Prepare the embedding model and build the first index now? "
+            "(downloads ~200 MB on first use)",
+            default=True,
+        )
+        if build:
+            ctx.invoke(models_prepare)
+            ctx.invoke(index_cmd)
+
+    # 4. Claude Desktop connection.
+    if not no_mcp:
+        if _claude_desktop_detected():
+            connect = assume_yes or click.confirm(
+                "  Connect Claude Desktop now?", default=True
+            )
+            if connect:
+                ctx.invoke(mcp_install_claude)
+        else:
+            _info(
+                "Claude Desktop not detected. Run `sahara mcp install-claude` "
+                "later to connect it."
+            )
+
+    # 5. Done.
+    click.echo()
+    _ok("Setup complete.")
+    _info('Try a search, e.g. `sahara search "a phrase you remember"`.')
+    _info(
+        "Optional next steps: add storage with `sahara storage configure`, or an "
+        "answer provider — see the getting-started guide."
+    )
+
+
+# ---------------------------------------------------------------------------
 # doctor
 # ---------------------------------------------------------------------------
 
@@ -2293,6 +2453,37 @@ def history(ctx: click.Context, path: str | None, limit: int) -> None:
             click.echo(f"  {ts:<25} {op_str} {e['relative_path']}")
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# models
+# ---------------------------------------------------------------------------
+
+
+@main.group("models")
+def models_group() -> None:
+    """Manage Sahara's local embedding model."""
+
+
+@models_group.command("prepare")
+def models_prepare() -> None:
+    """Download and verify the local embedding model before indexing."""
+    from sahara.search.search_engine import EMBEDDING_MODEL_NAME, load_embedding_model
+
+    _info(f"Preparing local embedding model: {EMBEDDING_MODEL_NAME}")
+    _info("First-time setup downloads the model (~200 MB); cached runs are fast.")
+    _info(
+        "Hugging Face authentication is optional; its anonymous-download "
+        "warning is harmless."
+    )
+    try:
+        model = load_embedding_model()
+    except RuntimeError as exc:
+        _abort(str(exc))
+
+    # Readiness check: a tiny embedding proves the model is usable.
+    list(model.embed(["sahara"]))
+    _ok(f"Model {EMBEDDING_MODEL_NAME} is ready.")
 
 
 # ---------------------------------------------------------------------------

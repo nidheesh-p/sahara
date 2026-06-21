@@ -151,7 +151,9 @@ Use `sahara memory show`, `edit`, and `delete` with a memory UUID or exact title
 files, which remain the source of truth.
 
 The broader recall, MCP, mobile, and Siri rollout is described in the
-[captured knowledge plan](specs/CAPTURED_KNOWLEDGE_PLAN.md).
+[captured knowledge plan](specs/CAPTURED_KNOWLEDGE_PLAN.md). The companion-app
+evaluation and rollout recommendation live in the
+[mobile companion app spike](specs/COMPANION_APP_SPIKE.md).
 
 ## Connect an MCP Client
 
@@ -319,6 +321,7 @@ See the [complete command reference](docs/COMMAND_REFERENCE.md), or run
 - [Command Reference](docs/COMMAND_REFERENCE.md): every CLI command grouped by purpose
 - [Answer Providers](docs/ANSWER_PROVIDERS.md): Ollama and OpenAI setup
 - [Claude Desktop](docs/CLAUDE_DESKTOP.md): installation, MCP contract, and troubleshooting
+- [Mobile Companion App Spike](specs/COMPANION_APP_SPIKE.md): evaluation of iOS-first vs cross-platform mobile app paths
 - [Security](SECURITY.md): threat model, encryption, and vulnerability reporting
 - [Roadmap](ROADMAP.md): current scope, planned work, and non-goals
 - [Architecture](ARCHITECTURE.md): system design and extension points
