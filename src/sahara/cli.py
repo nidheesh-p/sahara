@@ -1565,7 +1565,7 @@ def _run_sync(
             aggregate.conflicts.extend(result.conflicts)
             aggregate.skipped.extend(result.skipped)
         except Exception as exc:
-            click.echo(click.style(f"  Sync failed for {folder}: {exc}", fg="red"))
+            click.echo(click.style(f"  Sync failed for {target_folder}: {exc}", fg="red"))
             any_failed = True
         finally:
             db.close()
