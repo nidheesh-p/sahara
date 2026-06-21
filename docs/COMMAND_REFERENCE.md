@@ -18,6 +18,7 @@ These options appear before the command:
 
 | Command | Purpose |
 |---|---|
+| `sahara setup [--folder PATH] [--add-folder PATH ...] [-y] [--no-index] [--no-mcp]` | Guided onboarding: configure basic indexing, build the first index, and connect Claude Desktop when detected |
 | `sahara init [--mode MODE] [--folder PATH]` | Configure a new library; omit options for the interactive wizard |
 | `sahara init --mode basic --folder PATH` | Create an index-only library with no storage backend |
 | `sahara init --mode local --folder PATH --storage-drive PATH` | Create a library backed by a mounted drive, NAS, or network share |
@@ -27,6 +28,13 @@ These options appear before the command:
 
 `--mode` accepts `basic`, `local`, `aws`, `minio`, or `local+glacier`.
 Non-interactive MinIO setup is not currently supported.
+
+`sahara setup` is the recommended first command. It composes `init`, folder
+registration, the embedding-model download, indexing, and the Claude Desktop MCP
+installer into one idempotent flow that defaults to basic, index-only mode and
+configures no storage or answer provider. It is safe to re-run: existing
+configuration, content roots, and indexes are preserved. Use `-y/--yes` with
+`--folder`, `--no-index`, and `--no-mcp` for non-interactive runs.
 
 ## Indexing and Search
 
@@ -38,6 +46,7 @@ These commands work in basic index-only mode and do not require optional storage
 | `sahara folder list` | List indexed folders and their sync state |
 | `sahara folder remove PATH [--force]` | Remove a non-primary folder and its local search index |
 | `sahara folders` | Alias-style top-level listing of all content roots |
+| `sahara models prepare` | Download and verify the local embedding model before your first index |
 | `sahara index [--folder PATH] [--force]` | Index all registered folders, one folder, or force unchanged files to re-index |
 | `sahara index-report [--top N] [--sample N]` | Show indexed, unsupported, failed, missing, and unindexed content |
 | `sahara remember [TEXT] [OPTIONS]` | Save captured knowledge as Markdown and index it |
