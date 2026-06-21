@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Nidheesh Puthalath" }]
+maintainers = [{ name = "Nidheesh Puthalath" }, { name = "Rajeeve Kuriakose" }]
 keywords = [
     "storage",
     "sync",
@@ -75,8 +76,9 @@ sahara = "sahara.cli:main"
 [project.urls]
 Homepage = "https://github.com/nidheesh-p/sahara"
 Repository = "https://github.com/nidheesh-p/sahara"
+Documentation = "https://github.com/nidheesh-p/sahara/tree/main/docs"
+Changelog = "https://github.com/nidheesh-p/sahara/blob/main/CHANGELOG.md"
 Issues = "https://github.com/nidheesh-p/sahara/issues"
-Maintainer = "https://github.com/nidheesh-p"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sahara"]

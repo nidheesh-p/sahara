@@ -14,7 +14,7 @@ from moto import mock_aws
 
 from sahara.config import SaharaConfig
 from sahara.models import FileRecord, ManifestEntry, SyncResult
-from sahara.s3_client import S3Client
+from sahara.s3_client import S3Client, S3ClientError
 from sahara.state_db import StateDB
 from sahara.sync_engine import DiffResult, SyncEngine, _compute_sha256
 
@@ -413,6 +413,89 @@ class TestThreeWayDiff:
         db_records = {"remote_del.txt": _make_record("remote_del.txt")}
         diff = engine._three_way_diff(local_files, {}, db_records)
         assert "remote_del.txt" in diff.remote_deleted
+        db.close()
+
+    def test_db_backed_case_only_local_rename(self, tmp_path: Path):
+        engine, db = self._engine(tmp_path)
+        sync_folder = engine._sync_folder
+        content = b"same photo, different casing"
+        sha = hashlib.sha256(content).hexdigest()
+        (sync_folder / "Nidheesh.JPG").write_bytes(content)
+
+        from dataclasses import dataclass
+
+        @dataclass
+        class LocalFileInfo:
+            path: Path
+            relative: str
+            mtime: datetime.datetime
+            size: int
+
+        local_files = {
+            "Nidheesh.JPG": LocalFileInfo(
+                path=sync_folder / "Nidheesh.JPG",
+                relative="Nidheesh.JPG",
+                mtime=NOW,
+                size=len(content),
+            )
+        }
+        manifest = {"nidheesh.jpg": _make_manifest_entry(sha256=sha)}
+        db_records = {
+            "Nidheesh.JPG": _make_record(
+                "Nidheesh.JPG",
+                sha256=sha,
+                is_deleted=True,
+            ),
+            "nidheesh.jpg": _make_record("nidheesh.jpg", sha256=sha),
+        }
+
+        diff = engine._three_way_diff(local_files, manifest, db_records)
+        diff = engine._detect_renames(diff, local_files, manifest)
+
+        assert diff.local_moves == [("nidheesh.jpg", "Nidheesh.JPG")]
+        assert diff.local_new == []
+        assert diff.local_deleted == []
+        db.close()
+
+    def test_ambiguous_cross_source_case_alias_still_rejected(self, tmp_path: Path):
+        engine, db = self._engine(tmp_path)
+        sync_folder = engine._sync_folder
+        content = b"ambiguous"
+        (sync_folder / "Nidheesh.JPG").write_bytes(content)
+
+        from dataclasses import dataclass
+
+        @dataclass
+        class LocalFileInfo:
+            path: Path
+            relative: str
+            mtime: datetime.datetime
+            size: int
+
+        local_files = {
+            "Nidheesh.JPG": LocalFileInfo(
+                path=sync_folder / "Nidheesh.JPG",
+                relative="Nidheesh.JPG",
+                mtime=NOW,
+                size=len(content),
+            )
+        }
+        manifest = {"nidheesh.jpg": _make_manifest_entry()}
+
+        with pytest.raises(S3ClientError, match="alias"):
+            engine._three_way_diff(local_files, manifest, {})
+        db.close()
+
+    def test_active_nonportable_db_path_is_skipped(self, tmp_path: Path):
+        engine, db = self._engine(tmp_path)
+        db_records = {
+            "bad:name.txt": _make_record("bad:name.txt"),
+        }
+
+        diff = engine._three_way_diff({}, {}, db_records)
+
+        assert diff.is_empty()
+        assert "bad:name.txt" in engine._unsupported_local_paths
         db.close()
 
     def test_soft_deleted_in_db_treated_as_not_in_db(self, tmp_path: Path):
