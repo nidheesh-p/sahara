@@ -922,9 +922,9 @@ class TestSetup:
         folder.mkdir()
         (folder / "note.txt").write_text("interactive setup content")
         runner = _runner()
-        # primary folder, then Enter to finish adding folders, then "y" to build index.
-        # Claude Desktop is not present under the temp home, so no MCP prompt appears.
-        feed = f"{folder}\n\ny\n"
+        # primary folder, Enter to finish adding folders, y to build index, Enter to
+        # decline the optional daemon prompt (default N). Doctor needs no input.
+        feed = f"{folder}\n\ny\n\n"
 
         with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
             "sahara.search.search_engine.load_embedding_model",
@@ -1000,3 +1000,144 @@ class TestSetup:
         assert str(missing.resolve()) not in [
             str(p) for p in self._content_root_paths(db_path)
         ]
+
+    def test_setup_runs_doctor_by_default(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "setup",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Sahara Doctor" in result.output
+
+    def test_setup_no_doctor_skips_health_check(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "setup",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Sahara Doctor" not in result.output
+
+    def test_setup_smoke_test_reports_indexed_files(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        (folder / "note.txt").write_text("Smoke test verification content")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeSearchModel(),
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "setup",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-mcp",
+                    "--no-doctor",
+                    "--smoke-test",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Smoke test passed" in result.output
+
+    def test_setup_mcp_failure_does_not_abort(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.cli._claude_desktop_detected", return_value=True
+        ), patch(
+            "sahara.cli.mcp_install_claude",
+            side_effect=RuntimeError("config locked"),
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "setup",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Claude Desktop setup failed" in result.output
+        assert "Setup complete" in result.output
+
+    def test_setup_daemon_flag_starts_watcher(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+        started: list[Path | None] = []
+
+        def _fake_start(config_path: Path | None = None) -> None:
+            started.append(config_path)
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch("sahara.sync.daemon.start_daemon", side_effect=_fake_start):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "setup",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                    "--daemon",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert started == [config_path]
+        assert "Background index watcher started" in result.output

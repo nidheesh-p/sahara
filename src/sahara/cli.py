@@ -297,7 +297,7 @@ def init(
     region: str | None,
 ) -> None:
     """Set up local indexing with optional local-drive or AWS storage."""
-    _section("Sahara Setup Wizard")
+    _section("Sahara Library Configuration")
     click.echo("  Configure local indexing first, with storage as an optional extension.\n")
 
     config = SaharaConfig()
@@ -577,6 +577,26 @@ def _content_root_conflict(config: SaharaConfig, folder: Path) -> bool:
     return False
 
 
+def _run_setup_smoke_test(ctx: click.Context) -> None:
+    """Confirm the semantic index contains searchable files after setup."""
+    from sahara.storage.state_db import StateDB
+
+    db = StateDB().connect()
+    try:
+        indexed = db.count_index_entries(status="indexed")
+    finally:
+        db.close()
+
+    if indexed == 0:
+        _warn(
+            "Smoke test: no indexed files yet. Add text documents to your folders "
+            "and run `sahara index`."
+        )
+        return
+
+    _ok(f"Smoke test passed: {indexed} indexed file(s) are searchable.")
+
+
 @main.command()
 @click.option(
     "--folder",
@@ -608,6 +628,26 @@ def _content_root_conflict(config: SaharaConfig, folder: Path) -> bool:
     is_flag=True,
     help="Skip the Claude Desktop connection step.",
 )
+@click.option(
+    "--no-doctor",
+    is_flag=True,
+    help="Skip the configuration health check at the end.",
+)
+@click.option(
+    "--smoke-test",
+    is_flag=True,
+    help="Verify indexed files are searchable after indexing.",
+)
+@click.option(
+    "--daemon",
+    is_flag=True,
+    help="Start the background index watcher after setup.",
+)
+@click.option(
+    "--no-daemon",
+    is_flag=True,
+    help="Skip the background index watcher step.",
+)
 @click.pass_context
 def setup(
     ctx: click.Context,
@@ -616,8 +656,15 @@ def setup(
     assume_yes: bool,
     no_index: bool,
     no_mcp: bool,
+    no_doctor: bool,
+    smoke_test: bool,
+    daemon: bool,
+    no_daemon: bool,
 ) -> None:
     """Take Sahara from an installed CLI to a working local semantic index."""
+    if daemon and no_daemon:
+        raise click.UsageError("Use either --daemon or --no-daemon, not both.")
+
     _section("Sahara Setup")
     config_path = ctx.obj.get("config_path") or DEFAULT_CONFIG_PATH
 
@@ -665,6 +712,7 @@ def setup(
         ctx.invoke(folder_add, path=resolved, name=None)
 
     # 3. Embedding model and first index.
+    indexed_during_setup = False
     if not no_index:
         build = assume_yes or click.confirm(
             "  Prepare the embedding model and build the first index now? "
@@ -674,28 +722,64 @@ def setup(
         if build:
             ctx.invoke(models_prepare)
             ctx.invoke(index_cmd)
+            indexed_during_setup = True
 
-    # 4. Claude Desktop connection.
+    # 4. Optional smoke test.
+    if smoke_test or (indexed_during_setup and assume_yes):
+        click.echo()
+        _section("Smoke Test")
+        _run_setup_smoke_test(ctx)
+
+    # 5. Claude Desktop connection.
     if not no_mcp:
         if _claude_desktop_detected():
             connect = assume_yes or click.confirm(
                 "  Connect Claude Desktop now?", default=True
             )
             if connect:
-                ctx.invoke(mcp_install_claude)
+                try:
+                    ctx.invoke(mcp_install_claude)
+                except Exception as exc:
+                    _warn(f"Claude Desktop setup failed: {exc}")
+                    _info("Run `sahara mcp install-claude` later to connect manually.")
         else:
             _info(
                 "Claude Desktop not detected. Run `sahara mcp install-claude` "
                 "later to connect it."
             )
 
-    # 5. Done.
+    # 6. Background index watcher.
+    if not no_daemon:
+        from sahara.sync.daemon import is_daemon_running, start_daemon
+
+        if is_daemon_running():
+            _ok("Background index watcher is already running.")
+        else:
+            start_watcher = daemon
+            if not start_watcher and not assume_yes:
+                start_watcher = click.confirm(
+                    "  Start the background index watcher now?", default=False
+                )
+            if start_watcher:
+                try:
+                    start_daemon(config_path)
+                    _ok("Background index watcher started.")
+                except Exception as exc:
+                    _warn(f"Could not start index watcher: {exc}")
+                    _info("Run `sahara daemon start` later to keep the index fresh.")
+
+    # 7. Health check.
+    if not no_doctor:
+        click.echo()
+        ctx.invoke(doctor, repair=False)
+
+    # 8. Done.
     click.echo()
     _ok("Setup complete.")
-    _info('Try a search, e.g. `sahara search "a phrase you remember"`.')
+    _info('Try a search, e.g. `sahara search "a phrase you remember" --snippet`.')
     _info(
-        "Optional next steps: add storage with `sahara storage configure`, or an "
-        "answer provider — see the getting-started guide."
+        "Optional next steps: `sahara remember` to capture knowledge, "
+        "`sahara storage configure` for backup, or see docs/GETTING_STARTED.md."
     )
 
 

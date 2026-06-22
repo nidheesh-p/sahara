@@ -52,6 +52,15 @@ isolated from the system Python:
 ```bash
 pipx install "sahara-memory[search,mcp]"
 
+sahara setup --folder ~/Documents
+sahara search "my tax return from 2024" --snippet
+```
+
+Or run the steps individually:
+
+```bash
+pipx install "sahara-memory[search,mcp]"
+
 sahara init --mode basic --folder ~/Documents
 sahara index
 sahara search "my tax return from 2024" --snippet
