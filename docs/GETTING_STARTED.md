@@ -21,8 +21,10 @@ sahara search "known phrase" --snippet
 
 `sahara setup` is idempotent and safe to re-run; it preserves existing
 configuration, content roots, and indexes. Add `--yes` for a non-interactive run,
-and `--no-index` or `--no-mcp` to skip those steps. Prefer the individual commands?
-Run them directly instead:
+and `--no-index`, `--no-mcp`, or `--no-doctor` to skip those steps. Use
+`--smoke-test` to confirm indexed files are searchable, or `--daemon` to start
+the background index watcher. Prefer the individual commands? Run them directly
+instead:
 
 ```bash
 sahara init --mode basic --folder ~/Documents

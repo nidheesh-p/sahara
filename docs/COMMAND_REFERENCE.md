@@ -18,7 +18,7 @@ These options appear before the command:
 
 | Command | Purpose |
 |---|---|
-| `sahara setup [--folder PATH] [--add-folder PATH ...] [-y] [--no-index] [--no-mcp]` | Guided onboarding: configure basic indexing, build the first index, and connect Claude Desktop when detected |
+| `sahara setup [--folder PATH] [--add-folder PATH ...] [-y] [--no-index] [--no-mcp] [--no-doctor] [--smoke-test] [--daemon] [--no-daemon]` | Guided onboarding: configure basic indexing, build the first index, connect Claude Desktop when detected, and verify health |
 | `sahara init [--mode MODE] [--folder PATH]` | Configure a new library; omit options for the interactive wizard |
 | `sahara init --mode basic --folder PATH` | Create an index-only library with no storage backend |
 | `sahara init --mode local --folder PATH --storage-drive PATH` | Create a library backed by a mounted drive, NAS, or network share |
@@ -34,7 +34,9 @@ registration, the embedding-model download, indexing, and the Claude Desktop MCP
 installer into one idempotent flow that defaults to basic, index-only mode and
 configures no storage or answer provider. It is safe to re-run: existing
 configuration, content roots, and indexes are preserved. Use `-y/--yes` with
-`--folder`, `--no-index`, and `--no-mcp` for non-interactive runs.
+`--folder`, `--no-index`, `--no-mcp`, and `--no-doctor` for non-interactive runs.
+Add `--smoke-test` to verify indexed files, or `--daemon` to start the background
+index watcher.
 
 ## Indexing and Search
 
