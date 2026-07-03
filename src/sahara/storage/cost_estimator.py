@@ -29,6 +29,7 @@ _GLACIER_DEEP_RETRIEVAL_STANDARD_COST = 0.02  # per GB
 _GLACIER_DEEP_RETRIEVAL_EXPEDITED_COST = 0.30  # per GB (not available for Deep Archive)
 
 # Data transfer (per GB out to internet)
+_EGRESS_FREE_TIER_GB = 100.0
 _EGRESS_FIRST_10TB = 0.09
 _EGRESS_NEXT_40TB = 0.085
 _EGRESS_NEXT_100TB = 0.07
@@ -121,13 +122,13 @@ class CostEstimator:
             return 0.0
 
         # First 100 GB free
-        if egress_gb <= 0.1:
+        if egress_gb <= _EGRESS_FREE_TIER_GB:
             return 0.0
 
         cost = 0.0
-        remaining = egress_gb
+        remaining = egress_gb - _EGRESS_FREE_TIER_GB
 
-        # First 10 TB tier
+        # Next 10 TB tier
         tier1 = min(remaining, 10 * 1024)
         cost += tier1 * _EGRESS_FIRST_10TB
         remaining -= tier1
