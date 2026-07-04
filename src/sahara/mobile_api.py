@@ -10,6 +10,8 @@ import secrets
 import threading
 import time
 import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -194,12 +196,18 @@ class MobileAPIService:
     def __init__(
         self,
         config: SaharaConfig,
-        db: StateDB,
+        db: StateDB | None = None,
         *,
+        db_factory: Callable[[], StateDB] | None = None,
         rate_limiter: RateLimiter | None = None,
     ) -> None:
+        if db is None and db_factory is None:
+            raise ValueError("MobileAPIService requires a database or db_factory")
+        if db is not None and db_factory is not None:
+            raise ValueError("MobileAPIService accepts either db or db_factory")
         self._config = config
         self._db = db
+        self._db_factory = db_factory
         self._rate_limiter = rate_limiter or RateLimiter()
 
     def handle_capture(
@@ -209,88 +217,90 @@ class MobileAPIService:
         *,
         client_addr: str = "",
     ) -> tuple[HTTPStatus, dict[str, Any]]:
-        device = self._authenticate(headers, CAPTURE_SCOPE)
-        audit_id = self._begin_audit(
-            device,
-            body,
-            scope=CAPTURE_SCOPE,
-            client_addr=client_addr,
-        )
-        try:
-            payload = self._json_body(body)
-            self._reject_dangerous_fields(payload)
-            text = self._required_string(payload, "text")
-            if len(text) > MAX_MEMORY_CHARS:
-                raise MobileAPIError(
-                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                    "request_too_large",
-                    f"Memory text exceeds the {MAX_MEMORY_CHARS:,}-character limit",
+        with self._db_session() as db:
+            device = self._authenticate(db, headers, CAPTURE_SCOPE)
+            audit_id = self._begin_audit(
+                db,
+                device,
+                body,
+                scope=CAPTURE_SCOPE,
+                client_addr=client_addr,
+            )
+            try:
+                payload = self._json_body(body)
+                self._reject_dangerous_fields(payload)
+                text = self._required_string(payload, "text")
+                if len(text) > MAX_MEMORY_CHARS:
+                    raise MobileAPIError(
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                        "request_too_large",
+                        f"Memory text exceeds the {MAX_MEMORY_CHARS:,}-character limit",
+                    )
+                source_type = str(payload.get("source_type") or "mobile").strip().lower()
+                if source_type not in SOURCE_TYPES:
+                    raise MobileAPIError(
+                        HTTPStatus.BAD_REQUEST,
+                        "invalid_source_type",
+                        "Unsupported memory source_type",
+                    )
+                idempotency_key = self._required_string(payload, "idempotency_key")
+                result = MemoryService(self._config, db).capture(
+                    CaptureRequest(
+                        text=text,
+                        title=self._optional_string(payload, "title"),
+                        source_type=source_type,
+                        source_url=self._optional_string(payload, "source_url") or "",
+                        source_id=self._optional_string(payload, "source_id") or "",
+                        tags=self._tags(payload),
+                        idempotency_key=idempotency_key,
+                    )
                 )
-            source_type = str(payload.get("source_type") or "mobile").strip().lower()
-            if source_type not in SOURCE_TYPES:
+                status = "already_saved" if result.deduplicated else (
+                    "saved_and_indexed" if result.indexed else "saved_index_pending"
+                )
+                db.finish_mobile_memory_audit(
+                    audit_id,
+                    outcome=status,
+                    memory_id=result.item.memory_id,
+                )
+                db.mark_mobile_device_used(device["device_id"])
+                return HTTPStatus.CREATED, {
+                    "status": status,
+                    "memory_id": result.item.memory_id,
+                    "title": result.item.title,
+                    "relative_path": result.item.relative_path,
+                    "indexed": result.indexed,
+                    "index_reason": result.index_reason,
+                }
+            except MobileAPIError as exc:
+                db.finish_mobile_memory_audit(
+                    audit_id,
+                    outcome="rejected",
+                    details=exc.code,
+                )
+                raise
+            except ValueError as exc:
+                db.finish_mobile_memory_audit(
+                    audit_id,
+                    outcome="rejected",
+                    details="validation_error",
+                )
                 raise MobileAPIError(
                     HTTPStatus.BAD_REQUEST,
-                    "invalid_source_type",
-                    "Unsupported memory source_type",
+                    "validation_error",
+                    str(exc),
+                ) from exc
+            except Exception as exc:
+                db.finish_mobile_memory_audit(
+                    audit_id,
+                    outcome="failed",
+                    details="capture_error",
                 )
-            idempotency_key = self._required_string(payload, "idempotency_key")
-            result = MemoryService(self._config, self._db).capture(
-                CaptureRequest(
-                    text=text,
-                    title=self._optional_string(payload, "title"),
-                    source_type=source_type,
-                    source_url=self._optional_string(payload, "source_url") or "",
-                    source_id=self._optional_string(payload, "source_id") or "",
-                    tags=self._tags(payload),
-                    idempotency_key=idempotency_key,
-                )
-            )
-            status = "already_saved" if result.deduplicated else (
-                "saved_and_indexed" if result.indexed else "saved_index_pending"
-            )
-            self._db.finish_mobile_memory_audit(
-                audit_id,
-                outcome=status,
-                memory_id=result.item.memory_id,
-            )
-            self._db.mark_mobile_device_used(device["device_id"])
-            return HTTPStatus.CREATED, {
-                "status": status,
-                "memory_id": result.item.memory_id,
-                "title": result.item.title,
-                "relative_path": result.item.relative_path,
-                "indexed": result.indexed,
-                "index_reason": result.index_reason,
-            }
-        except MobileAPIError as exc:
-            self._db.finish_mobile_memory_audit(
-                audit_id,
-                outcome="rejected",
-                details=exc.code,
-            )
-            raise
-        except ValueError as exc:
-            self._db.finish_mobile_memory_audit(
-                audit_id,
-                outcome="rejected",
-                details="validation_error",
-            )
-            raise MobileAPIError(
-                HTTPStatus.BAD_REQUEST,
-                "validation_error",
-                str(exc),
-            ) from exc
-        except Exception as exc:
-            self._db.finish_mobile_memory_audit(
-                audit_id,
-                outcome="failed",
-                details="capture_error",
-            )
-            raise MobileAPIError(
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                "capture_error",
-                "Could not save memory",
-            ) from exc
+                raise MobileAPIError(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    "capture_error",
+                    "Could not save memory",
+                ) from exc
 
     def handle_recall(
         self,
@@ -299,72 +309,86 @@ class MobileAPIService:
         *,
         client_addr: str = "",
     ) -> tuple[HTTPStatus, dict[str, Any]]:
-        device = self._authenticate(headers, RECALL_SCOPE)
-        audit_id = self._begin_audit(
-            device,
-            body,
-            scope=RECALL_SCOPE,
-            client_addr=client_addr,
-        )
-        try:
-            payload = self._json_body(body)
-            self._reject_dangerous_fields(payload)
-            query = self._required_string(payload, "query")
+        with self._db_session() as db:
+            device = self._authenticate(db, headers, RECALL_SCOPE)
+            audit_id = self._begin_audit(
+                db,
+                device,
+                body,
+                scope=RECALL_SCOPE,
+                client_addr=client_addr,
+            )
             try:
-                top_k = int(payload.get("top_k") or 5)
-            except (TypeError, ValueError) as exc:
+                payload = self._json_body(body)
+                self._reject_dangerous_fields(payload)
+                query = self._required_string(payload, "query")
+                try:
+                    top_k = int(payload.get("top_k") or 5)
+                except (TypeError, ValueError) as exc:
+                    raise MobileAPIError(
+                        HTTPStatus.BAD_REQUEST,
+                        "invalid_top_k",
+                        "top_k must be an integer",
+                    ) from exc
+                top_k = min(max(top_k, 1), 20)
+                results = MemoryService(self._config, db).search(
+                    query,
+                    MemoryFilters(
+                        source_types=self._string_array(payload, "source_types"),
+                        tags=self._string_array(payload, "tags"),
+                    ),
+                    top_k=top_k,
+                )
+                db.finish_mobile_memory_audit(audit_id, outcome="recalled")
+                db.mark_mobile_device_used(device["device_id"])
+                return HTTPStatus.OK, {
+                    "results": [
+                        {
+                            "memory_id": result.item.memory_id,
+                            "title": result.item.title,
+                            "score": result.score,
+                            "snippet": result.snippet,
+                            "relative_path": result.item.relative_path,
+                            "source_type": result.item.source_type,
+                            "source_url": result.item.source_url,
+                            "tags": list(result.item.tags),
+                            "updated_at": result.item.updated_at,
+                        }
+                        for result in results
+                    ]
+                }
+            except MobileAPIError as exc:
+                db.finish_mobile_memory_audit(
+                    audit_id,
+                    outcome="rejected",
+                    details=exc.code,
+                )
+                raise
+            except Exception as exc:
+                db.finish_mobile_memory_audit(
+                    audit_id,
+                    outcome="failed",
+                    details="recall_error",
+                )
                 raise MobileAPIError(
-                    HTTPStatus.BAD_REQUEST,
-                    "invalid_top_k",
-                    "top_k must be an integer",
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    "recall_error",
+                    "Could not recall memories",
                 ) from exc
-            top_k = min(max(top_k, 1), 20)
-            results = MemoryService(self._config, self._db).search(
-                query,
-                MemoryFilters(
-                    source_types=self._string_array(payload, "source_types"),
-                    tags=self._string_array(payload, "tags"),
-                ),
-                top_k=top_k,
-            )
-            self._db.finish_mobile_memory_audit(audit_id, outcome="recalled")
-            self._db.mark_mobile_device_used(device["device_id"])
-            return HTTPStatus.OK, {
-                "results": [
-                    {
-                        "memory_id": result.item.memory_id,
-                        "title": result.item.title,
-                        "score": result.score,
-                        "snippet": result.snippet,
-                        "relative_path": result.item.relative_path,
-                        "source_type": result.item.source_type,
-                        "source_url": result.item.source_url,
-                        "tags": list(result.item.tags),
-                        "updated_at": result.item.updated_at,
-                    }
-                    for result in results
-                ]
-            }
-        except MobileAPIError as exc:
-            self._db.finish_mobile_memory_audit(
-                audit_id,
-                outcome="rejected",
-                details=exc.code,
-            )
-            raise
-        except Exception as exc:
-            self._db.finish_mobile_memory_audit(
-                audit_id,
-                outcome="failed",
-                details="recall_error",
-            )
-            raise MobileAPIError(
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                "recall_error",
-                "Could not recall memories",
-            ) from exc
 
-    def _authenticate(self, headers: dict[str, str], scope: str) -> dict:
+    @contextmanager
+    def _db_session(self) -> Iterator[StateDB]:
+        if self._db is not None:
+            yield self._db
+            return
+        assert self._db_factory is not None
+        db = self._db_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    def _authenticate(self, db: StateDB, headers: dict[str, str], scope: str) -> dict:
         auth = headers.get("authorization", "")
         if not auth.startswith("Bearer "):
             raise MobileAPIError(
@@ -374,7 +398,7 @@ class MobileAPIService:
             )
         token = auth.removeprefix("Bearer ").strip()
         token_hash = hash_device_token(token)
-        device = self._db.get_mobile_device_by_hash(token_hash)
+        device = db.get_mobile_device_by_hash(token_hash)
         if device is None or not hmac.compare_digest(
             device["token_hash"],
             token_hash,
@@ -400,6 +424,7 @@ class MobileAPIService:
 
     def _begin_audit(
         self,
+        db: StateDB,
         device: dict,
         body: bytes,
         *,
@@ -415,7 +440,7 @@ class MobileAPIService:
                 idempotency_key = str(payload.get("idempotency_key") or "")
         except Exception:
             pass
-        return self._db.begin_mobile_memory_audit(
+        return db.begin_mobile_memory_audit(
             scope=scope,
             source_type=source_type if source_type in SOURCE_TYPES else "invalid",
             idempotency_key_hash=hashlib.sha256(
@@ -650,16 +675,17 @@ def serve_mobile_api(
     """Run the mobile API server until interrupted."""
     bind_host = validate_bind_host(host, allow_private_network=allow_private_network)
     config = load_config(config_path or DEFAULT_CONFIG_PATH)
-    db = StateDB().connect()
+    db_path = StateDB().path
+
+    def _open_db() -> StateDB:
+        return StateDB(db_path).connect()
+
+    service = MobileAPIService(config, db_factory=_open_db)
+    server = _MobileHTTPServer((bind_host, port), service)
     try:
-        service = MobileAPIService(config, db)
-        server = _MobileHTTPServer((bind_host, port), service)
-        try:
-            server.serve_forever()
-        finally:
-            server.server_close()
+        server.serve_forever()
     finally:
-        db.close()
+        server.server_close()
 
 
 def pairing_uri(payload: dict[str, Any]) -> str:
