@@ -69,6 +69,9 @@ dev = [
     "ruff>=0.4.0",
     "mypy>=1.10.0",
 ]
+native = [
+    "pyinstaller>=6.0.0",
+]
 all = ["sahara-memory[search,ocr,mcp]"]
 
 [project.scripts]
@@ -88,6 +91,8 @@ packages = ["src/sahara"]
 include = [
     "/src",
     "/docs",
+    "/packaging",
+    "/scripts",
     "/specs",
     "/ARCHITECTURE.md",
     "/CHANGELOG.md",
