@@ -165,33 +165,39 @@ class TestCalculateEgressCost:
     def test_negative_egress_free(self, estimator: CostEstimator):
         assert estimator.calculate_egress_cost(-1.0) == 0.0
 
-    def test_under_100mb_free(self, estimator: CostEstimator):
-        # 0.05 GB = 50 MB (under 0.1 GB threshold)
-        assert estimator.calculate_egress_cost(0.05) == 0.0
+    def test_under_100gb_free(self, estimator: CostEstimator):
+        assert estimator.calculate_egress_cost(99.9) == 0.0
 
-    def test_exactly_100mb_free(self, estimator: CostEstimator):
-        # 0.1 GB = ~100 MB (at the threshold)
-        assert estimator.calculate_egress_cost(0.1) == 0.0
+    def test_exactly_100gb_free(self, estimator: CostEstimator):
+        assert estimator.calculate_egress_cost(100.0) == 0.0
 
     def test_paid_tier_first_10tb(self, estimator: CostEstimator):
-        # 1 GB paid at $0.09/GB
-        cost = estimator.calculate_egress_cost(1.0)
+        # First 100 GB is free; 1 GB above that is paid at $0.09/GB.
+        cost = estimator.calculate_egress_cost(101.0)
         assert abs(cost - 0.09) < 0.001
 
     def test_paid_tier_large(self, estimator: CostEstimator):
-        # More than 10 TB to trigger next tier
-        cost = estimator.calculate_egress_cost(11 * 1024)
-        assert cost > 0
+        # First 100 GB is free; the next 10 TB is $0.09/GB; remaining 1 TB is $0.085/GB.
+        cost = estimator.calculate_egress_cost(100 + 11 * 1024)
+        expected = (10 * 1024 * 0.09) + (1024 * 0.085)
+        assert abs(cost - expected) < 0.001
 
     def test_paid_tier_over_150tb(self, estimator: CostEstimator):
-        cost = estimator.calculate_egress_cost(200 * 1024)
-        assert cost > 0
+        cost = estimator.calculate_egress_cost(100 + 200 * 1024)
+        expected = (
+            (10 * 1024 * 0.09)
+            + (40 * 1024 * 0.085)
+            + (100 * 1024 * 0.07)
+            + (50 * 1024 * 0.05)
+        )
+        assert abs(cost - expected) < 0.001
 
     @pytest.mark.parametrize("gb,expected_gt_zero", [
         (0.0, False),
         (0.1, False),
-        (0.5, True),
-        (100.0, True),
+        (99.9, False),
+        (100.0, False),
+        (100.1, True),
     ])
     def test_egress_parametrized(self, estimator: CostEstimator, gb: float, expected_gt_zero: bool):
         cost = estimator.calculate_egress_cost(gb)
