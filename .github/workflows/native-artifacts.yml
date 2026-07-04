@@ -1,0 +1,67 @@
+name: Native Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      smoke_with_index:
+        description: "Run bundle smoke test with embedding/index/search validation"
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  macos-apple-silicon:
+    name: Build macOS Apple Silicon bundle
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install native build dependencies
+        run: python -m pip install -e ".[all,native]"
+
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          expected="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          with Path("pyproject.toml").open("rb") as handle:
+              print("v" + tomllib.load(handle)["project"]["version"])
+          PY
+          )"
+          actual="${GITHUB_REF#refs/tags/}"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Release tag $actual does not match package version $expected." >&2
+            exit 1
+          fi
+
+      - name: Build one-folder bundle
+        run: python scripts/build_macos_bundle.py
+
+      - name: Package and verify native artifact
+        run: |
+          args=()
+          if [[ "${{ github.event_name }}" == "push" || "${{ github.event.inputs.smoke_with_index }}" == "true" ]]; then
+            args+=(--with-index)
+          fi
+          python scripts/package_native_artifacts.py "${args[@]}"
+
+      - name: Upload native artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-macos-arm64
+          path: dist/native-artifacts/
+          if-no-files-found: error
+          retention-days: 7

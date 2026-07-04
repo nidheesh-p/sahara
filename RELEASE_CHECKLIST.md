@@ -76,8 +76,15 @@ Use this checklist before publishing a Sahara release.
   source distribution to TestPyPI.
 - Install `sahara-memory[search,mcp]` from the published artifact in a fresh
   environment and confirm `pip show sahara-memory` reports this repository.
+- Run the **Native Artifacts** workflow manually from `main` and download the
+  `native-macos-arm64` artifact.
+- Confirm the native artifact directory contains a versioned archive, `.sha256`
+  checksum, dependency inventory, manifest, and smoke-test log.
+- Verify the native archive checksum locally from inside the artifact directory with
+  `shasum -a 256 -c *.sha256`.
 - Create and publish a GitHub release whose tag is exactly `v<pyproject version>`.
-  The release event builds, verifies, and publishes to PyPI through OIDC.
+  The release event builds, verifies, and publishes to PyPI through OIDC. Pushing the
+  `v*` release tag also runs the native artifact workflow.
 - Never publish the production package manually or with a long-lived API token.
 
 ## Post-Release
