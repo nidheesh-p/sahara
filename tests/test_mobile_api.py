@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import socket
+import threading
 from http import HTTPStatus
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -20,6 +23,7 @@ from sahara.mobile_api import (
     MobileAPIError,
     MobileAPIService,
     RateLimiter,
+    _MobileHTTPServer,
     create_mobile_device_pairing,
     hash_device_token,
     validate_bind_host,
@@ -261,6 +265,104 @@ def test_recall_requires_recall_scope(tmp_path: Path) -> None:
         assert payload == {"results": []}
 
 
+def test_recall_validates_filter_arrays(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        pairing = create_mobile_device_pairing(
+            db,
+            name="Shortcut",
+            endpoint="http://127.0.0.1:8765",
+            scopes=(CAPTURE_SCOPE, RECALL_SCOPE),
+        )
+        service = MobileAPIService(config, db)
+
+        with patch.object(MemoryService, "search", return_value=[]) as search:
+            status, payload = service.handle_recall(
+                _headers(pairing.token),
+                json.dumps(
+                    {
+                        "query": "vendor",
+                        "source_types": ["mobile"],
+                        "tags": ["vendor"],
+                    }
+                ).encode("utf-8"),
+            )
+        assert status == HTTPStatus.OK
+        assert payload == {"results": []}
+        filters = search.call_args.args[1]
+        assert filters.source_types == ("mobile",)
+        assert filters.tags == ("vendor",)
+
+        for field in ("source_types", "tags"):
+            with patch.object(MemoryService, "search", return_value=[]) as search:
+                try:
+                    service.handle_recall(
+                        _headers(pairing.token),
+                        json.dumps({"query": "vendor", field: "vendor"}).encode(
+                            "utf-8"
+                        ),
+                    )
+                except MobileAPIError as exc:
+                    assert exc.status == HTTPStatus.BAD_REQUEST
+                    assert exc.code == f"invalid_{field}"
+                else:
+                    raise AssertionError(f"{field} string filter should fail")
+            search.assert_not_called()
+
+            with patch.object(MemoryService, "search", return_value=[]) as search:
+                try:
+                    service.handle_recall(
+                        _headers(pairing.token),
+                        json.dumps({"query": "vendor", field: ["vendor", 1]}).encode(
+                            "utf-8"
+                        ),
+                    )
+                except MobileAPIError as exc:
+                    assert exc.status == HTTPStatus.BAD_REQUEST
+                    assert exc.code == f"invalid_{field}"
+                else:
+                    raise AssertionError(f"{field} non-string filter should fail")
+            search.assert_not_called()
+
+
+def test_mobile_http_rejects_malformed_content_length(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MobileAPIService(config, db)
+        server = _MobileHTTPServer(("127.0.0.1", 0), service)
+        server.timeout = 2
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+        try:
+            with socket.create_connection(server.server_address, timeout=2) as sock:
+                sock.settimeout(2)
+                sock.sendall(
+                    b"POST /v1/recall HTTP/1.1\r\n"
+                    b"Host: 127.0.0.1\r\n"
+                    b"Connection: close\r\n"
+                    b"Content-Length: nope\r\n"
+                    b"\r\n"
+                )
+                response = b""
+                while True:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+        finally:
+            server.server_close()
+            thread.join(timeout=2)
+
+    status_line, body = response.split(b"\r\n", 1)[0], response.split(b"\r\n\r\n", 1)[1]
+    assert b" 400 " in status_line
+    assert json.loads(body.decode("utf-8")) == {
+        "error": {
+            "code": "invalid_request",
+            "message": "Content-Length must be a non-negative integer",
+        }
+    }
+
+
 def test_mobile_pair_cli_outputs_one_time_token_and_devices_hide_hash(
     tmp_path: Path,
 ) -> None:
@@ -294,3 +396,103 @@ def test_mobile_pair_cli_outputs_one_time_token_and_devices_hide_hash(
     assert devices.exit_code == 0
     assert "Phone" in devices.output
     assert payload["token"] not in devices.output
+
+
+def test_mobile_service_db_factory_opens_and_closes_fresh_db_per_request(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    token = "sahara_factory_token"
+    token_hash = hash_device_token(token)
+    created: list[FakeMobileDB] = []
+
+    class FakeMobileDB:
+        def __init__(self, label: int) -> None:
+            self.label = label
+            self.closed = False
+            self.audit_outcomes: list[str] = []
+            self.used_devices: list[str] = []
+
+        def get_mobile_device_by_hash(self, lookup: str) -> dict[str, object] | None:
+            assert lookup == token_hash
+            return {
+                "device_id": f"device-{self.label}",
+                "name": f"Phone {self.label}",
+                "token_hash": token_hash,
+                "scopes": (CAPTURE_SCOPE, RECALL_SCOPE),
+            }
+
+        def begin_mobile_memory_audit(self, **_: object) -> int:
+            return self.label
+
+        def finish_mobile_memory_audit(
+            self,
+            audit_id: int,
+            *,
+            outcome: str,
+            details: str | None = None,
+            memory_id: str | None = None,
+        ) -> None:
+            assert audit_id == self.label
+            assert details is None or isinstance(details, str)
+            assert memory_id is None or isinstance(memory_id, str)
+            self.audit_outcomes.append(outcome)
+
+        def mark_mobile_device_used(self, device_id: str) -> None:
+            self.used_devices.append(device_id)
+
+        def close(self) -> None:
+            self.closed = True
+
+    def factory() -> FakeMobileDB:
+        db = FakeMobileDB(len(created) + 1)
+        created.append(db)
+        return db
+
+    service = MobileAPIService(config, db_factory=factory)
+    fake_capture = SimpleNamespace(
+        deduplicated=False,
+        indexed=True,
+        index_reason="indexed",
+        item=SimpleNamespace(
+            memory_id="memory-1",
+            title="Saved from phone",
+            relative_path="2026/06/test.md",
+        ),
+    )
+    fake_result = SimpleNamespace(
+        item=SimpleNamespace(
+            memory_id="memory-2",
+            title="Remembered",
+            relative_path="2026/06/remembered.md",
+            source_type="mobile",
+            source_url="",
+            tags=("travel",),
+            updated_at="2026-06-26T00:00:00Z",
+        ),
+        score=0.9,
+        snippet="Remembered",
+    )
+
+    with (
+        patch.object(MemoryService, "capture", return_value=fake_capture),
+        patch.object(MemoryService, "search", return_value=[fake_result]),
+    ):
+        capture_status, _ = service.handle_capture(
+            _headers(token),
+            _body(idempotency_key="factory-capture"),
+        )
+        recall_status, payload = service.handle_recall(
+            _headers(token),
+            json.dumps({"query": "Remembered"}).encode("utf-8"),
+        )
+
+    assert capture_status == HTTPStatus.CREATED
+    assert recall_status == HTTPStatus.OK
+    assert payload["results"][0]["memory_id"] == "memory-2"
+    assert [db.label for db in created] == [1, 2]
+    assert all(db.closed for db in created)
+    assert created[0].audit_outcomes == ["saved_and_indexed"]
+    assert created[1].audit_outcomes == ["recalled"]
+    assert created[0].used_devices == ["device-1"]
+    assert created[1].used_devices == ["device-2"]
