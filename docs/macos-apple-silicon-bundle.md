@@ -67,6 +67,31 @@ python scripts/smoke_macos_bundle.py --with-index
 The `--with-index` path may download the embedding model on first use. The model is
 cached outside the bundle by FastEmbed and is not shipped in the artifact.
 
+## Release Artifact Packaging
+
+Release automation packages the one-folder bundle into a versioned archive, then
+generates a checksum, bundled dependency inventory, manifest, and smoke-test log:
+
+```bash
+python scripts/package_native_artifacts.py --with-index
+```
+
+The generated files are written under:
+
+```text
+dist/native-artifacts/
+```
+
+The GitHub Actions workflow for this path is `Native Artifacts`. It runs only from
+`workflow_dispatch` or `v*` release tags, and it keeps uploaded artifacts for seven
+days. Ordinary pull requests do not run the PyInstaller native build.
+
+To verify an already-packaged artifact directory:
+
+```bash
+python scripts/package_native_artifacts.py --verify-only
+```
+
 ## Packaged Resources
 
 The PyInstaller spec includes Sahara package data and metadata, plus hidden imports,
