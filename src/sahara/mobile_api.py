@@ -334,8 +334,8 @@ class MobileAPIService:
                 results = MemoryService(self._config, db).search(
                     query,
                     MemoryFilters(
-                        source_types=tuple(payload.get("source_types") or ()),
-                        tags=tuple(payload.get("tags") or ()),
+                        source_types=self._string_array(payload, "source_types"),
+                        tags=self._string_array(payload, "tags"),
                     ),
                     top_k=top_k,
                 )
@@ -547,6 +547,25 @@ class MobileAPIService:
             )
         return tuple(raw)
 
+    @staticmethod
+    def _string_array(payload: dict[str, Any], key: str) -> tuple[str, ...]:
+        raw = payload.get(key)
+        if raw is None:
+            return ()
+        if not isinstance(raw, list):
+            raise MobileAPIError(
+                HTTPStatus.BAD_REQUEST,
+                f"invalid_{key}",
+                f"{key} must be a JSON array",
+            )
+        if not all(isinstance(value, str) for value in raw):
+            raise MobileAPIError(
+                HTTPStatus.BAD_REQUEST,
+                f"invalid_{key}",
+                f"{key} must contain only strings",
+            )
+        return tuple(raw)
+
 
 class _MobileRequestHandler(BaseHTTPRequestHandler):
     server: _MobileHTTPServer
@@ -558,7 +577,11 @@ class _MobileRequestHandler(BaseHTTPRequestHandler):
         self._send_error(HTTPStatus.NOT_FOUND, "not_found", "Endpoint not found")
 
     def do_POST(self) -> None:
-        content_length = int(self.headers.get("Content-Length", "0") or "0")
+        try:
+            content_length = self._content_length()
+        except MobileAPIError as exc:
+            self._send_error(exc.status, exc.code, exc.message)
+            return
         if content_length > MAX_JSON_BYTES:
             self._send_error(
                 HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
@@ -595,6 +618,24 @@ class _MobileRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         return
+
+    def _content_length(self) -> int:
+        raw = self.headers.get("Content-Length", "0") or "0"
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise MobileAPIError(
+                HTTPStatus.BAD_REQUEST,
+                "invalid_request",
+                "Content-Length must be a non-negative integer",
+            ) from exc
+        if value < 0:
+            raise MobileAPIError(
+                HTTPStatus.BAD_REQUEST,
+                "invalid_request",
+                "Content-Length must be a non-negative integer",
+            )
+        return value
 
     def _send_error(
         self,

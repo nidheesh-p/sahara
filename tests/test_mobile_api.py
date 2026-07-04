@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import socket
+import threading
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +23,7 @@ from sahara.mobile_api import (
     MobileAPIError,
     MobileAPIService,
     RateLimiter,
+    _MobileHTTPServer,
     create_mobile_device_pairing,
     hash_device_token,
     validate_bind_host,
@@ -260,6 +263,104 @@ def test_recall_requires_recall_scope(tmp_path: Path) -> None:
             )
         assert status == HTTPStatus.OK
         assert payload == {"results": []}
+
+
+def test_recall_validates_filter_arrays(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        pairing = create_mobile_device_pairing(
+            db,
+            name="Shortcut",
+            endpoint="http://127.0.0.1:8765",
+            scopes=(CAPTURE_SCOPE, RECALL_SCOPE),
+        )
+        service = MobileAPIService(config, db)
+
+        with patch.object(MemoryService, "search", return_value=[]) as search:
+            status, payload = service.handle_recall(
+                _headers(pairing.token),
+                json.dumps(
+                    {
+                        "query": "vendor",
+                        "source_types": ["mobile"],
+                        "tags": ["vendor"],
+                    }
+                ).encode("utf-8"),
+            )
+        assert status == HTTPStatus.OK
+        assert payload == {"results": []}
+        filters = search.call_args.args[1]
+        assert filters.source_types == ("mobile",)
+        assert filters.tags == ("vendor",)
+
+        for field in ("source_types", "tags"):
+            with patch.object(MemoryService, "search", return_value=[]) as search:
+                try:
+                    service.handle_recall(
+                        _headers(pairing.token),
+                        json.dumps({"query": "vendor", field: "vendor"}).encode(
+                            "utf-8"
+                        ),
+                    )
+                except MobileAPIError as exc:
+                    assert exc.status == HTTPStatus.BAD_REQUEST
+                    assert exc.code == f"invalid_{field}"
+                else:
+                    raise AssertionError(f"{field} string filter should fail")
+            search.assert_not_called()
+
+            with patch.object(MemoryService, "search", return_value=[]) as search:
+                try:
+                    service.handle_recall(
+                        _headers(pairing.token),
+                        json.dumps({"query": "vendor", field: ["vendor", 1]}).encode(
+                            "utf-8"
+                        ),
+                    )
+                except MobileAPIError as exc:
+                    assert exc.status == HTTPStatus.BAD_REQUEST
+                    assert exc.code == f"invalid_{field}"
+                else:
+                    raise AssertionError(f"{field} non-string filter should fail")
+            search.assert_not_called()
+
+
+def test_mobile_http_rejects_malformed_content_length(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        service = MobileAPIService(config, db)
+        server = _MobileHTTPServer(("127.0.0.1", 0), service)
+        server.timeout = 2
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+        try:
+            with socket.create_connection(server.server_address, timeout=2) as sock:
+                sock.settimeout(2)
+                sock.sendall(
+                    b"POST /v1/recall HTTP/1.1\r\n"
+                    b"Host: 127.0.0.1\r\n"
+                    b"Connection: close\r\n"
+                    b"Content-Length: nope\r\n"
+                    b"\r\n"
+                )
+                response = b""
+                while True:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+        finally:
+            server.server_close()
+            thread.join(timeout=2)
+
+    status_line, body = response.split(b"\r\n", 1)[0], response.split(b"\r\n\r\n", 1)[1]
+    assert b" 400 " in status_line
+    assert json.loads(body.decode("utf-8")) == {
+        "error": {
+            "code": "invalid_request",
+            "message": "Content-Length must be a non-negative integer",
+        }
+    }
 
 
 def test_mobile_pair_cli_outputs_one_time_token_and_devices_hide_hash(
