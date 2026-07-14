@@ -8,6 +8,16 @@ from unittest.mock import patch
 
 import pytest
 from scripts.build_macos_bundle import PLATFORM_TAG, bundle_name, project_version
+from scripts.build_macos_installer import (
+    INSTALL_ROOT,
+    PACKAGE_ID,
+    build_macos_installer,
+    build_pkg,
+    is_codesign_candidate,
+    prepare_payload,
+    verify_macos_installer,
+    write_installer_scripts,
+)
 from scripts.package_native_artifacts import (
     create_tarball,
     package_native_artifact,
@@ -63,9 +73,14 @@ def test_bundle_docs_include_build_and_smoke_commands() -> None:
 
     assert "python scripts/build_macos_bundle.py" in doc
     assert "python scripts/smoke_macos_bundle.py" in doc
+    assert "python scripts/build_macos_installer.py --notarize" in doc
     assert "sahara-0.2.1-macos-arm64" in doc
     assert "not shipped in the artifact" in doc
     assert "repository checkout or system Python" in doc
+    assert "/Library/Application Support/Sahara/sahara/" in doc
+    assert "/usr/local/bin/sahara" in doc
+    assert "~/.sahara" in doc
+    assert "protected `macos-installer` environment" in doc
     clean_machine_section = doc.split("## Clean-Machine Check", maxsplit=1)[1]
     assert "python /path/to/smoke_macos_bundle.py" not in clean_machine_section
 
@@ -122,3 +137,145 @@ def test_native_artifact_verification_rejects_bad_checksum(tmp_path: Path) -> No
 
     with pytest.raises(ValueError, match="checksum mismatch"):
         verify_native_artifact(artifact_root, "sahara-1.2.3-macos-arm64")
+
+
+def test_macos_installer_payload_uses_stable_application_support_location(
+    tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "sahara-1.2.3-macos-arm64"
+    bundle.mkdir()
+    (bundle / "sahara").write_text("#!/bin/sh\n", encoding="utf-8")
+    payload_root = tmp_path / "payload"
+
+    prepare_payload(bundle, payload_root)
+
+    assert (payload_root / INSTALL_ROOT / "sahara").read_text(encoding="utf-8") == "#!/bin/sh\n"
+
+
+def test_macos_installer_scripts_create_path_link_and_preserve_user_data(
+    tmp_path: Path,
+) -> None:
+    scripts_root = tmp_path / "scripts"
+
+    write_installer_scripts(scripts_root)
+
+    preinstall = (scripts_root / "preinstall").read_text(encoding="utf-8")
+    postinstall = (scripts_root / "postinstall").read_text(encoding="utf-8")
+    assert "/Library/Application Support/Sahara/sahara" in preinstall
+    assert "~/.sahara" not in preinstall
+    assert 'ln -sfn "$target" "$link_dir/sahara"' in postinstall
+    assert "/usr/local/bin" in postinstall
+    assert "/Library/Application Support/Sahara/sahara/sahara" in postinstall
+
+
+def test_macos_pkgbuild_requests_metadata_suppression(tmp_path: Path) -> None:
+    with patch("scripts.build_macos_installer.subprocess.run") as run:
+        build_pkg(
+            payload_root=tmp_path / "payload",
+            scripts_root=tmp_path / "scripts",
+            package=tmp_path / "installers" / "sahara.pkg",
+            version="1.2.3",
+            installer_identity=None,
+        )
+
+    pkgbuild_cmd = run.call_args.args[0]
+    _, kwargs = run.call_args
+    assert kwargs["env"]["COPYFILE_DISABLE"] == "1"
+    assert kwargs["env"]["DITTONORSRC"] == "1"
+    assert r"^.*/._.*" in pkgbuild_cmd
+    assert r"^.*/.DS_Store$" in pkgbuild_cmd
+
+
+def test_macos_signed_pkgbuild_requests_trusted_timestamp(tmp_path: Path) -> None:
+    with patch("scripts.build_macos_installer.subprocess.run") as run:
+        build_pkg(
+            payload_root=tmp_path / "payload",
+            scripts_root=tmp_path / "scripts",
+            package=tmp_path / "installers" / "sahara.pkg",
+            version="1.2.3",
+            installer_identity="Developer ID Installer: Example",
+        )
+
+    pkgbuild_cmd = run.call_args.args[0]
+    assert "--sign" in pkgbuild_cmd
+    assert "--timestamp" in pkgbuild_cmd
+
+
+def test_macos_codesign_candidates_are_macho_files(tmp_path: Path) -> None:
+    macho = tmp_path / "sahara"
+    fat64 = tmp_path / "universal-helper"
+    shell = tmp_path / "helper"
+    macho.write_bytes(b"\xcf\xfa\xed\xfe\x00\x00")
+    fat64.write_bytes(b"\xca\xfe\xba\xbf\x00\x00")
+    shell.write_text("#!/bin/sh\n", encoding="utf-8")
+    macho.chmod(0o755)
+    fat64.chmod(0o755)
+    shell.chmod(0o755)
+
+    assert is_codesign_candidate(macho)
+    assert is_codesign_candidate(fat64)
+    assert not is_codesign_candidate(shell)
+
+
+def test_builds_and_verifies_macos_installer_metadata(tmp_path: Path) -> None:
+    bundle = tmp_path / "sahara-0.2.1-macos-arm64"
+    bundle.mkdir()
+    executable = bundle / "sahara"
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    executable.chmod(0o755)
+
+    def fake_build_pkg(**kwargs: object) -> Path:
+        package = kwargs["package"]
+        assert isinstance(package, Path)
+        package.write_text("pkg bytes\n", encoding="utf-8")
+        assert kwargs["installer_identity"] == "Developer ID Installer: Example"
+        return package
+
+    with (
+        patch("scripts.build_macos_installer.build_pkg", side_effect=fake_build_pkg),
+        patch("scripts.build_macos_installer.sign_bundle") as sign_bundle,
+        patch("scripts.build_macos_installer.strip_macos_metadata") as strip_metadata,
+    ):
+        artifact = build_macos_installer(
+            bundle,
+            tmp_path / "installers",
+            application_identity="Developer ID Application: Example",
+            installer_identity="Developer ID Installer: Example",
+            skip_platform_check=True,
+        )
+
+    assert strip_metadata.call_count == 2
+    sign_bundle.assert_called_once()
+    assert artifact.package.name == "sahara-0.2.1-macos-arm64.pkg"
+    verify_macos_installer(tmp_path / "installers", artifact.package.name)
+    manifest = artifact.manifest.read_text(encoding="utf-8")
+    assert PACKAGE_ID in manifest
+    assert '"signed": true' in manifest
+    assert '"notarized": false' in manifest
+    assert "~/.sahara" in manifest
+
+
+def test_macos_installer_notarization_requires_release_credentials(tmp_path: Path) -> None:
+    bundle = tmp_path / "sahara-0.2.1-macos-arm64"
+    bundle.mkdir()
+    (bundle / "sahara").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="notarization requires"):
+        build_macos_installer(
+            bundle,
+            tmp_path / "installers",
+            notarize=True,
+            skip_platform_check=True,
+        )
+
+    with pytest.raises(ValueError, match="Developer ID Application identity"):
+        build_macos_installer(
+            bundle,
+            tmp_path / "installers",
+            installer_identity="Developer ID Installer: Example",
+            notarize=True,
+            apple_id="release@example.com",
+            team_id="TEAMID1234",
+            apple_password="app-specific-password",
+            skip_platform_check=True,
+        )

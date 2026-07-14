@@ -82,6 +82,25 @@ Use this checklist before publishing a Sahara release.
   checksum, dependency inventory, manifest, and smoke-test log.
 - Verify the native archive checksum locally from inside the artifact directory with
   `shasum -a 256 -c *.sha256`.
+- For `v*` release tags, confirm the **Native Artifacts** workflow also runs the
+  `macos-installer` job in the protected `macos-installer` environment.
+- Confirm the `macos-installer` environment owns the Developer ID certificate and
+  notarization secrets; repository-wide secrets must not be required for macOS
+  signing.
+- Download the `native-macos-arm64-installer` artifact and confirm it contains the
+  versioned `.pkg`, `.pkg.sha256` checksum, and installer manifest.
+- Verify the macOS installer checksum locally from inside the installer artifact
+  directory with `shasum -a 256 -c *.sha256`.
+- On a clean Apple Silicon Mac, run `pkgutil --check-signature` and
+  `spctl -a -vv -t install` against the downloaded `.pkg`.
+- Install the `.pkg` on a clean Apple Silicon Mac and confirm `command -v sahara`
+  resolves to `/usr/local/bin/sahara`.
+- Run `sahara --version`, non-interactive `sahara setup`, `sahara index`,
+  `sahara search`, and `sahara mcp install-claude` from the installed package.
+- Upgrade over the previous native package and confirm `~/.sahara`, configured
+  folders, and existing indexes remain usable.
+- Uninstall with the documented native package commands and confirm `~/.sahara`
+  remains present by default.
 - Create and publish a GitHub release whose tag is exactly `v<pyproject version>`.
   The release event builds, verifies, and publishes to PyPI through OIDC. Pushing the
   `v*` release tag also runs the native artifact workflow.

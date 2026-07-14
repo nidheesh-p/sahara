@@ -1,11 +1,12 @@
-# macOS Apple Silicon Bundle Prototype
+# macOS Apple Silicon Native Distribution
 
 This document describes the local PyInstaller prototype for issue #47. It creates a
 one-folder Sahara runtime for macOS Apple Silicon that includes Python and Sahara's
 runtime dependencies, while leaving user data, credentials, Ollama, answer models, and
 the embedding model outside the bundle.
 
-The bundle is a development artifact, not a signed or notarized installer.
+The one-folder bundle remains an intermediate release artifact. Public macOS releases
+are distributed as a signed and notarized installer package built from that bundle.
 
 ## Prerequisites
 
@@ -92,6 +93,66 @@ To verify an already-packaged artifact directory:
 python scripts/package_native_artifacts.py --verify-only
 ```
 
+## Installer Package
+
+Build the macOS installer package from an existing one-folder bundle:
+
+```bash
+python scripts/build_macos_installer.py
+```
+
+The unsigned development package is written to:
+
+```text
+dist/native-installers/sahara-0.2.1-macos-arm64.pkg
+```
+
+The package installs the bundle at a stable location:
+
+```text
+/Library/Application Support/Sahara/sahara/
+```
+
+It also creates or updates the command shim:
+
+```text
+/usr/local/bin/sahara -> /Library/Application Support/Sahara/sahara/sahara
+```
+
+Upgrades replace only the installed bundle directory and command shim. User data,
+configuration, indexes, model caches, and credentials remain outside the package and
+are preserved by default, including `~/.sahara`.
+
+For release builds, import Developer ID Application and Developer ID Installer
+certificates into the temporary runner keychain, then build the signed and notarized
+package:
+
+```bash
+python scripts/build_macos_installer.py --notarize
+```
+
+The script reads these protected-environment variables when explicit flags are not
+provided:
+
+- `MACOS_DEVELOPER_ID_APPLICATION_IDENTITY`
+- `MACOS_DEVELOPER_ID_INSTALLER_IDENTITY`
+- `APPLE_ID`
+- `APPLE_TEAM_ID`
+- `APPLE_APP_SPECIFIC_PASSWORD`
+
+It generates the package, `.sha256` checksum, and installer manifest under
+`dist/native-installers/`. Verify an existing installer artifact directory with:
+
+```bash
+python scripts/build_macos_installer.py --verify-only
+pkgutil --check-signature dist/native-installers/*.pkg
+spctl -a -vv -t install dist/native-installers/*.pkg
+```
+
+The GitHub Actions `Native Artifacts` workflow builds this installer only for `v*`
+release tags, inside the protected `macos-installer` environment. Pull requests and
+ordinary branch pushes do not receive signing secrets.
+
 ## Packaged Resources
 
 The PyInstaller spec includes Sahara package data and metadata, plus hidden imports,
@@ -111,8 +172,8 @@ If a bundled smoke test fails because a runtime hook or resource is missing, upd
 
 ## Clean-Machine Check
 
-For #47 acceptance, copy `dist/native/sahara-0.2.1-macos-arm64/` to a clean Apple
-Silicon account or VM without a Sahara checkout and run:
+For bundle-level validation, copy `dist/native/sahara-0.2.1-macos-arm64/` to a clean
+Apple Silicon account or VM without a Sahara checkout and run:
 
 ```bash
 BUNDLE="$PWD/sahara-0.2.1-macos-arm64/sahara"
@@ -138,3 +199,29 @@ The final MCP command starts the stdio server and waits for MCP client input; st
 with Ctrl-C after confirming it starts without an import or startup error. These
 commands use isolated temporary state and cache directories. The bundle itself must
 not depend on a repository checkout or system Python.
+
+For installer-level validation on a clean Apple Silicon Mac, install the signed and
+notarized package and run:
+
+```bash
+sudo installer -pkg sahara-0.2.1-macos-arm64.pkg -target /
+command -v sahara
+sahara --version
+sahara setup --folder "$HOME/Documents" --yes --no-mcp --no-doctor --no-daemon
+sahara index
+sahara search "known text from a test document"
+sahara mcp install-claude
+```
+
+Upgrade by installing the next package over the existing one, then confirm
+`~/.sahara`, the configured folders, and existing indexes are still usable.
+
+Uninstall the installed bundle and command shim without deleting user data:
+
+```bash
+sudo rm -rf "/Library/Application Support/Sahara/sahara"
+sudo rm -f /usr/local/bin/sahara
+sudo pkgutil --forget io.github.nidheesh-p.sahara
+```
+
+Do not remove `~/.sahara` unless the user explicitly requests data removal.
