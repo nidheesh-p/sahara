@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,8 +20,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.build_macos_bundle import PROJECT_FILE, bundle_name, project_version  # noqa: E402
+from scripts.build_windows_bundle import bundle_name as windows_bundle_name  # noqa: E402
 
 DEFAULT_ARTIFACT_ROOT = Path("dist") / "native-artifacts"
+MACOS_PLATFORM = "macos-arm64"
+WINDOWS_PLATFORM = "windows-x64"
 
 
 @dataclass(frozen=True)
@@ -31,6 +35,27 @@ class NativeArtifact:
     inventory: Path
     smoke_log: Path
     manifest: Path
+
+
+@dataclass(frozen=True)
+class NativePlatform:
+    name: str
+    archive_suffix: str
+    smoke_script: str
+
+
+PLATFORMS = {
+    MACOS_PLATFORM: NativePlatform(
+        name=MACOS_PLATFORM,
+        archive_suffix=".tar.gz",
+        smoke_script="scripts/smoke_macos_bundle.py",
+    ),
+    WINDOWS_PLATFORM: NativePlatform(
+        name=WINDOWS_PLATFORM,
+        archive_suffix=".zip",
+        smoke_script="scripts/smoke_windows_bundle.py",
+    ),
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -56,6 +81,24 @@ def create_tarball(bundle: Path, destination: Path) -> Path:
     return destination
 
 
+def create_zip(bundle: Path, destination: Path) -> Path:
+    if not bundle.is_dir():
+        raise ValueError(f"bundle directory does not exist: {bundle}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(bundle.rglob("*")):
+            archive.write(path, path.relative_to(bundle.parent))
+    return destination
+
+
+def create_archive(bundle: Path, destination: Path, platform_config: NativePlatform) -> Path:
+    if platform_config.archive_suffix == ".tar.gz":
+        return create_tarball(bundle, destination)
+    if platform_config.archive_suffix == ".zip":
+        return create_zip(bundle, destination)
+    raise ValueError(f"unsupported archive suffix: {platform_config.archive_suffix}")
+
+
 def write_dependency_inventory(destination: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
@@ -72,9 +115,15 @@ def write_dependency_inventory(destination: Path) -> Path:
     return destination
 
 
-def run_smoke(bundle: Path, destination: Path, *, with_index: bool = False) -> Path:
+def run_smoke(
+    bundle: Path,
+    destination: Path,
+    *,
+    smoke_script: str,
+    with_index: bool = False,
+) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [sys.executable, "scripts/smoke_macos_bundle.py", str(bundle)]
+    cmd = [sys.executable, smoke_script, str(bundle)]
     if with_index:
         cmd.append("--with-index")
     result = subprocess.run(cmd, check=False, text=True, capture_output=True)
@@ -105,9 +154,11 @@ def write_manifest(
     checksum: str,
     inventory: Path,
     smoke_log: Path,
+    platform_name: str,
 ) -> Path:
     manifest = {
         "generated_at": datetime.now(UTC).isoformat(),
+        "platform_tag": platform_name,
         "bundle": bundle.name,
         "archive": archive.name,
         "archive_sha256": checksum,
@@ -127,19 +178,26 @@ def package_native_artifact(
     bundle: Path,
     artifact_root: Path = DEFAULT_ARTIFACT_ROOT,
     *,
+    platform_name: str = MACOS_PLATFORM,
     with_index: bool = False,
 ) -> NativeArtifact:
+    platform_config = PLATFORMS[platform_name]
     artifact_root.mkdir(parents=True, exist_ok=True)
-    archive = artifact_root / f"{bundle.name}.tar.gz"
+    archive = artifact_root / f"{bundle.name}{platform_config.archive_suffix}"
     checksum = artifact_root / f"{archive.name}.sha256"
     inventory = artifact_root / f"{bundle.name}-dependencies.csv"
     smoke_log = artifact_root / f"{bundle.name}-smoke.txt"
     manifest = artifact_root / f"{bundle.name}-manifest.json"
 
-    create_tarball(bundle, archive)
+    create_archive(bundle, archive, platform_config)
     digest = write_checksum(archive, checksum)
     write_dependency_inventory(inventory)
-    run_smoke(bundle, smoke_log, with_index=with_index)
+    run_smoke(
+        bundle,
+        smoke_log,
+        smoke_script=platform_config.smoke_script,
+        with_index=with_index,
+    )
     write_manifest(
         manifest,
         bundle=bundle,
@@ -147,6 +205,7 @@ def package_native_artifact(
         checksum=digest,
         inventory=inventory,
         smoke_log=smoke_log,
+        platform_name=platform_name,
     )
     return NativeArtifact(
         bundle=bundle,
@@ -158,8 +217,14 @@ def package_native_artifact(
     )
 
 
-def verify_native_artifact(artifact_root: Path, expected_name: str) -> None:
-    archive = artifact_root / f"{expected_name}.tar.gz"
+def verify_native_artifact(
+    artifact_root: Path,
+    expected_name: str,
+    *,
+    platform_name: str = MACOS_PLATFORM,
+) -> None:
+    platform_config = PLATFORMS[platform_name]
+    archive = artifact_root / f"{expected_name}{platform_config.archive_suffix}"
     checksum = artifact_root / f"{archive.name}.sha256"
     inventory = artifact_root / f"{expected_name}-dependencies.csv"
     smoke_log = artifact_root / f"{expected_name}-smoke.txt"
@@ -183,6 +248,8 @@ def verify_native_artifact(artifact_root: Path, expected_name: str) -> None:
         )
 
     manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
+    if manifest_data.get("platform_tag") != platform_name:
+        raise ValueError(f"manifest platform mismatch: {manifest_data.get('platform_tag')!r}")
     if manifest_data.get("bundle") != expected_name:
         raise ValueError(f"manifest bundle mismatch: {manifest_data.get('bundle')!r}")
     if manifest_data.get("archive") != archive.name:
@@ -194,11 +261,14 @@ def verify_native_artifact(artifact_root: Path, expected_name: str) -> None:
 
 
 def main() -> None:
-    version = project_version(PROJECT_FILE)
-    default_bundle = Path("dist") / "native" / bundle_name(version)
-
     parser = argparse.ArgumentParser()
-    parser.add_argument("--bundle", type=Path, default=default_bundle)
+    parser.add_argument(
+        "--platform",
+        choices=sorted(PLATFORMS),
+        default=MACOS_PLATFORM,
+        help="Native platform artifact format to package or verify.",
+    )
+    parser.add_argument("--bundle", type=Path)
     parser.add_argument("--artifact-root", type=Path, default=DEFAULT_ARTIFACT_ROOT)
     parser.add_argument(
         "--with-index",
@@ -212,20 +282,28 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    expected_name = args.bundle.name
+    version = project_version(PROJECT_FILE)
+    default_names = {
+        MACOS_PLATFORM: bundle_name(version),
+        WINDOWS_PLATFORM: windows_bundle_name(version),
+    }
+    bundle = args.bundle or Path("dist") / "native" / default_names[args.platform]
+
+    expected_name = bundle.name
     if args.verify_only:
-        verify_native_artifact(args.artifact_root, expected_name)
+        verify_native_artifact(args.artifact_root, expected_name, platform_name=args.platform)
         print(f"Verified native artifact {expected_name}")
         return
 
     if args.artifact_root.exists():
         shutil.rmtree(args.artifact_root)
     artifact = package_native_artifact(
-        args.bundle,
+        bundle,
         args.artifact_root,
+        platform_name=args.platform,
         with_index=args.with_index,
     )
-    verify_native_artifact(args.artifact_root, expected_name)
+    verify_native_artifact(args.artifact_root, expected_name, platform_name=args.platform)
     print(f"Packaged {artifact.archive}")
     print(f"Wrote {artifact.checksum}")
     print(f"Wrote {artifact.inventory}")

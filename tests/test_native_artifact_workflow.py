@@ -27,9 +27,11 @@ def test_native_artifacts_workflow_limits_retention_and_verifies_package() -> No
     workflow_text = WORKFLOW.read_text(encoding="utf-8")
 
     assert "scripts/build_macos_bundle.py" in workflow_text
+    assert "scripts/build_windows_bundle.py" in workflow_text
     assert "scripts/package_native_artifacts.py" in workflow_text
     assert "retention-days: 7" in workflow_text
     assert "native-macos-arm64" in workflow_text
+    assert "native-windows-x64" in workflow_text
     assert "--with-index" in workflow_text
     assert "github.event.inputs.smoke_with_index" in workflow_text
     assert "${{ inputs.smoke_with_index }}" not in workflow_text
@@ -50,3 +52,19 @@ def test_native_artifacts_workflow_builds_signed_installer_in_protected_environm
     assert "MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64" in workflow_text
     assert "MACOS_DEVELOPER_ID_INSTALLER_CERTIFICATE_BASE64" in workflow_text
     assert "APPLE_APP_SPECIFIC_PASSWORD" in workflow_text
+
+
+def test_native_artifacts_workflow_builds_signed_windows_installer_in_protected_environment() -> None:
+    workflow = _workflow()
+    installer = workflow["jobs"]["windows-installer"]
+    workflow_text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert installer["needs"] == "windows-x64"
+    assert installer["if"] == "startsWith(github.ref, 'refs/tags/')"
+    assert installer["environment"] == "windows-installer"
+    assert "choco install innosetup --no-progress -y" in workflow_text
+    assert "scripts/build_windows_installer.py --bundle $bundle --sign" in workflow_text
+    assert "Get-AuthenticodeSignature" in workflow_text
+    assert "native-windows-x64-installer" in workflow_text
+    assert "WINDOWS_CODESIGN_CERTIFICATE_BASE64" in workflow_text
+    assert "WINDOWS_CODESIGN_CERTIFICATE_PASSWORD" in workflow_text

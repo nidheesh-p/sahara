@@ -31,6 +31,32 @@ sudo pkgutil --forget io.github.nidheesh-p.sahara
 The installer and uninstall commands preserve `~/.sahara`, configuration, indexes,
 credentials, and model caches by default.
 
+## Windows x64 Installer
+
+For public Windows x64 releases, download the signed
+`sahara-<version>-windows-x64-setup.exe` from the GitHub release, then run it normally
+or install it quietly:
+
+```powershell
+.\sahara-0.2.1-windows-x64-setup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
+sahara --version
+```
+
+The installer includes Sahara's Python runtime and native dependencies. It installs
+for the current user under `%LOCALAPPDATA%\Programs\Sahara` and adds that directory to
+the user's `PATH`, so Git, Python, pip, and pipx are not required for this path.
+
+Upgrade by installing the newer setup executable over the existing installation. To
+uninstall the native package while preserving data:
+
+```powershell
+$uninstall = Join-Path $env:LOCALAPPDATA "Programs\Sahara\unins000.exe"
+& $uninstall /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
+```
+
+The installer and uninstall commands preserve `%USERPROFILE%\.sahara`,
+configuration, indexes, credentials, and model caches by default.
+
 ## Recommended: pipx
 
 Sahara is a command-line application, so
