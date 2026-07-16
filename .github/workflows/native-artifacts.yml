@@ -65,3 +65,76 @@ jobs:
           path: dist/native-artifacts/
           if-no-files-found: error
           retention-days: 7
+
+  macos-installer:
+    name: Build signed macOS installer
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: macos-apple-silicon
+    runs-on: macos-14
+    environment: macos-installer
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Download verified native artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-macos-arm64
+          path: dist/native-artifacts/
+
+      - name: Restore bundle
+        run: |
+          mkdir -p dist/native
+          tar -xzf dist/native-artifacts/*.tar.gz -C dist/native
+
+      - name: Import Developer ID certificates
+        env:
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          APPLICATION_CERTIFICATE_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 }}
+          INSTALLER_CERTIFICATE_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_INSTALLER_CERTIFICATE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_SIGNING_KEYCHAIN_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/sahara-signing.keychain-db"
+          app_cert="$RUNNER_TEMP/developer-id-application.p12"
+          installer_cert="$RUNNER_TEMP/developer-id-installer.p12"
+
+          echo "$APPLICATION_CERTIFICATE_BASE64" | base64 --decode > "$app_cert"
+          echo "$INSTALLER_CERTIFICATE_BASE64" | base64 --decode > "$installer_cert"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security import "$app_cert" -P "$CERTIFICATE_PASSWORD" -A -T /usr/bin/codesign -k "$keychain"
+          security import "$installer_cert" -P "$CERTIFICATE_PASSWORD" -A -T /usr/bin/pkgbuild -k "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+
+      - name: Build signed and notarized installer
+        env:
+          MACOS_DEVELOPER_ID_APPLICATION_IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_IDENTITY }}
+          MACOS_DEVELOPER_ID_INSTALLER_IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_INSTALLER_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          bundle="dist/native/$(python scripts/build_macos_bundle.py --print-name)"
+          python scripts/build_macos_installer.py --bundle "$bundle" --notarize
+
+      - name: Verify signed installer
+        run: |
+          python scripts/build_macos_installer.py --verify-only
+          pkgutil --check-signature dist/native-installers/*.pkg
+          spctl -a -vv -t install dist/native-installers/*.pkg
+
+      - name: Upload macOS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-macos-arm64-installer
+          path: dist/native-installers/
+          if-no-files-found: error
+          retention-days: 7

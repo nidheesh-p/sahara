@@ -33,3 +33,20 @@ def test_native_artifacts_workflow_limits_retention_and_verifies_package() -> No
     assert "--with-index" in workflow_text
     assert "github.event.inputs.smoke_with_index" in workflow_text
     assert "${{ inputs.smoke_with_index }}" not in workflow_text
+
+
+def test_native_artifacts_workflow_builds_signed_installer_in_protected_environment() -> None:
+    workflow = _workflow()
+    installer = workflow["jobs"]["macos-installer"]
+    workflow_text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert installer["needs"] == "macos-apple-silicon"
+    assert installer["if"] == "startsWith(github.ref, 'refs/tags/')"
+    assert installer["environment"] == "macos-installer"
+    assert "scripts/build_macos_installer.py --bundle \"$bundle\" --notarize" in workflow_text
+    assert "pkgutil --check-signature" in workflow_text
+    assert "spctl -a -vv -t install" in workflow_text
+    assert "native-macos-arm64-installer" in workflow_text
+    assert "MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64" in workflow_text
+    assert "MACOS_DEVELOPER_ID_INSTALLER_CERTIFICATE_BASE64" in workflow_text
+    assert "APPLE_APP_SPECIFIC_PASSWORD" in workflow_text

@@ -4,6 +4,33 @@ Sahara requires Python 3.11 or newer. The Python distribution is named
 `sahara-memory`, but it installs the `sahara` command. Do not install the unrelated
 OpenStack package named `sahara`.
 
+## macOS Apple Silicon Installer
+
+For public Apple Silicon releases, download the signed and notarized
+`sahara-<version>-macos-arm64.pkg` from the GitHub release, then install it normally or
+from Terminal:
+
+```bash
+sudo installer -pkg sahara-0.2.1-macos-arm64.pkg -target /
+sahara --version
+```
+
+The installer includes Sahara's Python runtime and native dependencies. It installs
+the bundle under `/Library/Application Support/Sahara/sahara/` and exposes
+`/usr/local/bin/sahara`, so Git, Python, pip, and pipx are not required for this path.
+
+Upgrade by installing the newer package over the existing one. To uninstall the native
+package while preserving data:
+
+```bash
+sudo rm -rf "/Library/Application Support/Sahara/sahara"
+sudo rm -f /usr/local/bin/sahara
+sudo pkgutil --forget io.github.nidheesh-p.sahara
+```
+
+The installer and uninstall commands preserve `~/.sahara`, configuration, indexes,
+credentials, and model caches by default.
+
 ## Recommended: pipx
 
 Sahara is a command-line application, so
