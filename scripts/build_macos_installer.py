@@ -30,6 +30,7 @@ from scripts.build_macos_bundle import (  # noqa: E402
 PACKAGE_ID = "io.github.nidheesh-p.sahara"
 INSTALL_ROOT = Path("Library") / "Application Support" / "Sahara" / "sahara"
 PATH_LINK = Path("usr") / "local" / "bin" / "sahara"
+FIRST_RUN_LINK = Path("usr") / "local" / "bin" / "sahara-first-run"
 DEFAULT_INSTALLER_ROOT = Path("dist") / "native-installers"
 MACHO_MAGICS = {
     b"\xca\xfe\xba\xbe",
@@ -110,9 +111,25 @@ set -eu
 target_volume="${3:-/}"
 link_dir="$target_volume/usr/local/bin"
 target="/Library/Application Support/Sahara/sahara/sahara"
+first_run_link="$link_dir/sahara-first-run"
 
 mkdir -p "$link_dir"
 ln -sfn "$target" "$link_dir/sahara"
+cat > "$first_run_link" <<'EOF'
+#!/bin/sh
+exec "/Library/Application Support/Sahara/sahara/sahara" first-run "$@"
+EOF
+chmod 755 "$first_run_link"
+
+if [ "${SAHARA_SKIP_FIRST_RUN_LAUNCH:-}" != "1" ]; then
+  console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
+  if [ -n "$console_user" ] && [ "$console_user" != "root" ]; then
+    console_uid="$(id -u "$console_user" 2>/dev/null || true)"
+    if [ -n "$console_uid" ]; then
+      launchctl asuser "$console_uid" sudo -u "$console_user" open -a Terminal "$first_run_link" || true
+    fi
+  fi
+fi
 
 exit 0
 """,
@@ -235,6 +252,8 @@ def write_manifest(
         "bundle": bundle.name,
         "install_location": "/" + str(INSTALL_ROOT),
         "path_link": "/" + str(PATH_LINK),
+        "first_run_command": "/" + str(FIRST_RUN_LINK),
+        "launches_first_run_after_gui_install": True,
         "signed": signed,
         "notarized": notarized,
         "preserves_user_data": ["~/.sahara"],

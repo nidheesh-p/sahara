@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 from scripts.build_macos_bundle import PLATFORM_TAG, bundle_name, project_version
 from scripts.build_macos_installer import (
+    FIRST_RUN_LINK,
     INSTALL_ROOT,
     PACKAGE_ID,
     build_macos_installer,
@@ -166,6 +167,10 @@ def test_macos_installer_scripts_create_path_link_and_preserve_user_data(
     assert 'ln -sfn "$target" "$link_dir/sahara"' in postinstall
     assert "/usr/local/bin" in postinstall
     assert "/Library/Application Support/Sahara/sahara/sahara" in postinstall
+    assert "sahara-first-run" in postinstall
+    assert "first-run" in postinstall
+    assert "SAHARA_SKIP_FIRST_RUN_LAUNCH" in postinstall
+    assert "launchctl asuser" in postinstall
 
 
 def test_macos_pkgbuild_requests_metadata_suppression(tmp_path: Path) -> None:
@@ -253,6 +258,8 @@ def test_builds_and_verifies_macos_installer_metadata(tmp_path: Path) -> None:
     assert '"signed": true' in manifest
     assert '"notarized": false' in manifest
     assert "~/.sahara" in manifest
+    assert "/" + str(FIRST_RUN_LINK) in manifest
+    assert '"launches_first_run_after_gui_install": true' in manifest
 
 
 def test_macos_installer_notarization_requires_release_credentials(tmp_path: Path) -> None:

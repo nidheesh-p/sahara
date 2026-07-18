@@ -31,6 +31,7 @@ DEFAULT_TIMESTAMP_URL = "http://timestamp.digicert.com"
 INSTALL_LOCATION = r"%LOCALAPPDATA%\Programs\Sahara"
 PATH_ENTRY = r"%LOCALAPPDATA%\Programs\Sahara"
 PRESERVED_USER_DATA = r"%USERPROFILE%\.sahara"
+FIRST_RUN_COMMAND = r"%LOCALAPPDATA%\Programs\Sahara\sahara.exe first-run"
 
 
 @dataclass(frozen=True)
@@ -122,6 +123,7 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; Value
 
 [Run]
 Filename: "{{app}}\\sahara.exe"; Parameters: "--version"; Flags: runhidden
+Filename: "{{app}}\\sahara.exe"; Parameters: "first-run"; Description: "Launch Sahara setup"; Flags: postinstall skipifsilent nowait
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{{app}}"
@@ -266,6 +268,8 @@ def write_manifest(
         "bundle": bundle.name,
         "install_location": INSTALL_LOCATION,
         "path_entry": PATH_ENTRY,
+        "first_run_command": FIRST_RUN_COMMAND,
+        "launches_first_run_after_gui_install": True,
         "per_user": True,
         "quiet_install_args": "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES",
         "quiet_uninstall_args": "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES",

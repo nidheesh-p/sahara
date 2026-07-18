@@ -95,8 +95,13 @@ Use this checklist before publishing a Sahara release.
   `spctl -a -vv -t install` against the downloaded `.pkg`.
 - Install the `.pkg` on a clean Apple Silicon Mac and confirm `command -v sahara`
   resolves to `/usr/local/bin/sahara`.
+- Confirm the graphical macOS installer opens first-run setup as the logged-in user,
+  not as `root`; for automated checks, set `SAHARA_SKIP_FIRST_RUN_LAUNCH=1` and run
+  `sahara-first-run` manually.
 - Run `sahara --version`, non-interactive `sahara setup`, `sahara index`,
   `sahara search`, and `sahara mcp install-claude` from the installed package.
+- Run `sahara first-run`, select test folders, accept indexing, and opt in to Claude
+  Desktop configuration when detected.
 - Upgrade over the previous native package and confirm `~/.sahara`, configured
   folders, and existing indexes remain usable.
 - Uninstall with the documented native package commands and confirm `~/.sahara`
@@ -119,9 +124,13 @@ Use this checklist before publishing a Sahara release.
 - Install the setup `.exe` quietly with
   `/VERYSILENT /NORESTART /SUPPRESSMSGBOXES` and confirm `sahara --version` resolves
   from the user `PATH` in a new terminal.
+- Confirm a normal graphical Windows install offers to launch `sahara first-run`, and
+  confirm quiet installs skip the first-run launch.
 - Run non-interactive `sahara setup`, `sahara index`, `sahara search`,
   `sahara mcp serve --transport stdio`, and `sahara mcp install-claude` from the
   installed Windows package.
+- Run `sahara first-run`, select test folders, accept indexing, and opt in to Claude
+  Desktop configuration when detected.
 - Upgrade over the previous Windows package and confirm `%USERPROFILE%\.sahara`,
   configured folders, and existing indexes remain usable.
 - Uninstall with the documented quiet uninstall command and confirm
