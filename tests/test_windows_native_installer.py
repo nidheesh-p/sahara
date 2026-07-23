@@ -11,6 +11,7 @@ from scripts.build_macos_bundle import PROJECT_FILE, project_version
 from scripts.build_windows_bundle import PLATFORM_TAG, bundle_name, is_windows_x64
 from scripts.build_windows_installer import (
     APP_ID,
+    FIRST_RUN_COMMAND,
     INSTALL_LOCATION,
     PATH_ENTRY,
     PRESERVED_USER_DATA,
@@ -140,6 +141,8 @@ def test_inno_script_is_per_user_quiet_capable_and_preserves_user_data(
     assert "ValueName: \"Path\"" in text
     assert "UpdatedUserPath" in text
     assert "sahara.exe" in text
+    assert 'Parameters: "first-run"' in text
+    assert "postinstall skipifsilent nowait" in text
     assert "%USERPROFILE%" not in text
     assert ".sahara" not in text
 
@@ -166,6 +169,8 @@ def test_builds_and_verifies_windows_installer_metadata(tmp_path: Path) -> None:
     manifest = json.loads(artifact.manifest.read_text(encoding="utf-8"))
     assert manifest["install_location"] == INSTALL_LOCATION
     assert manifest["path_entry"] == PATH_ENTRY
+    assert manifest["first_run_command"] == FIRST_RUN_COMMAND
+    assert manifest["launches_first_run_after_gui_install"] is True
     assert manifest["per_user"] is True
     assert manifest["quiet_install_args"] == "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES"
     assert manifest["signed"] is False

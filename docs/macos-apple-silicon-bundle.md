@@ -119,6 +119,21 @@ It also creates or updates the command shim:
 /usr/local/bin/sahara -> /Library/Application Support/Sahara/sahara/sahara
 ```
 
+The package also installs:
+
+```text
+/usr/local/bin/sahara-first-run
+```
+
+At the end of a normal graphical install, `postinstall` attempts to open the
+first-run setup in Terminal as the logged-in console user. It does not run folder
+selection, indexing, or Claude Desktop configuration as `root`. Set
+`SAHARA_SKIP_FIRST_RUN_LAUNCH=1` when installer automation must skip the launch.
+
+The first-run flow lets the user choose folders to index, builds the first index with
+consent, and offers to connect Claude Desktop when it is detected. It can be relaunched
+with `sahara-first-run` or `sahara first-run`.
+
 Upgrades replace only the installed bundle directory and command shim. User data,
 configuration, indexes, model caches, and credentials remain outside the package and
 are preserved by default, including `~/.sahara`.

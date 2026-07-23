@@ -115,6 +115,16 @@ It adds that directory to the current user's `PATH`, which exposes `sahara` in n
 terminals. It does not write to the system PATH and does not require administrator
 access.
 
+At the end of a normal graphical install, the installer offers to launch:
+
+```powershell
+sahara first-run
+```
+
+The first-run flow lets the user choose one or more folders, builds the first index
+with consent, and offers to connect Claude Desktop when it is detected. Silent
+installs skip the first-run launch.
+
 Quiet installation for clean-machine validation:
 
 ```powershell

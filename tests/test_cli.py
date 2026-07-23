@@ -1109,6 +1109,101 @@ class TestSetup:
         assert "Claude Desktop setup failed" in result.output
         assert "Setup complete" in result.output
 
+    def test_first_run_uses_explicit_folders_without_picker(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        primary = tmp_path / "docs"
+        extra = tmp_path / "receipts"
+        primary.mkdir()
+        extra.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(primary),
+                    "--folder",
+                    str(extra),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Setup complete" in result.output
+        cfg = load_config(config_path)
+        assert Path(cfg.sync_folder) == primary.resolve()
+        assert str(extra.resolve()) in self._content_root_paths(db_path)
+
+    def test_first_run_uses_native_folder_picker(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "picked"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.native_onboarding.choose_folders_for_platform",
+            return_value=[folder],
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert Path(load_config(config_path).sync_folder) == folder.resolve()
+
+    def test_first_run_connects_claude_after_consent(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        claude_config = tmp_path / "Claude" / "claude_desktop_config.json"
+        executable = tmp_path / "sahara"
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.cli._claude_desktop_detected",
+            return_value=True,
+        ), patch(
+            "sahara.claude_desktop.detect_claude_config_path",
+            return_value=claude_config,
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=executable,
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-doctor",
+                ],
+                input="y\ny\n",
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Installed Sahara in Claude Desktop" in result.output
+        assert '"sahara"' in claude_config.read_text(encoding="utf-8")
+
     def test_setup_daemon_flag_starts_watcher(self, tmp_path, monkeypatch):
         config_path, db_path = self._isolate(tmp_path, monkeypatch)
         folder = tmp_path / "docs"

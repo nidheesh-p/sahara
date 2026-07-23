@@ -783,6 +783,128 @@ def setup(
     )
 
 
+@main.command("first-run")
+@click.option(
+    "--folder",
+    type=click.Path(path_type=Path, file_okay=False),
+    multiple=True,
+    help="Folder to index. Repeat for several folders.",
+)
+@click.option(
+    "-y",
+    "--yes",
+    "assume_yes",
+    is_flag=True,
+    help="Run setup/indexing without confirmation prompts.",
+)
+@click.option(
+    "--no-folder-picker",
+    is_flag=True,
+    help="Skip native folder picker UI and prompt in the terminal instead.",
+)
+@click.option(
+    "--no-index",
+    is_flag=True,
+    help="Skip preparing the embedding model and building the first index.",
+)
+@click.option(
+    "--no-mcp",
+    is_flag=True,
+    help="Skip the Claude Desktop connection step.",
+)
+@click.option(
+    "--no-doctor",
+    is_flag=True,
+    help="Skip the configuration health check at the end.",
+)
+@click.pass_context
+def first_run(
+    ctx: click.Context,
+    folder: tuple[Path, ...],
+    assume_yes: bool,
+    no_folder_picker: bool,
+    no_index: bool,
+    no_mcp: bool,
+    no_doctor: bool,
+) -> None:
+    """Run native installer first-run onboarding for the current user."""
+    _section("Sahara First Run")
+    folders = list(folder)
+
+    if not folders and not no_folder_picker:
+        from sahara.native_onboarding import choose_folders_for_platform
+
+        folders = choose_folders_for_platform()
+
+    if not folders and not assume_yes:
+        while True:
+            value = click.prompt(
+                "  Folder to index (press Enter to finish)",
+                default="",
+                show_default=False,
+            ).strip()
+            if not value:
+                break
+            folders.append(Path(value))
+
+    if not folders:
+        _abort("No folders selected. Run `sahara first-run` again to choose folders.")
+
+    existing = [path.expanduser().resolve() for path in folders if path.expanduser().is_dir()]
+    missing = [path for path in folders if not path.expanduser().is_dir()]
+    for path in missing:
+        _warn(f"Skipping {path}: not an existing directory.")
+    if not existing:
+        _abort("No selected folders exist.")
+
+    if not assume_yes:
+        click.echo()
+        _info("Sahara will index these folder(s):")
+        for path in existing:
+            _info(f"- {path}")
+        if not click.confirm("  Continue with setup and indexing?", default=True):
+            _abort("Setup cancelled.")
+
+    primary, *additional = existing
+    ctx.invoke(
+        setup,
+        folder=primary,
+        add_folders=tuple(additional),
+        assume_yes=True,
+        no_index=no_index,
+        no_mcp=True,
+        no_doctor=no_doctor,
+        smoke_test=False,
+        daemon=False,
+        no_daemon=True,
+    )
+
+    if no_mcp:
+        return
+
+    click.echo()
+    _section("Claude Desktop")
+    if not _claude_desktop_detected():
+        _info(
+            "Claude Desktop not detected. Run `sahara mcp install-claude` "
+            "later to connect it."
+        )
+        return
+
+    connect = assume_yes or click.confirm(
+        "  Connect Sahara to Claude Desktop now?", default=True
+    )
+    if not connect:
+        _info("Run `sahara mcp install-claude` later to connect manually.")
+        return
+
+    try:
+        ctx.invoke(mcp_install_claude)
+    except Exception as exc:
+        _warn(f"Claude Desktop setup failed: {exc}")
+        _info("Run `sahara mcp install-claude` later to connect manually.")
+
+
 # ---------------------------------------------------------------------------
 # doctor
 # ---------------------------------------------------------------------------
