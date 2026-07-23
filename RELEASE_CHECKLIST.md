@@ -101,31 +101,6 @@ Use this checklist before publishing a Sahara release.
   folders, and existing indexes remain usable.
 - Uninstall with the documented native package commands and confirm `~/.sahara`
   remains present by default.
-- Download the `native-windows-x64` artifact and confirm it contains a versioned zip,
-  `.sha256` checksum, dependency inventory, manifest, and smoke-test log.
-- Verify the Windows native archive checksum with
-  `Get-FileHash .\sahara-*-windows-x64.zip -Algorithm SHA256`.
-- For `v*` release tags, confirm the **Native Artifacts** workflow also runs the
-  `windows-installer` job in the protected `windows-installer` environment.
-- Confirm the `windows-installer` environment owns the Authenticode certificate and
-  timestamping secrets; repository-wide secrets must not be required for Windows
-  signing.
-- Download the `native-windows-x64-installer` artifact and confirm it contains the
-  versioned setup `.exe`, `.exe.sha256` checksum, and installer manifest.
-- Verify the Windows installer checksum with
-  `Get-FileHash .\sahara-*-windows-x64-setup.exe -Algorithm SHA256`.
-- On a clean Windows x64 VM, run `Get-AuthenticodeSignature` against the downloaded
-  setup `.exe` and confirm the signature is valid.
-- Install the setup `.exe` quietly with
-  `/VERYSILENT /NORESTART /SUPPRESSMSGBOXES` and confirm `sahara --version` resolves
-  from the user `PATH` in a new terminal.
-- Run non-interactive `sahara setup`, `sahara index`, `sahara search`,
-  `sahara mcp serve --transport stdio`, and `sahara mcp install-claude` from the
-  installed Windows package.
-- Upgrade over the previous Windows package and confirm `%USERPROFILE%\.sahara`,
-  configured folders, and existing indexes remain usable.
-- Uninstall with the documented quiet uninstall command and confirm
-  `%USERPROFILE%\.sahara` remains present by default.
 - Create and publish a GitHub release whose tag is exactly `v<pyproject version>`.
   The release event builds, verifies, and publishes to PyPI through OIDC. Pushing the
   `v*` release tag also runs the native artifact workflow.
