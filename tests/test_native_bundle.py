@@ -99,7 +99,7 @@ def test_packages_and_verifies_native_artifact(tmp_path: Path) -> None:
             "name,version\nsahara-memory,1.2.3\n",
             encoding="utf-8",
         )
-        smoke.side_effect = lambda _bundle, destination, with_index=False: (
+        smoke.side_effect = lambda _bundle, destination, **_kwargs: (
             destination.write_text(
                 "command: smoke\nreturncode: 0\n",
                 encoding="utf-8",
