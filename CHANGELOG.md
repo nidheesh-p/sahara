@@ -8,6 +8,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+---
+
+## [0.3.0] — 2026-07-23
+
+### Added
+
+- Signed and notarized macOS Apple Silicon native installer packaging built from the
+  standalone Sahara runtime
+- Windows x64 native runtime and per-user installer packaging with PATH setup, quiet
+  install support, Authenticode signing support, and user-data preservation
+- Release-only native artifact workflows for macOS and Windows bundles, installers,
+  checksums, manifests, dependency inventories, and smoke logs
+- Native installer assets are now uploaded to the matching GitHub Release so normal
+  users can download the macOS `.pkg` and Windows setup `.exe` from Releases
+- `sahara first-run` onboarding for native installers, including native folder
+  selection, setup/index confirmation, and opt-in Claude Desktop MCP configuration
+- `sahara models prepare` for pre-downloading the local embedding model before
+  indexing
+- Guided `sahara setup` onboarding with setup health checks and optional automation
+- iPhone mobile setup artifacts, companion-app foundation package, and mobile workflow
+  planning for future app work
+
 ### Changed
 
 - Standalone answer generation is now disabled by default on new configurations;
@@ -17,8 +39,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
   fallback for PEP 668 `externally-managed-environment` errors
 - The MCP extra now requires MCP SDK 1.14.0 or newer for authenticated HTTP token
   verification, with a concise upgrade error for stale environments
+- Release docs now describe native installer validation, first-run onboarding, upgrade,
+  uninstall, and clean-machine checks for macOS and Windows
 
----
+### Fixed
+
+- Mobile API request handling now uses request-scoped database sessions and more robust
+  input validation
+- Saved config list values now escape backslashes and quotes correctly in TOML
+- Egress free-tier calculations now match the documented free tier
+- Sync handling now tolerates portable path aliases and legacy non-portable entries
+- Python 3.12 mypy coverage works with current NumPy stubs
 
 ## [0.2.1] — 2026-06-07
 

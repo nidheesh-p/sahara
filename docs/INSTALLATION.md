@@ -11,7 +11,7 @@ For public Apple Silicon releases, download the signed and notarized
 from Terminal:
 
 ```bash
-sudo installer -pkg sahara-0.2.1-macos-arm64.pkg -target /
+sudo installer -pkg sahara-0.3.0-macos-arm64.pkg -target /
 sahara --version
 ```
 
@@ -47,7 +47,7 @@ For public Windows x64 releases, download the signed
 or install it quietly:
 
 ```powershell
-.\sahara-0.2.1-windows-x64-setup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
+.\sahara-0.3.0-windows-x64-setup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
 sahara --version
 ```
 

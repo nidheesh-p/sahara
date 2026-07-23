@@ -32,19 +32,19 @@ The output directory name is deterministic and versioned:
 
 ```powershell
 python scripts/build_windows_bundle.py --print-name
-# sahara-0.2.1-windows-x64
+# sahara-0.3.0-windows-x64
 ```
 
 By default the bundle is written to:
 
 ```text
-dist/native/sahara-0.2.1-windows-x64/
+dist/native/sahara-0.3.0-windows-x64/
 ```
 
 The executable is:
 
 ```text
-dist/native/sahara-0.2.1-windows-x64/sahara.exe
+dist/native/sahara-0.3.0-windows-x64/sahara.exe
 ```
 
 ## Smoke Test
@@ -102,7 +102,7 @@ python scripts/build_windows_installer.py
 The unsigned development installer is written to:
 
 ```text
-dist/native-installers/sahara-0.2.1-windows-x64-setup.exe
+dist/native-installers/sahara-0.3.0-windows-x64-setup.exe
 ```
 
 The installer uses the current user's application directory:
@@ -128,7 +128,7 @@ installs skip the first-run launch.
 Quiet installation for clean-machine validation:
 
 ```powershell
-.\sahara-0.2.1-windows-x64-setup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
+.\sahara-0.3.0-windows-x64-setup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
 ```
 
 Upgrades replace only the installed application directory and PATH entry. User data,
@@ -177,7 +177,7 @@ For installer-level validation on a clean Windows x64 VM, install the signed pac
 and run:
 
 ```powershell
-.\sahara-0.2.1-windows-x64-setup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
+.\sahara-0.3.0-windows-x64-setup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
 sahara --version
 $content = Join-Path $env:TEMP "sahara-content"
 New-Item -ItemType Directory -Force -Path $content | Out-Null
