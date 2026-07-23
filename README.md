@@ -14,10 +14,10 @@ External drives, MinIO, and AWS storage are optional extensions, not prerequisit
 **Local-first:** indexing and semantic search run on your computer. No account, API
 key, storage bucket, or additional drive is required for the core search experience.
 
-**Latest release:** [v0.2.1](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.1)
-(June 7, 2026) adds index-only setup, multiple content roots, verified offload/fetch,
-one-command Claude Desktop setup, and trusted `sahara-memory` packaging. See the
-[changelog](CHANGELOG.md).
+**Latest release:** [v0.3.0](https://github.com/nidheesh-p/sahara/releases/tag/v0.3.0)
+(July 23, 2026) adds native macOS and Windows installers, guided first-run folder
+selection, first index setup, and optional Claude Desktop connection without Git or
+Python. See the [changelog](CHANGELOG.md).
 
 ![Fictional Sahara retrieval examples: timeline reconstruction, vendor lookup, and honest missing-data handling](docs/images/sahara-memory-demo.svg)
 

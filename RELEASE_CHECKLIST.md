@@ -138,6 +138,9 @@ Use this checklist before publishing a Sahara release.
 - Create and publish a GitHub release whose tag is exactly `v<pyproject version>`.
   The release event builds, verifies, and publishes to PyPI through OIDC. Pushing the
   `v*` release tag also runs the native artifact workflow.
+- Confirm the **Native Artifacts** workflow uploads the macOS and Windows native
+  archives, installers, checksums, manifests, dependency inventories, and smoke logs
+  as permanent assets on the GitHub release.
 - Never publish the production package manually or with a long-lived API token.
 
 ## Post-Release

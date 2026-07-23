@@ -75,7 +75,7 @@ def test_bundle_docs_include_build_and_smoke_commands() -> None:
     assert "python scripts/build_macos_bundle.py" in doc
     assert "python scripts/smoke_macos_bundle.py" in doc
     assert "python scripts/build_macos_installer.py --notarize" in doc
-    assert "sahara-0.2.1-macos-arm64" in doc
+    assert "sahara-0.3.0-macos-arm64" in doc
     assert "not shipped in the artifact" in doc
     assert "repository checkout or system Python" in doc
     assert "/Library/Application Support/Sahara/sahara/" in doc
@@ -223,7 +223,7 @@ def test_macos_codesign_candidates_are_macho_files(tmp_path: Path) -> None:
 
 
 def test_builds_and_verifies_macos_installer_metadata(tmp_path: Path) -> None:
-    bundle = tmp_path / "sahara-0.2.1-macos-arm64"
+    bundle = tmp_path / "sahara-0.3.0-macos-arm64"
     bundle.mkdir()
     executable = bundle / "sahara"
     executable.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -251,7 +251,7 @@ def test_builds_and_verifies_macos_installer_metadata(tmp_path: Path) -> None:
 
     assert strip_metadata.call_count == 2
     sign_bundle.assert_called_once()
-    assert artifact.package.name == "sahara-0.2.1-macos-arm64.pkg"
+    assert artifact.package.name == "sahara-0.3.0-macos-arm64.pkg"
     verify_macos_installer(tmp_path / "installers", artifact.package.name)
     manifest = artifact.manifest.read_text(encoding="utf-8")
     assert PACKAGE_ID in manifest
@@ -263,7 +263,7 @@ def test_builds_and_verifies_macos_installer_metadata(tmp_path: Path) -> None:
 
 
 def test_macos_installer_notarization_requires_release_credentials(tmp_path: Path) -> None:
-    bundle = tmp_path / "sahara-0.2.1-macos-arm64"
+    bundle = tmp_path / "sahara-0.3.0-macos-arm64"
     bundle.mkdir()
     (bundle / "sahara").write_text("#!/bin/sh\n", encoding="utf-8")
 
