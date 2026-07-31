@@ -15,9 +15,9 @@ External drives, MinIO, and AWS storage are optional extensions, not prerequisit
 key, storage bucket, or additional drive is required for the core search experience.
 
 **Latest release:** [v0.3.0](https://github.com/nidheesh-p/sahara/releases/tag/v0.3.0)
-(July 23, 2026) adds native macOS and Windows installers, guided first-run folder
-selection, first index setup, and optional Claude Desktop connection without Git or
-Python. See the [changelog](CHANGELOG.md).
+(July 23, 2026) adds native macOS and Windows installers, a Linux x86_64 portable
+archive, guided first-run folder selection, first index setup, and optional Claude
+Desktop connection without Git or Python. See the [changelog](CHANGELOG.md).
 
 ![Fictional Sahara retrieval examples: timeline reconstruction, vendor lookup, and honest missing-data handling](docs/images/sahara-memory-demo.svg)
 
@@ -66,9 +66,9 @@ sahara index
 sahara search "my tax return from 2024" --snippet
 ```
 
-See [Installation](docs/INSTALLATION.md) for macOS and Windows `pipx` setup, a virtual
-environment alternative, and the `externally-managed-environment` fix. Do not use
-`--break-system-packages`.
+See [Installation](docs/INSTALLATION.md) for native installers, Linux portable
+archives, package-manager paths, `pipx` setup, a virtual environment alternative, and
+the `externally-managed-environment` fix. Do not use `--break-system-packages`.
 
 The first `sahara index` downloads a local embedding model of roughly 70 MB.
 Hugging Face may show an unauthenticated-download warning; no account or token is

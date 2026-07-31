@@ -20,8 +20,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
   install support, Authenticode signing support, and user-data preservation
 - Release-only native artifact workflows for macOS and Windows bundles, installers,
   checksums, manifests, dependency inventories, and smoke logs
+- Portable Linux x86_64 native archive packaging with checksum, dependency inventory,
+  manifest, smoke log, and documented glibc compatibility scope
 - Native installer assets are now uploaded to the matching GitHub Release so normal
-  users can download the macOS `.pkg` and Windows setup `.exe` from Releases
+  users can download the macOS `.pkg`, Windows setup `.exe`, and Linux portable
+  `.tar.gz` from Releases
 - `sahara first-run` onboarding for native installers, including native folder
   selection, setup/index confirmation, and opt-in Claude Desktop MCP configuration
 - `sahara models prepare` for pre-downloading the local embedding model before
@@ -40,7 +43,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - The MCP extra now requires MCP SDK 1.14.0 or newer for authenticated HTTP token
   verification, with a concise upgrade error for stale environments
 - Release docs now describe native installer validation, first-run onboarding, upgrade,
-  uninstall, and clean-machine checks for macOS and Windows
+  uninstall, clean-machine checks for macOS, Windows, and Linux, plus Homebrew and
+  WinGet publishing templates
 
 ### Fixed
 
