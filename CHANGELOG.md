@@ -28,6 +28,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
   indexing tripped an Objective-C fork-safety check and crashed the forked child
   immediately, even though the CLI reported success. Both now start the watcher by
   spawning a fresh `sahara daemon start` process instead.
+- `scripts/build_linux_bundle.py` and `scripts/build_windows_bundle.py` no longer
+  crash with `ModuleNotFoundError: No module named 'scripts'` when run the documented
+  way (`python scripts/build_<platform>_bundle.py`). Running a script by path only
+  puts its own directory on `sys.path`, not the repo root, so the sibling import of
+  `scripts.build_macos_bundle` could never resolve — the Linux and Windows native
+  builds had never once succeeded in CI.
+- The native bundle smoke test's `--with-index` path (embedding model download plus
+  first index) now gets a 300s timeout instead of 180s, reducing flakiness on
+  variable CI network throughput. The `native-artifacts` workflow now also uploads
+  a debug artifact with the partial build/smoke output when a bundle job fails, so
+  future failures are diagnosable without a local repro.
 
 ---
 

@@ -10,9 +10,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-from scripts.build_macos_bundle import PROJECT_FILE, project_version
-
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    # Allow `python scripts/build_windows_bundle.py` to resolve the sibling
+    # `scripts` package: running a script by path only puts its own
+    # directory on sys.path, not the repo root.
+    sys.path.insert(0, str(ROOT))
+
+from scripts.build_macos_bundle import PROJECT_FILE, project_version  # noqa: E402
+
 SPEC_FILE = ROOT / "packaging" / "pyinstaller" / "sahara_windows_x64.spec"
 DIST_ROOT = ROOT / "dist" / "native"
 WORK_ROOT = ROOT / "build" / "pyinstaller-windows"

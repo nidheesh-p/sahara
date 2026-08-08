@@ -120,7 +120,10 @@ def smoke_bundle(bundle_path: Path, *, with_index: bool = False) -> None:
         if not with_index:
             setup_args.append("--no-index")
         run_command([str(executable), "--version"], env=env)
-        run_command(setup_args, env=env, timeout=180)
+        # --with-index downloads the ~200MB embedding model on first use; CI
+        # network throughput varies, so give this more headroom than a plain
+        # `setup --no-index` run needs.
+        run_command(setup_args, env=env, timeout=300 if with_index else 60)
 
         if with_index:
             search = run_command(

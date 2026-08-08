@@ -66,6 +66,17 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Upload debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-macos-arm64-debug
+          path: |
+            dist/native-artifacts/
+            dist/native/
+          if-no-files-found: ignore
+          retention-days: 7
+
   macos-installer:
     name: Build signed macOS installer
     if: startsWith(github.ref, 'refs/tags/')
@@ -191,6 +202,17 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Upload debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-x64-debug
+          path: |
+            dist/native-artifacts/
+            dist/native/
+          if-no-files-found: ignore
+          retention-days: 7
+
   linux-x86-64:
     name: Build Linux x86_64 portable bundle
     runs-on: ubuntu-22.04
@@ -239,6 +261,17 @@ jobs:
           name: native-linux-x86_64
           path: dist/native-artifacts/
           if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-linux-x86_64-debug
+          path: |
+            dist/native-artifacts/
+            dist/native/
+          if-no-files-found: ignore
           retention-days: 7
 
   windows-installer:
