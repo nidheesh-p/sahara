@@ -54,6 +54,22 @@ public struct MemoryCaptureResponse: Codable, Equatable, Sendable {
         case indexReason = "index_reason"
         case indexed
     }
+
+    public init(
+        status: String,
+        title: String,
+        relativePath: String?,
+        memoryID: String,
+        indexReason: String? = nil,
+        indexed: Bool? = nil
+    ) {
+        self.status = status
+        self.title = title
+        self.relativePath = relativePath
+        self.memoryID = memoryID
+        self.indexReason = indexReason
+        self.indexed = indexed
+    }
 }
 
 public struct RecallRequest: Codable, Equatable, Sendable {
@@ -93,10 +109,36 @@ public struct RecallResult: Codable, Equatable, Sendable {
         case sourceURL = "source_url"
         case tags
     }
+
+    public init(
+        score: Double,
+        sourceType: String,
+        memoryID: String,
+        title: String,
+        snippet: String,
+        relativePath: String,
+        updatedAt: String,
+        sourceURL: String,
+        tags: [String]
+    ) {
+        self.score = score
+        self.sourceType = sourceType
+        self.memoryID = memoryID
+        self.title = title
+        self.snippet = snippet
+        self.relativePath = relativePath
+        self.updatedAt = updatedAt
+        self.sourceURL = sourceURL
+        self.tags = tags
+    }
 }
 
 public struct RecallResponse: Codable, Equatable, Sendable {
     public let results: [RecallResult]
+
+    public init(results: [RecallResult]) {
+        self.results = results
+    }
 }
 
 public enum SaharaMobileAPIError: LocalizedError, Equatable {
