@@ -750,7 +750,7 @@ def setup(
 
     # 6. Background index watcher.
     if not no_daemon:
-        from sahara.sync.daemon import is_daemon_running, start_daemon
+        from sahara.sync.daemon import is_daemon_running
 
         if is_daemon_running():
             _ok("Background index watcher is already running.")
@@ -761,12 +761,28 @@ def setup(
                     "  Start the background index watcher now?", default=False
                 )
             if start_watcher:
+                # Spawn a fresh process rather than calling start_daemon() in
+                # this interpreter: it forks, and forking after this process
+                # has already loaded the embedding model crashes on macOS.
+                import subprocess
+
+                from sahara.claude_desktop import resolve_sahara_executable
+
                 try:
-                    start_daemon(config_path)
-                    _ok("Background index watcher started.")
-                except Exception as exc:
-                    _warn(f"Could not start index watcher: {exc}")
+                    sahara_bin = resolve_sahara_executable()
+                except RuntimeError as exc:
+                    _warn(f"Could not locate the Sahara executable: {exc}")
                     _info("Run `sahara daemon start` later to keep the index fresh.")
+                else:
+                    completed = subprocess.run(
+                        [str(sahara_bin), "--config", str(config_path), "daemon", "start"],
+                        check=False,
+                    )
+                    if completed.returncode != 0:
+                        _info(
+                            "Run `sahara daemon start` later to keep the "
+                            "index fresh."
+                        )
 
     # 7. Health check.
     if not no_doctor:

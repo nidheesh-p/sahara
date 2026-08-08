@@ -20,6 +20,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - `sahara doctor` reports whether the background index watcher is running and whether
   autostart is installed.
 
+### Fixed
+
+- `sahara setup --daemon` and `sahara first-run`'s new auto-index prompt no longer
+  crash the background index watcher on macOS. Starting the watcher forked the
+  current process; forking after the embedding model had already loaded for
+  indexing tripped an Objective-C fork-safety check and crashed the forked child
+  immediately, even though the CLI reported success. Both now start the watcher by
+  spawning a fresh `sahara daemon start` process instead.
+
 ---
 
 ## [0.3.0] — 2026-07-23

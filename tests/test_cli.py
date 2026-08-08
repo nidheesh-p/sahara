@@ -1474,15 +1474,17 @@ class TestSetup:
         config_path, db_path = self._isolate(tmp_path, monkeypatch)
         folder = tmp_path / "docs"
         folder.mkdir()
+        sahara_bin = tmp_path / "sahara"
+        sahara_bin.write_text("#!/bin/sh\n", encoding="utf-8")
         runner = _runner()
-        started: list[Path | None] = []
-
-        def _fake_start(config_path: Path | None = None) -> None:
-            started.append(config_path)
 
         with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
             "sahara.sync.daemon.is_daemon_running", return_value=False
-        ), patch("sahara.sync.daemon.start_daemon", side_effect=_fake_start):
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=sahara_bin,
+        ), patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
             result = runner.invoke(
                 main,
                 [
@@ -1500,5 +1502,41 @@ class TestSetup:
             )
 
         assert result.exit_code == 0, result.output
-        assert started == [config_path]
-        assert "Background index watcher started" in result.output
+        mock_run.assert_called_once_with(
+            [str(sahara_bin), "--config", str(config_path), "daemon", "start"],
+            check=False,
+        )
+
+    def test_setup_daemon_flag_reports_when_spawn_fails(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        sahara_bin = tmp_path / "sahara"
+        sahara_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=sahara_bin,
+        ), patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "setup",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                    "--daemon",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "sahara daemon start" in result.output
