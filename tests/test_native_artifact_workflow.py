@@ -28,10 +28,12 @@ def test_native_artifacts_workflow_limits_retention_and_verifies_package() -> No
 
     assert "scripts/build_macos_bundle.py" in workflow_text
     assert "scripts/build_windows_bundle.py" in workflow_text
+    assert "scripts/build_linux_bundle.py" in workflow_text
     assert "scripts/package_native_artifacts.py" in workflow_text
     assert "retention-days: 7" in workflow_text
     assert "native-macos-arm64" in workflow_text
     assert "native-windows-x64" in workflow_text
+    assert "native-linux-x86_64" in workflow_text
     assert "--with-index" in workflow_text
     assert "github.event.inputs.smoke_with_index" in workflow_text
     assert "${{ inputs.smoke_with_index }}" not in workflow_text
@@ -68,3 +70,35 @@ def test_native_artifacts_workflow_builds_signed_windows_installer_in_protected_
     assert "native-windows-x64-installer" in workflow_text
     assert "WINDOWS_CODESIGN_CERTIFICATE_BASE64" in workflow_text
     assert "WINDOWS_CODESIGN_CERTIFICATE_PASSWORD" in workflow_text
+
+
+def test_native_artifacts_workflow_publishes_release_assets() -> None:
+    workflow = _workflow()
+    publisher = workflow["jobs"]["publish-release-assets"]
+    workflow_text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert publisher["if"] == "startsWith(github.ref, 'refs/tags/')"
+    assert publisher["needs"] == [
+        "macos-apple-silicon",
+        "macos-installer",
+        "windows-x64",
+        "windows-installer",
+        "linux-x86-64",
+    ]
+    assert publisher["permissions"] == {"contents": "write"}
+    assert "gh release view \"$RELEASE_TAG\"" in workflow_text
+    assert "gh release upload \"$RELEASE_TAG\" \"${assets[@]}\" --clobber" in workflow_text
+    assert "native-macos-arm64-installer" in workflow_text
+    assert "native-windows-x64-installer" in workflow_text
+    assert "native-linux-x86_64" in workflow_text
+
+
+def test_native_artifacts_workflow_builds_linux_portable_archive() -> None:
+    workflow = _workflow()
+    linux = workflow["jobs"]["linux-x86-64"]
+    workflow_text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert linux["runs-on"] == "ubuntu-22.04"
+    assert "python scripts/build_linux_bundle.py" in workflow_text
+    assert "scripts/package_native_artifacts.py --platform linux-x86_64" in workflow_text
+    assert "name: native-linux-x86_64" in workflow_text

@@ -135,9 +135,33 @@ Use this checklist before publishing a Sahara release.
   configured folders, and existing indexes remain usable.
 - Uninstall with the documented quiet uninstall command and confirm
   `%USERPROFILE%\.sahara` remains present by default.
+- Download the `native-linux-x86_64` artifact and confirm it contains a versioned
+  `.tar.gz`, `.sha256` checksum, dependency inventory, manifest, and smoke-test log.
+- Verify the Linux portable archive checksum locally from inside the artifact
+  directory with `shasum -a 256 -c *.sha256`.
+- On a clean supported Linux x86_64 VM with glibc 2.35 or newer, unpack the archive
+  under `$HOME/.local/opt`, create a `$HOME/.local/bin/sahara` symlink, and confirm
+  `sahara --version` resolves without Git, pip, pipx, or system Python.
+- Run non-interactive `sahara setup`, `sahara index`, `sahara search`, and
+  `sahara mcp serve --transport stdio` from the portable Linux artifact.
+- Upgrade over the previous portable Linux artifact and confirm `~/.sahara`,
+  configured folders, and existing indexes remain usable.
+- Remove the Linux symlink and extracted runtime directory and confirm `~/.sahara`
+  remains present by default.
 - Create and publish a GitHub release whose tag is exactly `v<pyproject version>`.
   The release event builds, verifies, and publishes to PyPI through OIDC. Pushing the
   `v*` release tag also runs the native artifact workflow.
+- Confirm the **Native Artifacts** workflow uploads the macOS, Windows, and Linux
+  native archives, installers where applicable, checksums, manifests, dependency
+  inventories, and smoke logs as permanent assets on the GitHub release.
+- Publish or update the Homebrew tap from the signed macOS release `.pkg`, using the
+  checksum from the matching `.pkg.sha256`; then install, upgrade, and uninstall on a
+  clean macOS machine while preserving `~/.sahara`.
+- Submit or update the WinGet manifest from the signed Windows release `.exe`, using
+  the checksum from the matching `.exe.sha256`; then install, upgrade, and uninstall
+  on a clean Windows x64 VM while preserving `%USERPROFILE%\.sahara`.
+- Confirm package-manager documentation points to this repository's `sahara` CLI and
+  not the unrelated OpenStack package.
 - Never publish the production package manually or with a long-lived API token.
 
 ## Post-Release

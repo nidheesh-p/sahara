@@ -30,19 +30,19 @@ The output directory name is deterministic and versioned:
 
 ```bash
 python scripts/build_macos_bundle.py --print-name
-# sahara-0.2.1-macos-arm64
+# sahara-0.3.0-macos-arm64
 ```
 
 By default the bundle is written to:
 
 ```text
-dist/native/sahara-0.2.1-macos-arm64/
+dist/native/sahara-0.3.0-macos-arm64/
 ```
 
 The executable is:
 
 ```text
-dist/native/sahara-0.2.1-macos-arm64/sahara
+dist/native/sahara-0.3.0-macos-arm64/sahara
 ```
 
 ## Smoke Test
@@ -104,7 +104,7 @@ python scripts/build_macos_installer.py
 The unsigned development package is written to:
 
 ```text
-dist/native-installers/sahara-0.2.1-macos-arm64.pkg
+dist/native-installers/sahara-0.3.0-macos-arm64.pkg
 ```
 
 The package installs the bundle at a stable location:
@@ -187,11 +187,11 @@ If a bundled smoke test fails because a runtime hook or resource is missing, upd
 
 ## Clean-Machine Check
 
-For bundle-level validation, copy `dist/native/sahara-0.2.1-macos-arm64/` to a clean
+For bundle-level validation, copy `dist/native/sahara-0.3.0-macos-arm64/` to a clean
 Apple Silicon account or VM without a Sahara checkout and run:
 
 ```bash
-BUNDLE="$PWD/sahara-0.2.1-macos-arm64/sahara"
+BUNDLE="$PWD/sahara-0.3.0-macos-arm64/sahara"
 TMP="$(mktemp -d)"
 mkdir -p "$TMP/home" "$TMP/content"
 printf 'Sahara bundle smoke test document about lunar geology.\n' > "$TMP/content/notes.txt"
@@ -219,7 +219,7 @@ For installer-level validation on a clean Apple Silicon Mac, install the signed 
 notarized package and run:
 
 ```bash
-sudo installer -pkg sahara-0.2.1-macos-arm64.pkg -target /
+sudo installer -pkg sahara-0.3.0-macos-arm64.pkg -target /
 command -v sahara
 sahara --version
 sahara setup --folder "$HOME/Documents" --yes --no-mcp --no-doctor --no-daemon

@@ -19,12 +19,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from scripts.build_linux_bundle import bundle_name as linux_bundle_name  # noqa: E402
 from scripts.build_macos_bundle import PROJECT_FILE, bundle_name, project_version  # noqa: E402
 from scripts.build_windows_bundle import bundle_name as windows_bundle_name  # noqa: E402
 
 DEFAULT_ARTIFACT_ROOT = Path("dist") / "native-artifacts"
 MACOS_PLATFORM = "macos-arm64"
 WINDOWS_PLATFORM = "windows-x64"
+LINUX_PLATFORM = "linux-x86_64"
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,11 @@ PLATFORMS = {
         name=WINDOWS_PLATFORM,
         archive_suffix=".zip",
         smoke_script="scripts/smoke_windows_bundle.py",
+    ),
+    LINUX_PLATFORM: NativePlatform(
+        name=LINUX_PLATFORM,
+        archive_suffix=".tar.gz",
+        smoke_script="scripts/smoke_linux_bundle.py",
     ),
 }
 
@@ -286,6 +293,7 @@ def main() -> None:
     default_names = {
         MACOS_PLATFORM: bundle_name(version),
         WINDOWS_PLATFORM: windows_bundle_name(version),
+        LINUX_PLATFORM: linux_bundle_name(version),
     }
     bundle = args.bundle or Path("dist") / "native" / default_names[args.platform]
 

@@ -80,7 +80,7 @@ The first supported artifacts should be:
 
 - macOS Apple Silicon: signed and notarized installer package;
 - Windows x64: signed installer;
-- Linux x86_64: portable archive after the first two platforms are stable.
+- Linux x86_64: portable archive for glibc 2.35 or newer distributions.
 
 Package-manager distribution follows stable native artifacts:
 
