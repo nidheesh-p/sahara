@@ -9,6 +9,7 @@ import pytest
 
 from sahara.daemon import (
     install_autostart,
+    is_autostart_installed,
     poll_restore_expiries,
     poll_restores,
     start_daemon,
@@ -274,3 +275,26 @@ class TestInstallAutostartWindows:
                 assert isinstance(result, str)
             except RuntimeError as e:
                 assert "Failed to install Windows autostart" in str(e)
+
+
+# ---------------------------------------------------------------------------
+# is_autostart_installed — Windows path
+# ---------------------------------------------------------------------------
+
+
+class TestIsAutostartInstalledWindows:
+    def test_windows_installed_true(self):
+        fake_winreg = MagicMock()
+        fake_winreg.QueryValueEx.return_value = ("sahara daemon start", 1)
+        with patch("sahara.daemon._load_winreg", return_value=fake_winreg):
+            assert is_autostart_installed("Windows") is True
+
+    def test_windows_installed_false_when_value_missing(self):
+        fake_winreg = MagicMock()
+        fake_winreg.QueryValueEx.side_effect = FileNotFoundError
+        with patch("sahara.daemon._load_winreg", return_value=fake_winreg):
+            assert is_autostart_installed("Windows") is False
+
+    def test_windows_installed_false_without_winreg(self):
+        """On non-Windows dev machines, the missing winreg module is caught defensively."""
+        assert is_autostart_installed("Windows") is False

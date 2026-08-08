@@ -8,6 +8,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+### Added
+
+- `sahara first-run` now asks whether to keep the index automatically current in the
+  background going forward, instead of silently skipping the decision. Opting in
+  starts the background index watcher and installs the platform autostart entry
+  (LaunchAgent on macOS, systemd user service on Linux, registry Run key on Windows)
+  so it survives reboot/login; opting out prints how to enable it later
+  (`sahara daemon start --autostart`). Supports `--auto-index`/`--no-auto-index` for
+  non-interactive runs.
+- `sahara doctor` reports whether the background index watcher is running and whether
+  autostart is installed.
+
 ---
 
 ## [0.3.0] — 2026-07-23

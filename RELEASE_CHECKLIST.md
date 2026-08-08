@@ -100,8 +100,10 @@ Use this checklist before publishing a Sahara release.
   `sahara-first-run` manually.
 - Run `sahara --version`, non-interactive `sahara setup`, `sahara index`,
   `sahara search`, and `sahara mcp install-claude` from the installed package.
-- Run `sahara first-run`, select test folders, accept indexing, and opt in to Claude
-  Desktop configuration when detected.
+- Run `sahara first-run`, select test folders, accept indexing, opt in to Claude
+  Desktop configuration when detected, and confirm both the accept and decline paths
+  of the automatic background re-indexing prompt (`sahara doctor` should reflect
+  whichever choice was made).
 - Upgrade over the previous native package and confirm `~/.sahara`, configured
   folders, and existing indexes remain usable.
 - Uninstall with the documented native package commands and confirm `~/.sahara`
@@ -129,8 +131,10 @@ Use this checklist before publishing a Sahara release.
 - Run non-interactive `sahara setup`, `sahara index`, `sahara search`,
   `sahara mcp serve --transport stdio`, and `sahara mcp install-claude` from the
   installed Windows package.
-- Run `sahara first-run`, select test folders, accept indexing, and opt in to Claude
-  Desktop configuration when detected.
+- Run `sahara first-run`, select test folders, accept indexing, opt in to Claude
+  Desktop configuration when detected, and confirm both the accept and decline paths
+  of the automatic background re-indexing prompt (`sahara doctor` should reflect
+  whichever choice was made).
 - Upgrade over the previous Windows package and confirm `%USERPROFILE%\.sahara`,
   configured folders, and existing indexes remain usable.
 - Uninstall with the documented quiet uninstall command and confirm

@@ -572,6 +572,22 @@ class TestDoctor:
             assert result.exit_code == 0
             assert "basic index-only mode" in result.output.lower()
 
+    def test_doctor_reports_background_watcher_state(self, tmp_path: Path):
+        runner = _runner()
+        config_path = tmp_path / "cfg.toml"
+        save_config(SaharaConfig(sync_folder=str(tmp_path / "sync")), config_path)
+        (tmp_path / "sync").mkdir(exist_ok=True)
+
+        mock_db = _make_mock_db()
+        with patch("sahara.state_db.StateDB", return_value=mock_db), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=True
+        ), patch("sahara.sync.daemon.is_autostart_installed", return_value=False):
+            result = runner.invoke(main, ["--config", str(config_path), "doctor"])
+
+        assert result.exit_code == 0, result.output
+        assert "Background index watcher: running." in result.output
+        assert "autostart not enabled" in result.output.lower()
+
 
 # ---------------------------------------------------------------------------
 # daemon status
@@ -1185,7 +1201,9 @@ class TestSetup:
         ), patch(
             "sahara.claude_desktop.resolve_sahara_executable",
             return_value=executable,
-        ):
+        ), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch("subprocess.run") as mock_run:
             result = runner.invoke(
                 main,
                 [
@@ -1197,12 +1215,260 @@ class TestSetup:
                     "--no-index",
                     "--no-doctor",
                 ],
+                # Continue with setup, decline auto-indexing, connect Claude Desktop.
+                input="y\nn\ny\n",
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Skipping automatic re-indexing" in result.output
+        mock_run.assert_not_called()
+        assert "Installed Sahara in Claude Desktop" in result.output
+        assert '"sahara"' in claude_config.read_text(encoding="utf-8")
+
+    def test_first_run_auto_index_flag_spawns_daemon_start(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        sahara_bin = tmp_path / "sahara"
+        sahara_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=sahara_bin,
+        ), patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                    "--auto-index",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_run.assert_called_once_with(
+            [
+                str(sahara_bin),
+                "--config",
+                str(config_path),
+                "daemon",
+                "start",
+                "--autostart",
+            ],
+            check=False,
+        )
+
+    def test_first_run_auto_index_flag_reports_when_spawn_fails(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        sahara_bin = tmp_path / "sahara"
+        sahara_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=sahara_bin,
+        ), patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                    "--auto-index",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "sahara daemon start --autostart" in result.output
+
+    def test_first_run_auto_index_flag_reports_when_executable_not_found(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            side_effect=RuntimeError("Could not find the Sahara executable"),
+        ), patch("subprocess.run") as mock_run:
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                    "--auto-index",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_run.assert_not_called()
+        assert "Could not locate the Sahara executable" in result.output
+        assert "sahara daemon start --autostart" in result.output
+
+    def test_first_run_no_auto_index_flag_skips_watcher(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch("subprocess.run") as mock_run:
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                    "--no-auto-index",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_run.assert_not_called()
+        assert "Skipping automatic re-indexing" in result.output
+        assert "sahara daemon start --autostart" in result.output
+
+    def test_first_run_yes_defaults_auto_index_off_without_prompting(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch("subprocess.run") as mock_run:
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+                # No input supplied: a real prompt here would abort the run.
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_run.assert_not_called()
+        assert "Skipping automatic re-indexing" in result.output
+
+    def test_first_run_prompts_for_auto_index_when_interactive(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        sahara_bin = tmp_path / "sahara"
+        sahara_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=sahara_bin,
+        ), patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+                # Continue with setup, then opt in to auto-indexing.
                 input="y\ny\n",
             )
 
         assert result.exit_code == 0, result.output
-        assert "Installed Sahara in Claude Desktop" in result.output
-        assert '"sahara"' in claude_config.read_text(encoding="utf-8")
+        mock_run.assert_called_once()
+
+    def test_first_run_auto_index_skipped_when_watcher_already_running(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=True
+        ), patch("subprocess.run") as mock_run:
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                    "--auto-index",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_run.assert_not_called()
+        assert "Background index watcher is already running" in result.output
 
     def test_setup_daemon_flag_starts_watcher(self, tmp_path, monkeypatch):
         config_path, db_path = self._isolate(tmp_path, monkeypatch)
