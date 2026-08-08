@@ -16,6 +16,7 @@ from sahara.daemon import (
     _write_pid,
     get_daemon_status,
     install_autostart,
+    is_autostart_installed,
     is_daemon_running,
     pause_daemon,
     poll_restore_expiries,
@@ -393,6 +394,31 @@ class TestAutostart:
         plist_path = tmp_path / "nonexistent.plist"
         with patch("sahara.daemon._LAUNCHD_PLIST_PATH", plist_path):
             uninstall_autostart("Darwin")  # Should not raise
+
+    def test_is_autostart_installed_darwin_true(self, tmp_path: Path):
+        plist_path = tmp_path / "io.sahara.daemon.plist"
+        plist_path.touch()
+        with patch("sahara.daemon._LAUNCHD_PLIST_PATH", plist_path):
+            assert is_autostart_installed("Darwin") is True
+
+    def test_is_autostart_installed_darwin_false(self, tmp_path: Path):
+        plist_path = tmp_path / "missing.plist"
+        with patch("sahara.daemon._LAUNCHD_PLIST_PATH", plist_path):
+            assert is_autostart_installed("Darwin") is False
+
+    def test_is_autostart_installed_linux_true(self, tmp_path: Path):
+        service_path = tmp_path / "sahara.service"
+        service_path.touch()
+        with patch("sahara.daemon._SYSTEMD_SERVICE_PATH", service_path):
+            assert is_autostart_installed("Linux") is True
+
+    def test_is_autostart_installed_linux_false(self, tmp_path: Path):
+        service_path = tmp_path / "missing.service"
+        with patch("sahara.daemon._SYSTEMD_SERVICE_PATH", service_path):
+            assert is_autostart_installed("Linux") is False
+
+    def test_is_autostart_installed_unsupported_platform_is_false(self):
+        assert is_autostart_installed("FreeBSD") is False
 
     def test_find_sahara_executable_uses_which(self):
         with patch("shutil.which", return_value="/usr/local/bin/sahara"):

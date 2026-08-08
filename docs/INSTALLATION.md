@@ -20,7 +20,8 @@ the bundle under `/Library/Application Support/Sahara/sahara/` and exposes
 `/usr/local/bin/sahara`, so Git, Python, pip, and pipx are not required for this path.
 At the end of a normal graphical install, Sahara opens first-run setup for the
 current user. The setup flow lets the user choose folders to index, builds the first
-index with consent, and offers to connect Claude Desktop when it is detected.
+index with consent, asks whether to keep the index automatically current in the
+background going forward, and offers to connect Claude Desktop when it is detected.
 
 To relaunch setup later:
 
@@ -56,7 +57,8 @@ for the current user under `%LOCALAPPDATA%\Programs\Sahara` and adds that direct
 the user's `PATH`, so Git, Python, pip, and pipx are not required for this path.
 At the end of a normal graphical install, Sahara offers to launch first-run setup.
 The setup flow lets the user choose folders to index, builds the first index with
-consent, and offers to connect Claude Desktop when it is detected. Quiet installs skip
+consent, asks whether to keep the index automatically current in the background
+going forward, and offers to connect Claude Desktop when it is detected. Quiet installs skip
 the first-run launch.
 
 To relaunch setup later:

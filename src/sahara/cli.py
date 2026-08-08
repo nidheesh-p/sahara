@@ -750,7 +750,7 @@ def setup(
 
     # 6. Background index watcher.
     if not no_daemon:
-        from sahara.sync.daemon import is_daemon_running, start_daemon
+        from sahara.sync.daemon import is_daemon_running
 
         if is_daemon_running():
             _ok("Background index watcher is already running.")
@@ -761,12 +761,28 @@ def setup(
                     "  Start the background index watcher now?", default=False
                 )
             if start_watcher:
+                # Spawn a fresh process rather than calling start_daemon() in
+                # this interpreter: it forks, and forking after this process
+                # has already loaded the embedding model crashes on macOS.
+                import subprocess
+
+                from sahara.claude_desktop import resolve_sahara_executable
+
                 try:
-                    start_daemon(config_path)
-                    _ok("Background index watcher started.")
-                except Exception as exc:
-                    _warn(f"Could not start index watcher: {exc}")
+                    sahara_bin = resolve_sahara_executable()
+                except RuntimeError as exc:
+                    _warn(f"Could not locate the Sahara executable: {exc}")
                     _info("Run `sahara daemon start` later to keep the index fresh.")
+                else:
+                    completed = subprocess.run(
+                        [str(sahara_bin), "--config", str(config_path), "daemon", "start"],
+                        check=False,
+                    )
+                    if completed.returncode != 0:
+                        _info(
+                            "Run `sahara daemon start` later to keep the "
+                            "index fresh."
+                        )
 
     # 7. Health check.
     if not no_doctor:
@@ -813,6 +829,15 @@ def setup(
     help="Skip the Claude Desktop connection step.",
 )
 @click.option(
+    "--auto-index/--no-auto-index",
+    "auto_index",
+    default=None,
+    help=(
+        "Keep the index automatically current in the background from now on. "
+        "Prompts if not set; defaults to off for unattended (--yes) runs."
+    ),
+)
+@click.option(
     "--no-doctor",
     is_flag=True,
     help="Skip the configuration health check at the end.",
@@ -825,6 +850,7 @@ def first_run(
     no_folder_picker: bool,
     no_index: bool,
     no_mcp: bool,
+    auto_index: bool | None,
     no_doctor: bool,
 ) -> None:
     """Run native installer first-run onboarding for the current user."""
@@ -878,6 +904,66 @@ def first_run(
         daemon=False,
         no_daemon=True,
     )
+
+    click.echo()
+    _section("Automatic Re-Indexing")
+    from sahara.sync.daemon import is_daemon_running
+
+    config_path = ctx.obj.get("config_path") or DEFAULT_CONFIG_PATH
+    if is_daemon_running():
+        _ok("Background index watcher is already running.")
+    else:
+        want_auto_index = auto_index
+        if want_auto_index is None:
+            want_auto_index = (
+                False
+                if assume_yes
+                else click.confirm(
+                    "  Keep this index automatically up to date in the "
+                    "background from now on?",
+                    default=False,
+                )
+            )
+        if want_auto_index:
+            # Spawn a fresh process rather than calling start_daemon() in
+            # this interpreter: it forks, and forking after this process has
+            # already loaded the embedding model crashes on macOS.
+            import subprocess
+
+            from sahara.claude_desktop import resolve_sahara_executable
+
+            try:
+                sahara_bin = resolve_sahara_executable()
+            except RuntimeError as exc:
+                _warn(f"Could not locate the Sahara executable: {exc}")
+                _info(
+                    "Run `sahara daemon start --autostart` later to keep "
+                    "the index fresh."
+                )
+            else:
+                completed = subprocess.run(
+                    [
+                        str(sahara_bin),
+                        "--config",
+                        str(config_path),
+                        "daemon",
+                        "start",
+                        "--autostart",
+                    ],
+                    check=False,
+                )
+                if completed.returncode != 0:
+                    _info(
+                        "Run `sahara daemon start --autostart` later to "
+                        "keep the index fresh."
+                    )
+        else:
+            _info(
+                "Skipping automatic re-indexing. Your index reflects files as "
+                "of now — run `sahara index` again after adding or changing "
+                "files, or enable this later with `sahara daemon start "
+                "--autostart`."
+            )
 
     if no_mcp:
         return
@@ -1024,6 +1110,22 @@ def doctor(ctx: click.Context, repair: bool) -> None:
             issues += 1
     else:
         _info("Encryption: disabled.")
+
+    # Background index watcher
+    from sahara.sync.daemon import is_autostart_installed, is_daemon_running
+
+    if is_daemon_running():
+        _ok("Background index watcher: running.")
+    else:
+        _info("Background index watcher: not running.")
+    if is_autostart_installed():
+        _ok("Background index watcher: starts automatically at login.")
+    else:
+        _info(
+            "Background index watcher: autostart not enabled. Run "
+            "`sahara daemon start --autostart` to keep the index current "
+            "automatically."
+        )
 
     # DB
     from sahara.storage.state_db import DB_PATH, StateDB

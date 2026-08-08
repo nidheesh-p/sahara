@@ -54,9 +54,11 @@ _SYSTEMD_SERVICE_PATH = (
 class _WinregProtocol(Protocol):
     HKEY_CURRENT_USER: object
     KEY_SET_VALUE: int
+    KEY_QUERY_VALUE: int
     REG_SZ: int
     OpenKey: Callable[[object, str, int, int], object]
     SetValueEx: Callable[[object, str, int, int, str], None]
+    QueryValueEx: Callable[[object, str], tuple[object, int]]
     DeleteValue: Callable[[object, str], None]
     CloseKey: Callable[[object], None]
 
@@ -472,6 +474,38 @@ def install_autostart(platform_name: str | None = None) -> str:
         return _install_windows_startup(sahara_bin)
     else:
         raise RuntimeError(f"Autostart not supported on platform: {plat}")
+
+
+def is_autostart_installed(platform_name: str | None = None) -> bool:
+    """Return True if the Sahara daemon is registered to start at login."""
+    plat = platform_name or platform.system()
+    if plat == "Darwin":
+        return _LAUNCHD_PLIST_PATH.exists()
+    elif plat == "Linux":
+        return _SYSTEMD_SERVICE_PATH.exists()
+    elif plat == "Windows":
+        return _windows_startup_installed()
+    return False
+
+
+def _windows_startup_installed() -> bool:
+    try:
+        winreg = _load_winreg()
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0,
+            winreg.KEY_QUERY_VALUE,
+        )
+        try:
+            winreg.QueryValueEx(key, "SaharaDaemon")
+            return True
+        except FileNotFoundError:
+            return False
+        finally:
+            winreg.CloseKey(key)
+    except Exception:
+        return False
 
 
 def uninstall_autostart(platform_name: str | None = None) -> None:

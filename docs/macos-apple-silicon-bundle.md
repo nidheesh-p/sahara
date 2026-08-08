@@ -131,7 +131,8 @@ selection, indexing, or Claude Desktop configuration as `root`. Set
 `SAHARA_SKIP_FIRST_RUN_LAUNCH=1` when installer automation must skip the launch.
 
 The first-run flow lets the user choose folders to index, builds the first index with
-consent, and offers to connect Claude Desktop when it is detected. It can be relaunched
+consent, asks whether to keep the index automatically current in the background going
+forward, and offers to connect Claude Desktop when it is detected. It can be relaunched
 with `sahara-first-run` or `sahara first-run`.
 
 Upgrades replace only the installed bundle directory and command shim. User data,
