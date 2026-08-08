@@ -73,7 +73,7 @@ def test_windows_installer_docs_cover_supported_install_without_bypasses() -> No
     install_doc = INSTALL_DOC.read_text(encoding="utf-8")
 
     for text in (doc, install_doc):
-        assert "sahara-0.2.1-windows-x64-setup.exe" in text
+        assert "sahara-0.3.0-windows-x64-setup.exe" in text
         assert "%LOCALAPPDATA%\\Programs\\Sahara" in text
         assert "%USERPROFILE%\\.sahara" in text
         assert "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" in text
@@ -124,14 +124,14 @@ def test_packages_and_verifies_windows_native_artifact(tmp_path: Path) -> None:
 def test_inno_script_is_per_user_quiet_capable_and_preserves_user_data(
     tmp_path: Path,
 ) -> None:
-    bundle = tmp_path / "sahara-0.2.1-windows-x64"
+    bundle = tmp_path / "sahara-0.3.0-windows-x64"
     bundle.mkdir()
     (bundle / "sahara.exe").write_text("exe", encoding="utf-8")
     script = write_inno_script(
         bundle=bundle,
         script=tmp_path / "installer" / "sahara.iss",
         output_root=tmp_path / "output",
-        version="0.2.1",
+        version="0.3.0",
     )
 
     text = script.read_text(encoding="utf-8")
@@ -148,13 +148,13 @@ def test_inno_script_is_per_user_quiet_capable_and_preserves_user_data(
 
 
 def test_builds_and_verifies_windows_installer_metadata(tmp_path: Path) -> None:
-    bundle = tmp_path / "sahara-0.2.1-windows-x64"
+    bundle = tmp_path / "sahara-0.3.0-windows-x64"
     bundle.mkdir()
     (bundle / "sahara.exe").write_text("exe", encoding="utf-8")
     installer_root = tmp_path / "installers"
 
     def fake_compile(_script: Path) -> None:
-        (installer_root / installer_name("0.2.1")).write_text("installer", encoding="utf-8")
+        (installer_root / installer_name("0.3.0")).write_text("installer", encoding="utf-8")
 
     with patch("scripts.build_windows_installer.compile_inno_script", side_effect=fake_compile):
         artifact = build_windows_installer(
@@ -164,7 +164,7 @@ def test_builds_and_verifies_windows_installer_metadata(tmp_path: Path) -> None:
             skip_platform_check=True,
         )
 
-    assert artifact.installer.name == "sahara-0.2.1-windows-x64-setup.exe"
+    assert artifact.installer.name == "sahara-0.3.0-windows-x64-setup.exe"
     verify_windows_installer(installer_root, artifact.installer.name)
     manifest = json.loads(artifact.manifest.read_text(encoding="utf-8"))
     assert manifest["install_location"] == INSTALL_LOCATION
@@ -180,7 +180,7 @@ def test_builds_and_verifies_windows_installer_metadata(tmp_path: Path) -> None:
 def test_windows_installer_signing_requires_certificate_and_password(
     tmp_path: Path,
 ) -> None:
-    bundle = tmp_path / "sahara-0.2.1-windows-x64"
+    bundle = tmp_path / "sahara-0.3.0-windows-x64"
     bundle.mkdir()
     (bundle / "sahara.exe").write_text("exe", encoding="utf-8")
 
@@ -194,13 +194,13 @@ def test_windows_installer_signing_requires_certificate_and_password(
 
 
 def test_windows_installer_signs_with_base64_certificate(tmp_path: Path) -> None:
-    bundle = tmp_path / "sahara-0.2.1-windows-x64"
+    bundle = tmp_path / "sahara-0.3.0-windows-x64"
     bundle.mkdir()
     (bundle / "sahara.exe").write_text("exe", encoding="utf-8")
     installer_root = tmp_path / "installers"
 
     def fake_compile(_script: Path) -> None:
-        (installer_root / installer_name("0.2.1")).write_text("installer", encoding="utf-8")
+        (installer_root / installer_name("0.3.0")).write_text("installer", encoding="utf-8")
 
     with (
         patch("scripts.build_windows_installer.compile_inno_script", side_effect=fake_compile),
@@ -224,10 +224,10 @@ def test_windows_installer_signs_with_base64_certificate(tmp_path: Path) -> None
 def test_windows_installer_verification_rejects_bad_checksum(tmp_path: Path) -> None:
     installer_root = tmp_path / "installers"
     installer_root.mkdir()
-    name = "sahara-0.2.1-windows-x64-setup.exe"
+    name = "sahara-0.3.0-windows-x64-setup.exe"
     (installer_root / name).write_text("installer", encoding="utf-8")
     (installer_root / f"{name}.sha256").write_text(f"{'0' * 64}  {name}\n", encoding="utf-8")
-    (installer_root / "sahara-0.2.1-windows-x64-installer-manifest.json").write_text(
+    (installer_root / "sahara-0.3.0-windows-x64-installer-manifest.json").write_text(
         "{}\n",
         encoding="utf-8",
     )

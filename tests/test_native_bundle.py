@@ -7,6 +7,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from scripts.build_linux_bundle import (
+    PLATFORM_TAG as LINUX_PLATFORM_TAG,
+)
+from scripts.build_linux_bundle import (
+    bundle_name as linux_bundle_name,
+)
+from scripts.build_linux_bundle import (
+    is_linux_x86_64,
+)
 from scripts.build_macos_bundle import PLATFORM_TAG, bundle_name, project_version
 from scripts.build_macos_installer import (
     FIRST_RUN_LINK,
@@ -27,7 +36,11 @@ from scripts.package_native_artifacts import (
 
 ROOT = Path(__file__).parents[1]
 SPEC_FILE = ROOT / "packaging" / "pyinstaller" / "sahara_macos_arm64.spec"
+LINUX_SPEC_FILE = ROOT / "packaging" / "pyinstaller" / "sahara_linux_x86_64.spec"
 DOC_FILE = ROOT / "docs" / "macos-apple-silicon-bundle.md"
+LINUX_DOC_FILE = ROOT / "docs" / "linux-x86_64-portable.md"
+INSTALL_DOC = ROOT / "docs" / "INSTALLATION.md"
+PACKAGE_MANAGER_DOC = ROOT / "docs" / "package-managers.md"
 PROJECT_FILE = ROOT / "pyproject.toml"
 
 
@@ -35,6 +48,20 @@ def test_bundle_name_is_versioned_and_platform_specific() -> None:
     version = project_version(PROJECT_FILE)
 
     assert bundle_name(version) == f"sahara-{version}-{PLATFORM_TAG}"
+
+
+def test_linux_bundle_name_is_versioned_and_platform_specific() -> None:
+    version = project_version(PROJECT_FILE)
+
+    assert linux_bundle_name(version) == f"sahara-{version}-{LINUX_PLATFORM_TAG}"
+
+
+def test_linux_platform_detection_accepts_x86_64_aliases() -> None:
+    with (
+        patch("scripts.build_linux_bundle.platform.system", return_value="Linux"),
+        patch("scripts.build_linux_bundle.platform.machine", return_value="x86_64"),
+    ):
+        assert is_linux_x86_64()
 
 
 def test_native_extra_includes_pyinstaller() -> None:
@@ -69,13 +96,70 @@ def test_pyinstaller_spec_collects_required_resource_families() -> None:
         assert fragment in spec
 
 
+def test_linux_pyinstaller_spec_collects_required_resource_families() -> None:
+    spec = LINUX_SPEC_FILE.read_text(encoding="utf-8")
+
+    required_fragments = [
+        "collect_data_files",
+        "collect_dynamic_libs",
+        "copy_metadata",
+        "sahara",
+        "data/**",
+        "fastembed",
+        "onnxruntime",
+        "sqlite_vec",
+        "sqlite-vec",
+        "mcp",
+        "keyring",
+        "cryptography",
+        "pypdf",
+        "python-docx",
+        "keyring.backends.SecretService",
+        "keyring.backends.libsecret",
+        "watchdog.observers.inotify",
+        "name=\"sahara\"",
+    ]
+    for fragment in required_fragments:
+        assert fragment in spec
+
+
+def test_linux_portable_docs_cover_supported_install_without_system_python() -> None:
+    doc = LINUX_DOC_FILE.read_text(encoding="utf-8")
+    install_doc = INSTALL_DOC.read_text(encoding="utf-8")
+
+    for text in (doc, install_doc):
+        assert "sahara-0.3.0-linux-x86_64.tar.gz" in text
+        assert "glibc 2.35" in text
+        assert "$HOME/.local/opt" in text
+        assert "$HOME/.local/bin/sahara" in text
+        assert "~/.sahara" in text
+        assert "Git, pip, pipx, or system Python" in text
+
+    assert "python scripts/build_linux_bundle.py" in doc
+    assert "python scripts/smoke_linux_bundle.py" in doc
+    assert "python scripts/package_native_artifacts.py --platform linux-x86_64" in doc
+
+
+def test_package_manager_docs_define_homebrew_and_winget_paths() -> None:
+    doc = PACKAGE_MANAGER_DOC.read_text(encoding="utf-8")
+    install_doc = INSTALL_DOC.read_text(encoding="utf-8")
+
+    assert "brew tap nidheesh-p/sahara" in doc
+    assert "brew install sahara" in install_doc
+    assert "winget install --id nidheesh-p.Sahara" in doc
+    assert "winget install --id nidheesh-p.Sahara" in install_doc
+    assert "OpenStack" in doc
+    assert "sahara-0.3.0-macos-arm64.pkg" in doc
+    assert "sahara-0.3.0-windows-x64-setup.exe" in doc
+
+
 def test_bundle_docs_include_build_and_smoke_commands() -> None:
     doc = DOC_FILE.read_text(encoding="utf-8")
 
     assert "python scripts/build_macos_bundle.py" in doc
     assert "python scripts/smoke_macos_bundle.py" in doc
     assert "python scripts/build_macos_installer.py --notarize" in doc
-    assert "sahara-0.2.1-macos-arm64" in doc
+    assert "sahara-0.3.0-macos-arm64" in doc
     assert "not shipped in the artifact" in doc
     assert "repository checkout or system Python" in doc
     assert "/Library/Application Support/Sahara/sahara/" in doc
@@ -110,6 +194,40 @@ def test_packages_and_verifies_native_artifact(tmp_path: Path) -> None:
 
     assert artifact.archive.name == "sahara-1.2.3-macos-arm64.tar.gz"
     verify_native_artifact(tmp_path / "artifacts", "sahara-1.2.3-macos-arm64")
+
+
+def test_packages_and_verifies_linux_native_artifact(tmp_path: Path) -> None:
+    bundle = tmp_path / "sahara-1.2.3-linux-x86_64"
+    bundle.mkdir()
+    executable = bundle / "sahara"
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    with (
+        patch("scripts.package_native_artifacts.write_dependency_inventory") as inventory,
+        patch("scripts.package_native_artifacts.run_smoke") as smoke,
+    ):
+        inventory.side_effect = lambda destination: destination.write_text(
+            "name,version\nsahara-memory,1.2.3\n",
+            encoding="utf-8",
+        )
+        smoke.side_effect = lambda _bundle, destination, **_kwargs: (
+            destination.write_text(
+                "command: smoke\nreturncode: 0\n",
+                encoding="utf-8",
+            )
+        )
+        artifact = package_native_artifact(
+            bundle,
+            tmp_path / "artifacts",
+            platform_name="linux-x86_64",
+        )
+
+    assert artifact.archive.name == "sahara-1.2.3-linux-x86_64.tar.gz"
+    verify_native_artifact(
+        tmp_path / "artifacts",
+        "sahara-1.2.3-linux-x86_64",
+        platform_name="linux-x86_64",
+    )
 
 
 def test_native_artifact_verification_rejects_bad_checksum(tmp_path: Path) -> None:
@@ -223,7 +341,7 @@ def test_macos_codesign_candidates_are_macho_files(tmp_path: Path) -> None:
 
 
 def test_builds_and_verifies_macos_installer_metadata(tmp_path: Path) -> None:
-    bundle = tmp_path / "sahara-0.2.1-macos-arm64"
+    bundle = tmp_path / "sahara-0.3.0-macos-arm64"
     bundle.mkdir()
     executable = bundle / "sahara"
     executable.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -251,7 +369,7 @@ def test_builds_and_verifies_macos_installer_metadata(tmp_path: Path) -> None:
 
     assert strip_metadata.call_count == 2
     sign_bundle.assert_called_once()
-    assert artifact.package.name == "sahara-0.2.1-macos-arm64.pkg"
+    assert artifact.package.name == "sahara-0.3.0-macos-arm64.pkg"
     verify_macos_installer(tmp_path / "installers", artifact.package.name)
     manifest = artifact.manifest.read_text(encoding="utf-8")
     assert PACKAGE_ID in manifest
@@ -263,7 +381,7 @@ def test_builds_and_verifies_macos_installer_metadata(tmp_path: Path) -> None:
 
 
 def test_macos_installer_notarization_requires_release_credentials(tmp_path: Path) -> None:
-    bundle = tmp_path / "sahara-0.2.1-macos-arm64"
+    bundle = tmp_path / "sahara-0.3.0-macos-arm64"
     bundle.mkdir()
     (bundle / "sahara").write_text("#!/bin/sh\n", encoding="utf-8")
 

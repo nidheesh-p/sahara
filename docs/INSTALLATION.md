@@ -11,7 +11,7 @@ For public Apple Silicon releases, download the signed and notarized
 from Terminal:
 
 ```bash
-sudo installer -pkg sahara-0.2.1-macos-arm64.pkg -target /
+sudo installer -pkg sahara-0.3.0-macos-arm64.pkg -target /
 sahara --version
 ```
 
@@ -47,7 +47,7 @@ For public Windows x64 releases, download the signed
 or install it quietly:
 
 ```powershell
-.\sahara-0.2.1-windows-x64-setup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
+.\sahara-0.3.0-windows-x64-setup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
 sahara --version
 ```
 
@@ -75,6 +75,55 @@ $uninstall = Join-Path $env:LOCALAPPDATA "Programs\Sahara\unins000.exe"
 
 The installer and uninstall commands preserve `%USERPROFILE%\.sahara`,
 configuration, indexes, credentials, and model caches by default.
+
+## Linux x86_64 Portable Archive
+
+For public Linux x86_64 releases, download
+`sahara-<version>-linux-x86_64.tar.gz` and its `.sha256` file from the GitHub release.
+The archive is built on Ubuntu 22.04 and supports x86_64 Linux distributions with
+glibc 2.35 or newer. Alpine Linux, older glibc distributions, other CPU
+architectures, and automatic Claude Desktop configuration are not supported by this
+portable path. Git, pip, pipx, or system Python are not required.
+
+Verify and install under your home directory:
+
+```bash
+shasum -a 256 -c sahara-0.3.0-linux-x86_64.tar.gz.sha256
+mkdir -p "$HOME/.local/opt" "$HOME/.local/bin"
+tar -xzf sahara-0.3.0-linux-x86_64.tar.gz -C "$HOME/.local/opt"
+ln -sfn "$HOME/.local/opt/sahara-0.3.0-linux-x86_64/sahara" "$HOME/.local/bin/sahara"
+sahara --version
+```
+
+Make sure `$HOME/.local/bin` is on `PATH`. Upgrade by unpacking the newer archive and
+repointing the symlink. Remove the portable runtime while preserving data:
+
+```bash
+rm -f "$HOME/.local/bin/sahara"
+rm -rf "$HOME/.local/opt/sahara-0.3.0-linux-x86_64"
+```
+
+These commands preserve `~/.sahara`, configuration, indexes, credentials, and model
+caches by default.
+
+## Package Managers
+
+After a stable GitHub release has published signed native installer assets, maintainers
+can publish package-manager entries from those same artifacts:
+
+```bash
+brew tap nidheesh-p/sahara
+brew install sahara
+```
+
+```powershell
+winget install --id nidheesh-p.Sahara
+```
+
+Package-manager checksums must match the GitHub release checksums, and the published
+commands must install this repository's `sahara` CLI rather than the unrelated
+OpenStack package. Maintainer templates live in
+[Package Manager Publishing](package-managers.md).
 
 ## Recommended: pipx
 
