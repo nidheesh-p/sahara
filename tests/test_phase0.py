@@ -96,7 +96,7 @@ def test_pyproject_extras_exist():
     content = toml_path.read_text()
     assert "ocr" in content
     assert "dev" in content
-    assert '"mcp>=1.14.0"' in content
+    assert '"mcp>=1.14.0,<2.0.0"' in content
 
 
 def test_pyproject_standard_maintainer_and_doc_urls():

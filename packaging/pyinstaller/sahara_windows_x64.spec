@@ -37,10 +37,13 @@ def _collect_dynamic_libs(package):
         return []
 
 
-def _collect_submodules(package):
+def _collect_submodules(package, *, filter=None):
     try:
+        if filter is not None:
+            return collect_submodules(package, filter=filter)
         return collect_submodules(package)
-    except Exception:
+    except Exception as exc:
+        print(f"WARNING: collect_submodules({package!r}) failed, bundling no hidden imports for it: {exc}")
         return []
 
 
@@ -69,7 +72,16 @@ binaries += _collect_dynamic_libs("cryptography")
 hiddenimports = []
 hiddenimports += _collect_submodules("fastembed")
 hiddenimports += _collect_submodules("sqlite_vec")
-hiddenimports += _collect_submodules("mcp")
+hiddenimports += _collect_submodules(
+    "mcp",
+    # mcp.cli.cli hard-imports typer, which Sahara does not depend on and
+    # does not need (Sahara never uses the mcp SDK's own CLI). Without this
+    # filter, collect_submodules() tries to import every mcp submodule to
+    # verify it, that import raises, and the except above silently drops
+    # ALL of mcp's submodules -- including mcp.server.fastmcp, which Sahara
+    # actually needs.
+    filter=lambda name: not name.startswith("mcp.cli"),
+)
 hiddenimports += [
     "docx",
     "keyring.backends.Windows",

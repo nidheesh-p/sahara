@@ -94,6 +94,24 @@ def _abort(msg: str) -> NoReturn:
     sys.exit(1)
 
 
+def _ensure_safe_console_output() -> None:
+    """Avoid crashing on Windows consoles that use a legacy codepage.
+
+    Sahara's CLI output uses Unicode symbols (checkmarks, box-drawing rules)
+    that codepages such as cp1252 cannot encode. Rather than force a specific
+    encoding (which risks garbling output on consoles that can't render
+    UTF-8), relax error handling so unsupported characters are replaced
+    instead of raising UnicodeEncodeError.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(errors="replace")
+            except Exception:
+                pass
+
+
 def _load_cfg(config_path: Path | None) -> SaharaConfig:
     return load_config(config_path or DEFAULT_CONFIG_PATH)
 
@@ -250,6 +268,7 @@ def _require_s3_tiers(config: SaharaConfig, feature: str) -> None:
 @click.pass_context
 def main(ctx: click.Context, config_path: Path | None) -> None:
     """Sahara — extended storage, searchable memory and instant retrieval."""
+    _ensure_safe_console_output()
     ctx.ensure_object(dict)
     ctx.obj["config_path"] = config_path
     ctx.obj["config"] = _load_cfg(config_path)
