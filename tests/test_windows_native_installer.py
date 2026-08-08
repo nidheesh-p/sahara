@@ -56,6 +56,7 @@ def test_windows_pyinstaller_spec_collects_required_resource_families() -> None:
         "sqlite_vec",
         "sqlite-vec",
         "mcp",
+        "mcp.cli",
         "keyring",
         "cryptography",
         "pypdf",

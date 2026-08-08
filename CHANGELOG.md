@@ -39,6 +39,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
   variable CI network throughput. The `native-artifacts` workflow now also uploads
   a debug artifact with the partial build/smoke output when a bundle job fails, so
   future failures are diagnosable without a local repro.
+- Fresh installs of the `mcp` extra no longer break. `mcp` released a `2.0.0` that
+  renamed `mcp.server.fastmcp` to `mcp.server.mcpserver`; Sahara's dependency was
+  unbounded (`mcp>=1.14.0`), so any new install pulled the breaking release and every
+  MCP-serving command failed. Pinned to `mcp>=1.14.0,<2.0.0` until Sahara migrates to
+  the new module layout. This only affected fresh installs — existing environments
+  with an older `mcp` already installed were unaffected, which is why it wasn't
+  caught sooner.
+- The native bundle's PyInstaller spec no longer silently drops every `mcp` hidden
+  import (including the one Sahara actually needs, `mcp.server.fastmcp`) when
+  collecting them. `collect_submodules("mcp")` tries to import each submodule to
+  verify it, `mcp.cli.cli` hard-imports the unrelated `typer` package to support
+  `mcp`'s own CLI tooling (which Sahara never uses), that import fails in a
+  minimal build environment, and a broad `except Exception` swallowed the whole
+  collection. Now filters out `mcp.cli.*` before collecting.
+- The CLI no longer crashes on Windows consoles using a legacy codepage (e.g.
+  cp1252). Unicode checkmarks and box-drawing characters in `_ok()`/`_section()`
+  raised `UnicodeEncodeError` on any command that prints them; output now degrades
+  to `?` placeholders instead of crashing the command.
 
 ---
 

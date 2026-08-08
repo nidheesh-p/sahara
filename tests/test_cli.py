@@ -76,6 +76,80 @@ def _make_mock_engine():
 # ---------------------------------------------------------------------------
 
 
+class TestSafeConsoleOutput:
+    def test_reconfigures_stdout_and_stderr_to_replace_errors(self):
+        from sahara.cli import _ensure_safe_console_output
+
+        fake_stdout = MagicMock()
+        fake_stderr = MagicMock()
+        with patch("sahara.cli.sys.stdout", fake_stdout), patch(
+            "sahara.cli.sys.stderr", fake_stderr
+        ):
+            _ensure_safe_console_output()
+
+        fake_stdout.reconfigure.assert_called_once_with(errors="replace")
+        fake_stderr.reconfigure.assert_called_once_with(errors="replace")
+
+    def test_tolerates_streams_without_reconfigure(self):
+        from sahara.cli import _ensure_safe_console_output
+
+        class NoReconfigure:
+            pass
+
+        with patch("sahara.cli.sys.stdout", NoReconfigure()), patch(
+            "sahara.cli.sys.stderr", NoReconfigure()
+        ):
+            _ensure_safe_console_output()  # Should not raise.
+
+    def test_tolerates_reconfigure_raising(self):
+        from sahara.cli import _ensure_safe_console_output
+
+        fake_stdout = MagicMock()
+        fake_stdout.reconfigure.side_effect = ValueError("already detached")
+        with patch("sahara.cli.sys.stdout", fake_stdout), patch(
+            "sahara.cli.sys.stderr", MagicMock()
+        ):
+            _ensure_safe_console_output()  # Should not raise.
+
+    def test_setup_command_does_not_crash_on_legacy_codepage_stdout(
+        self, tmp_path: Path
+    ):
+        """Regression test: a Windows cp1252 console previously crashed on the
+        Unicode checkmarks/box-drawing characters in _ok()/_section()."""
+        import os
+        import subprocess
+        import sys as sys_module
+
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        config_path = tmp_path / "config.toml"
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+
+        result = subprocess.run(
+            [
+                sys_module.executable,
+                "-c",
+                "from sahara.cli import main; main()",
+                "--config",
+                str(config_path),
+                "setup",
+                "--folder",
+                str(folder),
+                "--yes",
+                "--no-index",
+                "--no-mcp",
+                "--no-doctor",
+                "--no-daemon",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "UnicodeEncodeError" not in result.stderr
+
+
 class TestHelp:
     def test_help_shows_help_text(self):
         runner = _runner()

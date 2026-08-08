@@ -60,7 +60,10 @@ ocr = [
     "Pillow>=10.0.0",
 ]
 mcp = [
-    "mcp>=1.14.0",
+    # mcp 2.0.0 renamed mcp.server.fastmcp to mcp.server.mcpserver, breaking
+    # sahara/mcp_server.py's imports. Pin below it until Sahara migrates to
+    # the new module layout.
+    "mcp>=1.14.0,<2.0.0",
 ]
 dev = [
     "pytest>=8.0.0",
