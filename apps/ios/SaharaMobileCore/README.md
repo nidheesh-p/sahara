@@ -9,6 +9,8 @@ This package currently includes:
 - `KeychainDeviceConfigurationStore` for paired-device secrets;
 - `SaharaMobileAPIClient` for `/v1/memories` and `/v1/recall`;
 - `EncryptedCaptureOutboxStore` for offline capture retry state.
+- `SaharaMobileApp`, a SwiftUI-facing app shell with pairing import, quick capture,
+  recall, and pending-outbox status.
 
 Local package test:
 

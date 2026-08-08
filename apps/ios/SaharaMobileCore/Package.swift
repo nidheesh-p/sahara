@@ -13,14 +13,26 @@ let package = Package(
             name: "SaharaMobileCore",
             targets: ["SaharaMobileCore"]
         ),
+        .library(
+            name: "SaharaMobileApp",
+            targets: ["SaharaMobileApp"]
+        ),
     ],
     targets: [
         .target(
             name: "SaharaMobileCore"
         ),
+        .target(
+            name: "SaharaMobileApp",
+            dependencies: ["SaharaMobileCore"]
+        ),
         .testTarget(
             name: "SaharaMobileCoreTests",
             dependencies: ["SaharaMobileCore"]
+        ),
+        .testTarget(
+            name: "SaharaMobileAppTests",
+            dependencies: ["SaharaMobileApp"]
         ),
     ]
 )
