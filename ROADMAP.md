@@ -41,7 +41,8 @@ for the implementation sequence and compatibility plan.
 - **Guided onboarding:** add an idempotent `sahara setup` path for local search and MCP
 - **Standalone runtime:** bundle Sahara, semantic-search dependencies, and MCP support
   without requiring a system Python installation
-- **Native installers:** support macOS Apple Silicon and Windows x64 first
+- **Native installers:** ship the signed macOS Apple Silicon installer first; Windows
+  x64 follows once code-signing is set up (see #106)
 - **Release automation:** produce checksummed native artifacts only on manual or release
   workflows to control Actions usage
 - **Package managers:** publish Homebrew and WinGet installation paths after native
