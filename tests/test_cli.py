@@ -1289,15 +1289,187 @@ class TestSetup:
                     "--no-index",
                     "--no-doctor",
                 ],
-                # Continue with setup, decline auto-indexing, connect Claude Desktop.
-                input="y\nn\ny\n",
+                # Continue with setup, decline auto-indexing, connect Claude
+                # Desktop, decline memory write.
+                input="y\nn\ny\nn\n",
             )
 
         assert result.exit_code == 0, result.output
         assert "Skipping automatic re-indexing" in result.output
         mock_run.assert_not_called()
+        assert "Memory stays read-only for now" in result.output
         assert "Installed Sahara in Claude Desktop" in result.output
-        assert '"sahara"' in claude_config.read_text(encoding="utf-8")
+        claude_config_text = claude_config.read_text(encoding="utf-8")
+        assert '"sahara"' in claude_config_text
+        assert "--enable-memory-write" not in claude_config_text
+
+    def test_first_run_enable_memory_write_flag_passes_through(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        claude_config = tmp_path / "Claude" / "claude_desktop_config.json"
+        executable = tmp_path / "sahara"
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.cli._claude_desktop_detected", return_value=True
+        ), patch(
+            "sahara.claude_desktop.detect_claude_config_path",
+            return_value=claude_config,
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=executable,
+        ), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-auto-index",
+                    "--no-doctor",
+                    "--enable-memory-write",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Memory capture is enabled" in result.output
+        assert "--enable-memory-write" in claude_config.read_text(encoding="utf-8")
+
+    def test_first_run_no_enable_memory_write_flag_stays_read_only(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        claude_config = tmp_path / "Claude" / "claude_desktop_config.json"
+        executable = tmp_path / "sahara"
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.cli._claude_desktop_detected", return_value=True
+        ), patch(
+            "sahara.claude_desktop.detect_claude_config_path",
+            return_value=claude_config,
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=executable,
+        ), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-auto-index",
+                    "--no-doctor",
+                    "--no-enable-memory-write",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Memory stays read-only for now" in result.output
+        assert "--enable-memory-write" not in claude_config.read_text(encoding="utf-8")
+
+    def test_first_run_yes_defaults_memory_write_off_without_prompting(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        claude_config = tmp_path / "Claude" / "claude_desktop_config.json"
+        executable = tmp_path / "sahara"
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.cli._claude_desktop_detected", return_value=True
+        ), patch(
+            "sahara.claude_desktop.detect_claude_config_path",
+            return_value=claude_config,
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=executable,
+        ), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-auto-index",
+                    "--no-doctor",
+                ],
+                # No input supplied: a real prompt here would abort the run.
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Memory stays read-only for now" in result.output
+        assert "--enable-memory-write" not in claude_config.read_text(encoding="utf-8")
+
+    def test_first_run_prompts_for_memory_write_when_interactive(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        claude_config = tmp_path / "Claude" / "claude_desktop_config.json"
+        executable = tmp_path / "sahara"
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.cli._claude_desktop_detected", return_value=True
+        ), patch(
+            "sahara.claude_desktop.detect_claude_config_path",
+            return_value=claude_config,
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=executable,
+        ), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-doctor",
+                ],
+                # Continue setup, decline auto-index, connect Claude Desktop,
+                # accept memory write.
+                input="y\nn\ny\ny\n",
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Memory capture is enabled" in result.output
+        assert "--enable-memory-write" in claude_config.read_text(encoding="utf-8")
 
     def test_first_run_auto_index_flag_spawns_daemon_start(
         self, tmp_path, monkeypatch

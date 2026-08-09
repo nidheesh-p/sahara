@@ -132,7 +132,8 @@ selection, indexing, or Claude Desktop configuration as `root`. Set
 
 The first-run flow lets the user choose folders to index, builds the first index with
 consent, asks whether to keep the index automatically current in the background going
-forward, and offers to connect Claude Desktop when it is detected. It can be relaunched
+forward, and offers to connect Claude Desktop when it is detected — including whether
+Claude may save things to Sahara memory, off by default. It can be relaunched
 with `sahara-first-run` or `sahara first-run`.
 
 Upgrades replace only the installed bundle directory and command shim. User data,

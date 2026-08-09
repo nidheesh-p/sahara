@@ -123,7 +123,8 @@ sahara first-run
 
 The first-run flow lets the user choose one or more folders, builds the first index
 with consent, asks whether to keep the index automatically current in the background
-going forward, and offers to connect Claude Desktop when it is detected. Silent
+going forward, and offers to connect Claude Desktop when it is detected — including
+whether Claude may save things to Sahara memory, off by default. Silent
 installs skip the first-run launch.
 
 Quiet installation for clean-machine validation:

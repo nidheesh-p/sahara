@@ -19,6 +19,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
   non-interactive runs.
 - `sahara doctor` reports whether the background index watcher is running and whether
   autostart is installed.
+- `sahara first-run` now asks whether to let Claude save things to Sahara memory when
+  connecting Claude Desktop, instead of silently defaulting `sahara_remember` off with
+  no indication the capability exists. Supports `--enable-memory-write`/
+  `--no-enable-memory-write` for non-interactive runs; declining (or the unattended
+  default) prints how to enable it later (`sahara mcp install-claude
+  --enable-memory-write`).
 
 ### Fixed
 
