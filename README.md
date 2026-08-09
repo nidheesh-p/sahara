@@ -14,10 +14,11 @@ External drives, MinIO, and AWS storage are optional extensions, not prerequisit
 **Local-first:** indexing and semantic search run on your computer. No account, API
 key, storage bucket, or additional drive is required for the core search experience.
 
-**Latest release:** [v0.2.1](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.1).
-A signed, notarized native macOS installer, a Windows (x64) installer, a Linux x86_64
-portable archive, guided first-run onboarding, and opt-in MCP memory capture are merged
-and verified on `main`, shipping in the next release. See the [changelog](CHANGELOG.md).
+**Latest release:** [v0.3.0](https://github.com/nidheesh-p/sahara/releases/tag/v0.3.0)
+adds a signed, notarized native macOS installer, guided first-run onboarding, and
+opt-in MCP memory capture. A Windows (x64) installer and a Linux x86_64 portable
+archive build successfully but aren't signed/published yet ([#106](https://github.com/nidheesh-p/sahara/issues/106),
+[#48](https://github.com/nidheesh-p/sahara/issues/48)). See the [changelog](CHANGELOG.md).
 
 ![Fictional Sahara retrieval examples: timeline reconstruction, vendor lookup, and honest missing-data handling](docs/images/sahara-memory-demo.svg)
 
@@ -43,15 +44,17 @@ service, autonomous agent, or general filesystem access layer.
 
 ### Native app — no Python required
 
-A signed, notarized installer is available for macOS (Apple Silicon), plus a Windows
-(x64) installer and a portable Linux x86_64 archive — no Git, Python, pip, or pipx
-needed. Download the installer for your platform from the
+A signed, notarized installer is available for macOS (Apple Silicon) — no Git,
+Python, pip, or pipx needed. Download it from the
 [GitHub releases page](https://github.com/nidheesh-p/sahara/releases) and run it.
 Guided first-run setup walks you through choosing folders, building the first index,
 keeping it automatically current, and optionally connecting Claude Desktop — including
 whether to let Claude save things to Sahara memory, off by default.
 
-See [Installation](docs/INSTALLATION.md) for exact steps per platform.
+A Windows (x64) installer and a Linux x86_64 portable archive build successfully from
+source today but aren't signed and published yet — see
+[Installation](docs/INSTALLATION.md) for exact steps per platform, including building
+those yourself in the meantime.
 
 ### CLI via pipx
 
