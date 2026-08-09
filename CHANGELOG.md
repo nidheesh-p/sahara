@@ -8,8 +8,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-09
+
 ### Added
 
+- Signed and notarized macOS Apple Silicon native installer packaging built from the
+  standalone Sahara runtime. The signed `.pkg` is attached to this release.
+- Release-only native artifact workflows build one-folder bundles and installer
+  packages for macOS, Windows x64, and Linux x86_64, with checksums, manifests,
+  dependency inventories, and smoke logs. Only the macOS installer is signed and
+  published in this release; Windows code-signing is tracked in #106 and Linux
+  publishing in #48 — both build successfully today but are not yet attached to a
+  release.
+- `sahara first-run` onboarding for native installers, including native folder
+  selection, setup/index confirmation, and opt-in Claude Desktop MCP configuration
 - `sahara first-run` now asks whether to keep the index automatically current in the
   background going forward, instead of silently skipping the decision. Opting in
   starts the background index watcher and installs the platform autostart entry
@@ -25,6 +37,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
   `--no-enable-memory-write` for non-interactive runs; declining (or the unattended
   default) prints how to enable it later (`sahara mcp install-claude
   --enable-memory-write`).
+- `sahara models prepare` for pre-downloading the local embedding model before
+  indexing
+- Guided `sahara setup` onboarding with setup health checks and optional automation
+- iPhone mobile setup artifacts, companion-app foundation package, and mobile workflow
+  planning for future app work
+
+### Changed
+
+- Standalone answer generation is now disabled by default on new configurations;
+  semantic search, retrieval-only `sahara ask`, and MCP access no longer require
+  Ollama or OpenAI
+- User installation guidance now recommends `pipx` and documents a virtual-environment
+  fallback for PEP 668 `externally-managed-environment` errors
+- The MCP extra now requires MCP SDK 1.14.0 or newer for authenticated HTTP token
+  verification, with a concise upgrade error for stale environments
+- Release docs now describe native installer validation, first-run onboarding, upgrade,
+  uninstall, clean-machine checks for macOS, Windows, and Linux, plus Homebrew and
+  WinGet publishing templates
 
 ### Fixed
 
@@ -63,47 +93,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
   cp1252). Unicode checkmarks and box-drawing characters in `_ok()`/`_section()`
   raised `UnicodeEncodeError` on any command that prints them; output now degrades
   to `?` placeholders instead of crashing the command.
-
----
-
-## [0.3.0] — 2026-07-23
-
-### Added
-
-- Signed and notarized macOS Apple Silicon native installer packaging built from the
-  standalone Sahara runtime
-- Windows x64 native runtime and per-user installer packaging with PATH setup, quiet
-  install support, Authenticode signing support, and user-data preservation
-- Release-only native artifact workflows for macOS and Windows bundles, installers,
-  checksums, manifests, dependency inventories, and smoke logs
-- Portable Linux x86_64 native archive packaging with checksum, dependency inventory,
-  manifest, smoke log, and documented glibc compatibility scope
-- Native installer assets are now uploaded to the matching GitHub Release so normal
-  users can download the macOS `.pkg`, Windows setup `.exe`, and Linux portable
-  `.tar.gz` from Releases
-- `sahara first-run` onboarding for native installers, including native folder
-  selection, setup/index confirmation, and opt-in Claude Desktop MCP configuration
-- `sahara models prepare` for pre-downloading the local embedding model before
-  indexing
-- Guided `sahara setup` onboarding with setup health checks and optional automation
-- iPhone mobile setup artifacts, companion-app foundation package, and mobile workflow
-  planning for future app work
-
-### Changed
-
-- Standalone answer generation is now disabled by default on new configurations;
-  semantic search, retrieval-only `sahara ask`, and MCP access no longer require
-  Ollama or OpenAI
-- User installation guidance now recommends `pipx` and documents a virtual-environment
-  fallback for PEP 668 `externally-managed-environment` errors
-- The MCP extra now requires MCP SDK 1.14.0 or newer for authenticated HTTP token
-  verification, with a concise upgrade error for stale environments
-- Release docs now describe native installer validation, first-run onboarding, upgrade,
-  uninstall, clean-machine checks for macOS, Windows, and Linux, plus Homebrew and
-  WinGet publishing templates
-
-### Fixed
-
 - Mobile API request handling now uses request-scoped database sessions and more robust
   input validation
 - Saved config list values now escape backslashes and quotes correctly in TOML
