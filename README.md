@@ -44,12 +44,32 @@ service, autonomous agent, or general filesystem access layer.
 
 ### Native app — no Python required
 
-A signed, notarized installer is available for macOS (Apple Silicon) — no Git,
-Python, pip, or pipx needed. Download it from the
-[GitHub releases page](https://github.com/nidheesh-p/sahara/releases) and run it.
-Guided first-run setup walks you through choosing folders, building the first index,
-keeping it automatically current, and optionally connecting Claude Desktop — including
-whether to let Claude save things to Sahara memory, off by default.
+A signed, notarized installer is available for **macOS on Apple Silicon** (M1/M2/M3/M4)
+— no Git, Python, pip, or pipx needed. This does not run on Intel Macs; if you have an
+Intel Mac, use [CLI via pipx](#cli-via-pipx) below instead.
+
+1. Download the installer:
+   [sahara-0.3.0-macos-arm64.pkg](https://github.com/nidheesh-p/sahara/releases/download/v0.3.0/sahara-0.3.0-macos-arm64.pkg)
+   (the release page also lists a `.sha256` checksum and a manifest file — you can
+   ignore both, they're for verification, not installation).
+2. Open **Terminal** and go to the folder you downloaded it to (usually Downloads):
+   ```bash
+   cd ~/Downloads
+   ```
+3. Install it:
+   ```bash
+   sudo installer -pkg sahara-0.3.0-macos-arm64.pkg -target /
+   ```
+   This asks for your Mac login password (for `sudo`), not a separate Sahara password.
+4. Confirm it installed:
+   ```bash
+   sahara --version
+   ```
+5. A new Terminal window opens automatically a few seconds after step 3 and walks you
+   through first-run setup: choosing folders to index, building the first index,
+   keeping it automatically current, and optionally connecting Claude Desktop —
+   including whether to let Claude save things to Sahara memory, off by default. If it
+   doesn't open on its own, run `sahara-first-run` yourself.
 
 A Windows (x64) installer and a Linux x86_64 portable archive build successfully from
 source today but aren't signed and published yet — see
