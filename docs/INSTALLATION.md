@@ -6,25 +6,40 @@ OpenStack package named `sahara`.
 
 ## macOS Apple Silicon Installer
 
-For public Apple Silicon releases, download the signed and notarized
-`sahara-<version>-macos-arm64.pkg` from the GitHub release, then install it normally or
-from Terminal:
+This installer requires **Apple Silicon** (M1/M2/M3/M4). It does not run on Intel
+Macs — an arm64 binary cannot execute on Intel hardware. If you have an Intel Mac,
+use the [pipx path](#recommended-pipx) below instead.
+
+Download the signed and notarized installer:
+[sahara-0.3.0-macos-arm64.pkg](https://github.com/nidheesh-p/sahara/releases/download/v0.3.0/sahara-0.3.0-macos-arm64.pkg).
+The release page also lists a `.sha256` checksum and a manifest file; both are for
+verification only, not needed to install.
+
+Install it either by double-clicking the downloaded file and following the graphical
+installer, or from Terminal:
 
 ```bash
+cd ~/Downloads  # or wherever the .pkg downloaded to
 sudo installer -pkg sahara-0.3.0-macos-arm64.pkg -target /
 sahara --version
 ```
 
+`sudo` asks for your Mac login password, not a separate Sahara password. The first
+command installs the package; the second is a separate command, run afterward, to
+confirm `sahara` is on `PATH`.
+
 The installer includes Sahara's Python runtime and native dependencies. It installs
 the bundle under `/Library/Application Support/Sahara/sahara/` and exposes
 `/usr/local/bin/sahara`, so Git, Python, pip, and pipx are not required for this path.
-At the end of a normal graphical install, Sahara opens first-run setup for the
-current user. The setup flow lets the user choose folders to index, builds the first
-index with consent, asks whether to keep the index automatically current in the
-background going forward, and offers to connect Claude Desktop when it is detected —
-including whether Claude may save things to Sahara memory, off by default.
-
-To relaunch setup later:
+A few seconds after either install path finishes, a new Terminal window opens on its
+own and walks the current user through first-run setup: choosing folders to index,
+building the first index with consent, asking whether to keep the index automatically
+current in the background going forward, and offering to connect Claude Desktop when
+it is detected — including whether Claude may save things to Sahara memory, off by
+default. This requires an active logged-in graphical session; set
+`SAHARA_SKIP_FIRST_RUN_LAUNCH=1` before installing to skip the automatic launch (used
+by automated/CI installs), or run it yourself at any time (also useful to relaunch
+setup later):
 
 ```bash
 sahara-first-run
