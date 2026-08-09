@@ -103,7 +103,8 @@ Use this checklist before publishing a Sahara release.
 - Run `sahara first-run`, select test folders, accept indexing, opt in to Claude
   Desktop configuration when detected, and confirm both the accept and decline paths
   of the automatic background re-indexing prompt (`sahara doctor` should reflect
-  whichever choice was made).
+  whichever choice was made) and of the memory-write prompt (the Claude Desktop
+  config should contain `--enable-memory-write` only when accepted).
 - Upgrade over the previous native package and confirm `~/.sahara`, configured
   folders, and existing indexes remain usable.
 - Uninstall with the documented native package commands and confirm `~/.sahara`
@@ -134,7 +135,8 @@ Use this checklist before publishing a Sahara release.
 - Run `sahara first-run`, select test folders, accept indexing, opt in to Claude
   Desktop configuration when detected, and confirm both the accept and decline paths
   of the automatic background re-indexing prompt (`sahara doctor` should reflect
-  whichever choice was made).
+  whichever choice was made) and of the memory-write prompt (the Claude Desktop
+  config should contain `--enable-memory-write` only when accepted).
 - Upgrade over the previous Windows package and confirm `%USERPROFILE%\.sahara`,
   configured folders, and existing indexes remain usable.
 - Uninstall with the documented quiet uninstall command and confirm

@@ -857,6 +857,15 @@ def setup(
     ),
 )
 @click.option(
+    "--enable-memory-write/--no-enable-memory-write",
+    "enable_memory_write",
+    default=None,
+    help=(
+        "Let Claude save things to Sahara memory when explicitly asked. "
+        "Prompts if not set; defaults to off for unattended (--yes) runs."
+    ),
+)
+@click.option(
     "--no-doctor",
     is_flag=True,
     help="Skip the configuration health check at the end.",
@@ -870,6 +879,7 @@ def first_run(
     no_index: bool,
     no_mcp: bool,
     auto_index: bool | None,
+    enable_memory_write: bool | None,
     no_doctor: bool,
 ) -> None:
     """Run native installer first-run onboarding for the current user."""
@@ -1003,8 +1013,25 @@ def first_run(
         _info("Run `sahara mcp install-claude` later to connect manually.")
         return
 
+    want_memory_write = enable_memory_write
+    if want_memory_write is None:
+        want_memory_write = (
+            False
+            if assume_yes
+            else click.confirm(
+                "  Let Claude save things to Sahara memory when you "
+                "explicitly ask it to?",
+                default=False,
+            )
+        )
+    if not want_memory_write:
+        _info(
+            "Memory stays read-only for now. Run `sahara mcp install-claude "
+            "--enable-memory-write` later to let Claude save things when asked."
+        )
+
     try:
-        ctx.invoke(mcp_install_claude)
+        ctx.invoke(mcp_install_claude, enable_memory_write=want_memory_write)
     except Exception as exc:
         _warn(f"Claude Desktop setup failed: {exc}")
         _info("Run `sahara mcp install-claude` later to connect manually.")

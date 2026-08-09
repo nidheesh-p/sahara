@@ -21,7 +21,8 @@ the bundle under `/Library/Application Support/Sahara/sahara/` and exposes
 At the end of a normal graphical install, Sahara opens first-run setup for the
 current user. The setup flow lets the user choose folders to index, builds the first
 index with consent, asks whether to keep the index automatically current in the
-background going forward, and offers to connect Claude Desktop when it is detected.
+background going forward, and offers to connect Claude Desktop when it is detected —
+including whether Claude may save things to Sahara memory, off by default.
 
 To relaunch setup later:
 
@@ -58,7 +59,8 @@ the user's `PATH`, so Git, Python, pip, and pipx are not required for this path.
 At the end of a normal graphical install, Sahara offers to launch first-run setup.
 The setup flow lets the user choose folders to index, builds the first index with
 consent, asks whether to keep the index automatically current in the background
-going forward, and offers to connect Claude Desktop when it is detected. Quiet installs skip
+going forward, and offers to connect Claude Desktop when it is detected — including
+whether Claude may save things to Sahara memory, off by default. Quiet installs skip
 the first-run launch.
 
 To relaunch setup later:
