@@ -14,10 +14,10 @@ External drives, MinIO, and AWS storage are optional extensions, not prerequisit
 **Local-first:** indexing and semantic search run on your computer. No account, API
 key, storage bucket, or additional drive is required for the core search experience.
 
-**Latest release:** [v0.3.0](https://github.com/nidheesh-p/sahara/releases/tag/v0.3.0)
-(July 23, 2026) adds native macOS and Windows installers, a Linux x86_64 portable
-archive, guided first-run folder selection, first index setup, and optional Claude
-Desktop connection without Git or Python. See the [changelog](CHANGELOG.md).
+**Latest release:** [v0.2.1](https://github.com/nidheesh-p/sahara/releases/tag/v0.2.1).
+A signed, notarized native macOS installer, a Windows (x64) installer, a Linux x86_64
+portable archive, guided first-run onboarding, and opt-in MCP memory capture are merged
+and verified on `main`, shipping in the next release. See the [changelog](CHANGELOG.md).
 
 ![Fictional Sahara retrieval examples: timeline reconstruction, vendor lookup, and honest missing-data handling](docs/images/sahara-memory-demo.svg)
 
@@ -30,7 +30,9 @@ absent.</sub>
 - Searches PDFs, DOCX files, EPUB ebooks, notes, code, and other text documents by meaning
 - Answers questions over indexed files with source paths and supporting snippets
 - Indexes multiple folders without copying them to a storage backend
-- Exposes read-only search and Q&A tools through MCP
+- Exposes read-only search and Q&A tools through MCP, plus an opt-in tool that lets
+  an MCP client (like Claude Desktop) save something to Sahara memory when you
+  explicitly ask it to
 - Optionally syncs selected folders to a drive, NAS, MinIO, or AWS S3
 - Can offload verified stored files while keeping their indexed content searchable
 
@@ -38,6 +40,20 @@ Sahara is a single-user CLI and local retrieval service. It is not a hosted clou
 service, autonomous agent, or general filesystem access layer.
 
 ## Quick Start
+
+### Native app — no Python required
+
+A signed, notarized installer is available for macOS (Apple Silicon), plus a Windows
+(x64) installer and a portable Linux x86_64 archive — no Git, Python, pip, or pipx
+needed. Download the installer for your platform from the
+[GitHub releases page](https://github.com/nidheesh-p/sahara/releases) and run it.
+Guided first-run setup walks you through choosing folders, building the first index,
+keeping it automatically current, and optionally connecting Claude Desktop — including
+whether to let Claude save things to Sahara memory, off by default.
+
+See [Installation](docs/INSTALLATION.md) for exact steps per platform.
+
+### CLI via pipx
 
 Sahara requires Python 3.11 or newer.
 
@@ -182,6 +198,9 @@ To let Claude save a memory only when you explicitly ask it to, opt in locally:
 ```bash
 sahara mcp install-claude --enable-memory-write
 ```
+
+The native app's guided `sahara-first-run` asks this as a yes/no question when it
+connects Claude Desktop, instead of requiring you to know this flag exists.
 
 This adds the create-only `sahara_remember` tool. It is unavailable over HTTP/SSE and
 cannot edit, delete, sync, browse arbitrary paths, or run shell commands.
