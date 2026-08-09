@@ -44,14 +44,20 @@ credentials, and model caches by default.
 
 ## Windows x64 Installer
 
-For public Windows x64 releases, download the signed
-`sahara-<version>-windows-x64-setup.exe` from the GitHub release, then run it normally
-or install it quietly:
+The Windows x64 installer builds successfully today, but is not yet attached to a
+published release — code-signing is still being set up, tracked in
+[#106](https://github.com/nidheesh-p/sahara/issues/106). Until a signed release
+ships, build it yourself from source (see
+[Windows x64 Native Installer](windows-x64-installer.md)) and run the resulting
+unsigned `sahara-<version>-windows-x64-setup.exe` normally or install it quietly:
 
 ```powershell
 .\sahara-0.3.0-windows-x64-setup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
 sahara --version
 ```
+
+Windows SmartScreen will warn about an unrecognized publisher until a signed build is
+published; this is expected for an unsigned local build.
 
 The installer includes Sahara's Python runtime and native dependencies. It installs
 for the current user under `%LOCALAPPDATA%\Programs\Sahara` and adds that directory to
@@ -82,12 +88,15 @@ configuration, indexes, credentials, and model caches by default.
 
 ## Linux x86_64 Portable Archive
 
-For public Linux x86_64 releases, download
-`sahara-<version>-linux-x86_64.tar.gz` and its `.sha256` file from the GitHub release.
-The archive is built on Ubuntu 22.04 and supports x86_64 Linux distributions with
-glibc 2.35 or newer. Alpine Linux, older glibc distributions, other CPU
-architectures, and automatic Claude Desktop configuration are not supported by this
-portable path. Git, pip, pipx, or system Python are not required.
+The Linux x86_64 portable archive builds successfully today, but is not yet attached
+to a published release — publishing it is tracked in
+[#48](https://github.com/nidheesh-p/sahara/issues/48). Until then, build it yourself
+from source (see [Linux x86_64 Portable Runtime](linux-x86_64-portable.md)), which
+produces `sahara-<version>-linux-x86_64.tar.gz` and its `.sha256` file. The archive is
+built on Ubuntu 22.04 and supports x86_64 Linux distributions with glibc 2.35 or
+newer. Alpine Linux, older glibc distributions, other CPU architectures, and automatic
+Claude Desktop configuration are not supported by this portable path.
+Git, pip, pipx, or system Python are not required to run the built archive.
 
 Verify and install under your home directory:
 
