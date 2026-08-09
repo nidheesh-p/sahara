@@ -27,8 +27,22 @@ A new user on a supported platform can:
 - upgrade or uninstall the application without deleting `~/.sahara`, indexed data, or
   user configuration unless they explicitly request data removal.
 
-The initial native release is complete when this flow is verified on a clean macOS
-Apple Silicon machine and a clean Windows x64 machine.
+## Release Sequencing
+
+The initial native release ships macOS Apple Silicon only, once this flow is verified
+on a clean machine (done — see #105). Windows x64 was originally planned to ship
+alongside macOS, but its code-signing setup turned out to be materially harder: unlike
+Apple's Developer ID (a single account, an exportable certificate), CA/Browser Forum
+rules since June 2023 require Windows code-signing private keys to live on secure
+hardware (a physical USB token or a cloud HSM) rather than an exportable `.pfx` —
+incompatible with the plain-PFX signing our current build script and GitHub-hosted
+Actions runners use. Resolving that (most likely Azure Trusted Signing or a CA's cloud
+HSM offering, both of which need script changes) is tracked separately in #106 and is
+not a release blocker for macOS.
+
+Decision: ship the macOS installer first, gauge reception, then extend to Windows once
+#106's code-signing approach is settled. Windows remains in scope for this plan, just
+sequenced as a fast-follow rather than a joint launch.
 
 ## Product Decisions
 
@@ -78,8 +92,9 @@ not require re-indexing.
 
 The first supported artifacts should be:
 
-- macOS Apple Silicon: signed and notarized installer package;
-- Windows x64: signed installer;
+- macOS Apple Silicon: signed and notarized installer package (first release);
+- Windows x64: signed installer (fast-follow once #106's code-signing is set up; see
+  Release Sequencing above);
 - Linux x86_64: portable archive for glibc 2.35 or newer distributions.
 
 Package-manager distribution follows stable native artifacts:
@@ -209,13 +224,13 @@ time for the first successful search.
 - Generate checksums and dependency inventory.
 - Reuse built bundles in platform installer jobs.
 
-### Milestone 4: Supported macOS installer
+### Milestone 4: Supported macOS installer (ships first)
 
 - Create the installer package.
 - Add signing, notarization, upgrade, and uninstall validation.
 - Publish a clean-machine installation guide.
 
-### Milestone 5: Supported Windows installer
+### Milestone 5: Supported Windows installer (fast-follow)
 
 - Build the Windows x64 bundle and installer.
 - Add per-user installation, `PATH`, upgrade, and uninstall validation.
