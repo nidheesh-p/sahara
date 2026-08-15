@@ -1471,6 +1471,172 @@ class TestSetup:
         assert "Memory capture is enabled" in result.output
         assert "--enable-memory-write" in claude_config.read_text(encoding="utf-8")
 
+    def _assert_ends_with_completion_banner(self, output: str) -> None:
+        lines = [line for line in output.splitlines() if line.strip()]
+        assert "Setup complete" in lines[-3], output
+        assert "Try a search" in lines[-2], output
+        assert "Optional next steps" in lines[-1], output
+
+    def test_first_run_banner_comes_after_the_final_prompts(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        claude_config = tmp_path / "Claude" / "claude_desktop_config.json"
+        executable = tmp_path / "sahara"
+        executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.cli._claude_desktop_detected", return_value=True
+        ), patch(
+            "sahara.claude_desktop.detect_claude_config_path",
+            return_value=claude_config,
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=executable,
+        ), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-auto-index",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        self._assert_ends_with_completion_banner(result.output)
+
+    def test_first_run_banner_is_last_when_mcp_is_skipped(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-auto-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        self._assert_ends_with_completion_banner(result.output)
+
+    def test_first_run_banner_is_last_when_claude_desktop_is_absent(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.cli._claude_desktop_detected", return_value=False
+        ), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-auto-index",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Claude Desktop not detected" in result.output
+        self._assert_ends_with_completion_banner(result.output)
+
+    def test_first_run_banner_is_last_when_claude_connection_declined(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.cli._claude_desktop_detected", return_value=True
+        ), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-doctor",
+                ],
+                # Continue setup, decline auto-index, decline Claude Desktop.
+                input="y\nn\nn\n",
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "connect manually" in result.output
+        self._assert_ends_with_completion_banner(result.output)
+
+    def test_setup_alone_still_ends_with_the_banner(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "setup",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                    "--no-daemon",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        self._assert_ends_with_completion_banner(result.output)
+
     def test_first_run_auto_index_flag_spawns_daemon_start(
         self, tmp_path, monkeypatch
     ):

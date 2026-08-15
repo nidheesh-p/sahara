@@ -563,6 +563,64 @@ def init(
 # ---------------------------------------------------------------------------
 
 
+def _first_run_connect_claude_desktop(
+    ctx: click.Context,
+    *,
+    assume_yes: bool,
+    enable_memory_write: bool | None,
+) -> None:
+    """Offer to connect Claude Desktop as the last step of first-run onboarding."""
+    click.echo()
+    _section("Claude Desktop")
+    if not _claude_desktop_detected():
+        _info(
+            "Claude Desktop not detected. Run `sahara mcp install-claude` "
+            "later to connect it."
+        )
+        return
+
+    connect = assume_yes or click.confirm(
+        "  Connect Sahara to Claude Desktop now?", default=True
+    )
+    if not connect:
+        _info("Run `sahara mcp install-claude` later to connect manually.")
+        return
+
+    want_memory_write = enable_memory_write
+    if want_memory_write is None:
+        want_memory_write = (
+            False
+            if assume_yes
+            else click.confirm(
+                "  Let Claude save things to Sahara memory when you "
+                "explicitly ask it to?",
+                default=False,
+            )
+        )
+    if not want_memory_write:
+        _info(
+            "Memory stays read-only for now. Run `sahara mcp install-claude "
+            "--enable-memory-write` later to let Claude save things when asked."
+        )
+
+    try:
+        ctx.invoke(mcp_install_claude, enable_memory_write=want_memory_write)
+    except Exception as exc:
+        _warn(f"Claude Desktop setup failed: {exc}")
+        _info("Run `sahara mcp install-claude` later to connect manually.")
+
+
+def _print_setup_complete() -> None:
+    """Announce that onboarding is over. Only the last step may call this."""
+    click.echo()
+    _ok("Setup complete.")
+    _info('Try a search, e.g. `sahara search "a phrase you remember" --snippet`.')
+    _info(
+        "Optional next steps: `sahara remember` to capture knowledge, "
+        "`sahara storage configure` for backup, or see docs/GETTING_STARTED.md."
+    )
+
+
 def _claude_desktop_detected() -> bool:
     """Return True when Claude Desktop appears installed on this machine."""
     from sahara.claude_desktop import detect_claude_config_path
@@ -667,6 +725,12 @@ def _run_setup_smoke_test(ctx: click.Context) -> None:
     is_flag=True,
     help="Skip the background index watcher step.",
 )
+@click.option(
+    "--defer-completion-banner",
+    is_flag=True,
+    hidden=True,
+    help="Leave the completion banner to the caller, which has more steps to run.",
+)
 @click.pass_context
 def setup(
     ctx: click.Context,
@@ -679,6 +743,7 @@ def setup(
     smoke_test: bool,
     daemon: bool,
     no_daemon: bool,
+    defer_completion_banner: bool,
 ) -> None:
     """Take Sahara from an installed CLI to a working local semantic index."""
     if daemon and no_daemon:
@@ -809,13 +874,8 @@ def setup(
         ctx.invoke(doctor, repair=False)
 
     # 8. Done.
-    click.echo()
-    _ok("Setup complete.")
-    _info('Try a search, e.g. `sahara search "a phrase you remember" --snippet`.')
-    _info(
-        "Optional next steps: `sahara remember` to capture knowledge, "
-        "`sahara storage configure` for backup, or see docs/GETTING_STARTED.md."
-    )
+    if not defer_completion_banner:
+        _print_setup_complete()
 
 
 @main.command("first-run")
@@ -932,6 +992,7 @@ def first_run(
         smoke_test=False,
         daemon=False,
         no_daemon=True,
+        defer_completion_banner=True,
     )
 
     click.echo()
@@ -994,47 +1055,14 @@ def first_run(
                 "--autostart`."
             )
 
-    if no_mcp:
-        return
-
-    click.echo()
-    _section("Claude Desktop")
-    if not _claude_desktop_detected():
-        _info(
-            "Claude Desktop not detected. Run `sahara mcp install-claude` "
-            "later to connect it."
-        )
-        return
-
-    connect = assume_yes or click.confirm(
-        "  Connect Sahara to Claude Desktop now?", default=True
-    )
-    if not connect:
-        _info("Run `sahara mcp install-claude` later to connect manually.")
-        return
-
-    want_memory_write = enable_memory_write
-    if want_memory_write is None:
-        want_memory_write = (
-            False
-            if assume_yes
-            else click.confirm(
-                "  Let Claude save things to Sahara memory when you "
-                "explicitly ask it to?",
-                default=False,
-            )
-        )
-    if not want_memory_write:
-        _info(
-            "Memory stays read-only for now. Run `sahara mcp install-claude "
-            "--enable-memory-write` later to let Claude save things when asked."
+    if not no_mcp:
+        _first_run_connect_claude_desktop(
+            ctx,
+            assume_yes=assume_yes,
+            enable_memory_write=enable_memory_write,
         )
 
-    try:
-        ctx.invoke(mcp_install_claude, enable_memory_write=want_memory_write)
-    except Exception as exc:
-        _warn(f"Claude Desktop setup failed: {exc}")
-        _info("Run `sahara mcp install-claude` later to connect manually.")
+    _print_setup_complete()
 
 
 # ---------------------------------------------------------------------------
