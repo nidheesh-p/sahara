@@ -214,6 +214,64 @@ class TestGetModelImportError:
                 engine._get_model()
 
 
+class TestQuietHFDownload:
+    def test_quiet_hf_download_disables_bars_and_warnings_then_restores(self):
+        """First-run model download must not spew tqdm bars or HF warnings (#120)."""
+        import logging as _logging
+
+        from huggingface_hub.utils import (
+            are_progress_bars_disabled,
+            disable_progress_bars,
+            enable_progress_bars,
+        )
+        from huggingface_hub.utils import logging as hf_logging
+
+        from sahara.search.search_engine import _quiet_hf_download
+
+        orig_disabled = are_progress_bars_disabled()
+        orig_verbosity = hf_logging.get_verbosity()
+        try:
+            enable_progress_bars()
+            hf_logging.set_verbosity_warning()
+            with _quiet_hf_download():
+                assert are_progress_bars_disabled() is True
+                assert hf_logging.get_verbosity() >= _logging.ERROR
+            # state restored to what it was on entry
+            assert are_progress_bars_disabled() is False
+            assert hf_logging.get_verbosity() == _logging.WARNING
+        finally:
+            (disable_progress_bars if orig_disabled else enable_progress_bars)()
+            hf_logging.set_verbosity(orig_verbosity)
+
+    def test_load_embedding_model_downloads_quietly(self):
+        """load_embedding_model keeps HF quiet while the model is constructed."""
+        from huggingface_hub.utils import (
+            are_progress_bars_disabled,
+            disable_progress_bars,
+            enable_progress_bars,
+        )
+
+        from sahara.search import search_engine
+
+        captured = {}
+
+        class _SpyEmbedding:
+            def __init__(self, *args, **kwargs):
+                captured["bars_disabled_during_download"] = are_progress_bars_disabled()
+
+        orig_disabled = are_progress_bars_disabled()
+        try:
+            enable_progress_bars()
+            with patch("fastembed.TextEmbedding", _SpyEmbedding):
+                search_engine.load_embedding_model()
+
+            assert captured["bars_disabled_during_download"] is True
+            # not left globally disabled after the download finishes
+            assert are_progress_bars_disabled() is False
+        finally:
+            (disable_progress_bars if orig_disabled else enable_progress_bars)()
+
+
 # ---------------------------------------------------------------------------
 # SearchEngine — vec path (mocked has_vec_table)
 # ---------------------------------------------------------------------------
