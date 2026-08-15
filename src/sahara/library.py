@@ -7,7 +7,7 @@ import os
 import tempfile
 import unicodedata
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from filelock import FileLock
@@ -41,6 +41,7 @@ _WINDOWS_RESERVED_NAMES = {
     *(f"LPT{number}" for number in range(1, 10)),
 }
 _WINDOWS_FORBIDDEN_CHARS = frozenset('<>:"|?*')
+SKIPPED_SAMPLE_LIMIT = 5
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,18 @@ class IndexRunResult:
     unsupported: int = 0
     no_text: int = 0
     unchanged: int = 0
+    skipped_samples: dict[str, list[str]] = field(default_factory=dict)
+
+    def record_skipped_sample(self, reason: str, display_path: str) -> None:
+        """Remember a skipped file's path, up to SKIPPED_SAMPLE_LIMIT per reason."""
+        samples = self.skipped_samples.setdefault(reason, [])
+        if len(samples) < SKIPPED_SAMPLE_LIMIT:
+            samples.append(display_path)
+
+
+def _display_path(storage_prefix: str, relative_path: str) -> str:
+    """Render a file the way `sahara index-report` names it."""
+    return f"{storage_prefix}/{relative_path}" if storage_prefix else relative_path
 
 
 def _rows_to_content_roots(rows: list[dict]) -> list[ContentRoot]:
@@ -456,6 +469,11 @@ class IndexingService:
                     result.skipped += 1
                     if hasattr(result, indexed.reason):
                         setattr(result, indexed.reason, getattr(result, indexed.reason) + 1)
+                        if indexed.reason != "unchanged":
+                            result.record_skipped_sample(
+                                indexed.reason,
+                                _display_path(root.storage_prefix, relative_path),
+                            )
             except Exception as exc:
                 try:
                     stat = file_path.stat()
@@ -492,6 +510,9 @@ class IndexingService:
             )
             self._db.delete_search_index_for_file(
                 root.storage_prefix, relative_path
+            )
+            result.record_skipped_sample(
+                "missing", _display_path(root.storage_prefix, relative_path)
             )
         result.missing += len(missing)
 

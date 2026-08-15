@@ -333,6 +333,77 @@ def test_indexing_scans_content_root_without_sync_records(tmp_path: Path) -> Non
         assert db.count_tracked_files() == 0
 
 
+def test_indexing_records_paths_of_skipped_files(tmp_path: Path) -> None:
+    content = tmp_path / "documents"
+    content.mkdir()
+    (content / "empty.txt").write_text("", encoding="utf-8")
+    (content / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    config = SaharaConfig(sync_folder=str(content), storage_mode="none")
+
+    with StateDB(tmp_path / "state.db") as db:
+        result = IndexingService(config, db).index()
+
+    assert result.no_text == 1
+    assert result.unsupported == 1
+    assert result.skipped_samples["no_text"] == ["empty.txt"]
+    assert result.skipped_samples["unsupported"] == ["photo.png"]
+
+
+def test_indexing_samples_at_most_five_paths_per_reason(tmp_path: Path) -> None:
+    content = tmp_path / "documents"
+    content.mkdir()
+    for number in range(7):
+        (content / f"photo{number}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    config = SaharaConfig(sync_folder=str(content), storage_mode="none")
+
+    with StateDB(tmp_path / "state.db") as db:
+        result = IndexingService(config, db).index()
+
+    assert result.unsupported == 7
+    assert len(result.skipped_samples["unsupported"]) == 5
+
+
+def test_indexing_does_not_sample_unchanged_files(tmp_path: Path) -> None:
+    content = tmp_path / "documents"
+    content.mkdir()
+    (content / "note.txt").write_text("A known phrase", encoding="utf-8")
+    config = SaharaConfig(sync_folder=str(content), storage_mode="none")
+
+    with StateDB(tmp_path / "state.db") as db:
+        service = IndexingService(config, db)
+        with patch.object(
+            service._search,
+            "index_file_with_result",
+            return_value=IndexFileResult(indexed=False, reason="unchanged"),
+        ):
+            result = service.index()
+
+    assert result.unchanged == 1
+    assert "unchanged" not in result.skipped_samples
+
+
+def test_indexing_records_paths_of_files_that_disappeared(tmp_path: Path) -> None:
+    content = tmp_path / "documents"
+    content.mkdir()
+    config = SaharaConfig(sync_folder=str(content), storage_mode="none")
+
+    with StateDB(tmp_path / "state.db") as db:
+        ensure_content_roots(config, db)
+        db.upsert_index_entry(
+            "",
+            "gone.txt",
+            content_hash="hash",
+            size_bytes=4,
+            modified_ns=1,
+            status="indexed",
+        )
+
+        result = IndexingService(config, db).index()
+
+    assert result.missing == 1
+    assert result.skipped_samples["missing"] == ["gone.txt"]
+
+
 def test_indexing_removes_search_data_for_deleted_file(tmp_path: Path) -> None:
     content = tmp_path / "documents"
     content.mkdir()

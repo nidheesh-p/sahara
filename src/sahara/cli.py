@@ -8,7 +8,7 @@ import os
 import sys
 from importlib import resources
 from pathlib import Path
-from typing import Any, Literal, NoReturn, cast
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
 
 import click
 
@@ -19,6 +19,9 @@ from sahara.config import (
     load_config,
     save_config,
 )
+
+if TYPE_CHECKING:
+    from sahara.library import IndexRunResult
 
 __all__ = ["main"]
 
@@ -2844,6 +2847,38 @@ def models_prepare() -> None:
 # index
 # ---------------------------------------------------------------------------
 
+# Plain-language phrasing for the reasons a file was not indexed. Ordered so the
+# files a user may want to act on come before routine no-ops.
+_SKIP_REASON_PHRASES = {
+    "no_text": "skipped: no readable text (e.g. an image or an empty file)",
+    "unsupported": "skipped: unsupported file type",
+    "missing": "no longer on disk — removed from the index",
+    "unchanged": "already up to date",
+}
+
+
+def _report_skip_reasons(result: IndexRunResult) -> None:
+    """Explain, in plain language, which files were not indexed and why."""
+    counts = {
+        "no_text": result.no_text,
+        "unsupported": result.unsupported,
+        "missing": result.missing,
+        "unchanged": result.unchanged,
+    }
+    for reason, count in counts.items():
+        if not count:
+            continue
+        noun = "file" if count == 1 else "files"
+        _info(f"{count} {noun} {_SKIP_REASON_PHRASES[reason]}")
+        samples = sorted(result.skipped_samples.get(reason, []))
+        for display_path in samples:
+            _info(f"  - {display_path}")
+        remaining = count - len(samples)
+        if samples and remaining > 0:
+            _info(
+                f"  … and {remaining} more — run `sahara index-report` to list them"
+            )
+
 
 @main.command("index")
 @click.option("--folder", "-f", default=None, help="Index only this folder (local path).")
@@ -2880,17 +2915,7 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
             f"Done — {result.indexed} indexed, {result.skipped} skipped, "
             f"{result.failed} failed."
         )
-        reasons = {
-            "unchanged": result.unchanged,
-            "unsupported": result.unsupported,
-            "no_text": result.no_text,
-            "missing": result.missing,
-        }
-        reason_text = ", ".join(
-            f"{reason}={count}" for reason, count in reasons.items() if count
-        )
-        if reason_text:
-            _info(f"Details: {reason_text}")
+        _report_skip_reasons(result)
         _info(f"Total in index: {db.count_embeddings()} file(s).")
     finally:
         db.close()
