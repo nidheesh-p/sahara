@@ -1180,8 +1180,9 @@ def doctor(ctx: click.Context, repair: bool) -> None:
     if db_path.exists():
         try:
             with StateDB(db_path) as db:
-                count = len(db.list_files())
-            _ok(f"State DB OK ({count} file records).")
+                indexed = db.count_embeddings()
+                tracked = db.count_tracked_files()
+            _ok(f"State DB OK ({indexed} indexed, {tracked} tracked).")
         except Exception as exc:
             _warn(f"State DB error: {exc}")
             issues += 1
