@@ -662,6 +662,33 @@ class TestDoctor:
         assert "Background index watcher: running." in result.output
         assert "autostart not enabled" in result.output.lower()
 
+    def test_doctor_reports_indexed_count_in_basic_mode(self, tmp_path: Path):
+        """State DB line must reflect indexed files, not the sync-files table.
+
+        In basic (index-only) mode, files get embeddings but no tracked-file
+        rows, so the sync-files table is empty while there are indexed files.
+        Reporting "0 file records" contradicts a successful index (#119).
+        """
+        from sahara.storage.state_db import StateDB
+
+        runner = _runner()
+        config_path = tmp_path / "cfg.toml"
+        save_config(SaharaConfig(sync_folder=str(tmp_path / "sync")), config_path)
+        (tmp_path / "sync").mkdir(exist_ok=True)
+
+        db_path = tmp_path / "state.db"
+        with StateDB(db_path) as db:
+            for i in range(3):
+                db.upsert_embedding("", f"doc{i}.md", f"hash{i}", "[]", "snippet")
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(main, ["--config", str(config_path), "doctor"])
+
+        assert result.exit_code == 0, result.output
+        assert "State DB OK" in result.output
+        assert "3 indexed" in result.output
+        assert "0 file records" not in result.output
+
 
 # ---------------------------------------------------------------------------
 # daemon status
