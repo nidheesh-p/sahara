@@ -912,6 +912,70 @@ class TestModelsPrepare:
         assert "200 MB" not in result.output
 
 
+class TestIndexSkipReporting:
+    def _index(self, tmp_path: Path, content: Path):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            f'sync_folder = "{content}"\nstorage_mode = "none"\n',
+            encoding="utf-8",
+        )
+        with patch("sahara.storage.state_db.DB_PATH", tmp_path / "state.db"):
+            return _runner().invoke(main, ["--config", str(config_path), "index"])
+
+    def test_skip_reasons_are_reported_in_plain_language(self, tmp_path: Path):
+        content = tmp_path / "documents"
+        content.mkdir()
+        (content / "empty.txt").write_text("", encoding="utf-8")
+        (content / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        result = self._index(tmp_path, content)
+
+        assert result.exit_code == 0
+        assert "no readable text" in result.output
+        assert "unsupported file type" in result.output
+        assert "no_text=" not in result.output
+
+    def test_skipped_files_are_named(self, tmp_path: Path):
+        content = tmp_path / "documents"
+        content.mkdir()
+        (content / "empty.txt").write_text("", encoding="utf-8")
+
+        result = self._index(tmp_path, content)
+
+        assert result.exit_code == 0
+        assert "empty.txt" in result.output
+
+    def test_named_files_are_listed_alphabetically(self, capsys):
+        """Directory walk order is arbitrary; the report must not look shuffled."""
+        from sahara.cli import _report_skip_reasons
+        from sahara.library import IndexRunResult
+
+        result = IndexRunResult(skipped=3, unsupported=3)
+        for name in ("gamma.png", "alpha.png", "beta.png"):
+            result.record_skipped_sample("unsupported", name)
+
+        _report_skip_reasons(result)
+
+        listed = [
+            line.strip()[2:]
+            for line in capsys.readouterr().out.splitlines()
+            if line.strip().startswith("- ")
+        ]
+        assert listed == ["alpha.png", "beta.png", "gamma.png"]
+
+    def test_long_skip_lists_are_truncated_with_a_pointer(self, tmp_path: Path):
+        content = tmp_path / "documents"
+        content.mkdir()
+        for number in range(7):
+            (content / f"photo{number}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        result = self._index(tmp_path, content)
+
+        assert result.exit_code == 0
+        assert "and 2 more" in result.output
+        assert "sahara index-report" in result.output
+
+
 # ---------------------------------------------------------------------------
 # setup
 # ---------------------------------------------------------------------------
