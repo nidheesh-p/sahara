@@ -735,12 +735,12 @@ def setup(
     if not no_index:
         build = assume_yes or click.confirm(
             "  Prepare the embedding model and build the first index now? "
-            "(downloads ~200 MB on first use)",
+            "(downloads ~70 MB on first use)",
             default=True,
         )
         if build:
             ctx.invoke(models_prepare)
-            ctx.invoke(index_cmd)
+            ctx.invoke(index_cmd, assume_model_ready=True)
             indexed_during_setup = True
 
     # 4. Optional smoke test.
@@ -2826,7 +2826,7 @@ def models_prepare() -> None:
     from sahara.search.search_engine import EMBEDDING_MODEL_NAME, load_embedding_model
 
     _info(f"Preparing local embedding model: {EMBEDDING_MODEL_NAME}")
-    _info("First-time setup downloads the model (~200 MB); cached runs are fast.")
+    _info("First-time setup downloads the model (~70 MB); cached runs are fast.")
     _info(
         "Hugging Face authentication is optional; its anonymous-download "
         "warning is harmless."
@@ -2849,8 +2849,16 @@ def models_prepare() -> None:
 @main.command("index")
 @click.option("--folder", "-f", default=None, help="Index only this folder (local path).")
 @click.option("--force", is_flag=True, help="Re-index all files even if unchanged.")
+@click.option(
+    "--assume-model-ready",
+    is_flag=True,
+    hidden=True,
+    help="Skip the model-download notice (the model was already prepared this run).",
+)
 @click.pass_context
-def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
+def index_cmd(
+    ctx: click.Context, folder: str | None, force: bool, assume_model_ready: bool
+) -> None:
     """Index file contents for semantic search."""
     config: SaharaConfig = ctx.obj["config"]
     _require_library_config(config)
@@ -2862,10 +2870,10 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
     try:
         service = IndexingService(config, db)
         root_path = Path(folder) if folder else None
-        if db.count_embeddings() == 0:
+        if db.count_embeddings() == 0 and not assume_model_ready:
             _info(
                 "Preparing semantic search. First use may download the local "
-                "embedding model (~200 MB)."
+                "embedding model (~70 MB)."
             )
             _info(
                 "Hugging Face authentication is optional; its anonymous-download "

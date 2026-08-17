@@ -899,6 +899,18 @@ class TestModelsPrepare:
         # Each run loads the model independently; both succeed the same way.
         assert mock_load.call_count == 2
 
+    def test_prepare_reports_accurate_model_size(self):
+        """The download-size copy must match reality (~70 MB), not ~200 MB (#122)."""
+        runner = _runner()
+        with patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeEmbeddingModel(),
+        ):
+            result = runner.invoke(main, ["models", "prepare"])
+        assert result.exit_code == 0
+        assert "70 MB" in result.output
+        assert "200 MB" not in result.output
+
 
 # ---------------------------------------------------------------------------
 # setup
@@ -1195,6 +1207,41 @@ class TestSetup:
 
         assert result.exit_code == 0, result.output
         assert "Smoke test passed" in result.output
+
+    def test_setup_does_not_duplicate_model_download_notice(
+        self, tmp_path, monkeypatch
+    ):
+        """Setup prepares the model once; the index step must not repeat the
+        download notice in the same run (#122)."""
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        (folder / "note.txt").write_text("Some indexable content")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeSearchModel(),
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "setup",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        # models_prepare owns the download notice during setup.
+        assert "downloads the model" in result.output
+        # index_cmd must not repeat its own download notice in the same run.
+        assert "First use may download" not in result.output
 
     def test_setup_mcp_failure_does_not_abort(self, tmp_path, monkeypatch):
         config_path, db_path = self._isolate(tmp_path, monkeypatch)
