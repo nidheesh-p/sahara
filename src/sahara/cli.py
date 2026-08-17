@@ -8,7 +8,7 @@ import os
 import sys
 from importlib import resources
 from pathlib import Path
-from typing import Any, Literal, NoReturn, cast
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
 
 import click
 
@@ -19,6 +19,9 @@ from sahara.config import (
     load_config,
     save_config,
 )
+
+if TYPE_CHECKING:
+    from sahara.library import IndexRunResult
 
 __all__ = ["main"]
 
@@ -800,12 +803,12 @@ def setup(
     if not no_index:
         build = assume_yes or click.confirm(
             "  Prepare the embedding model and build the first index now? "
-            "(downloads ~200 MB on first use)",
+            "(downloads ~70 MB on first use)",
             default=True,
         )
         if build:
             ctx.invoke(models_prepare)
-            ctx.invoke(index_cmd)
+            ctx.invoke(index_cmd, assume_model_ready=True)
             indexed_during_setup = True
 
     # 4. Optional smoke test.
@@ -1208,8 +1211,9 @@ def doctor(ctx: click.Context, repair: bool) -> None:
     if db_path.exists():
         try:
             with StateDB(db_path) as db:
-                count = len(db.list_files())
-            _ok(f"State DB OK ({count} file records).")
+                indexed = db.count_embeddings()
+                tracked = db.count_tracked_files()
+            _ok(f"State DB OK ({indexed} indexed, {tracked} tracked).")
         except Exception as exc:
             _warn(f"State DB error: {exc}")
             issues += 1
@@ -2853,7 +2857,7 @@ def models_prepare() -> None:
     from sahara.search.search_engine import EMBEDDING_MODEL_NAME, load_embedding_model
 
     _info(f"Preparing local embedding model: {EMBEDDING_MODEL_NAME}")
-    _info("First-time setup downloads the model (~200 MB); cached runs are fast.")
+    _info("First-time setup downloads the model (~70 MB); cached runs are fast.")
     _info(
         "Hugging Face authentication is optional; its anonymous-download "
         "warning is harmless."
@@ -2872,12 +2876,52 @@ def models_prepare() -> None:
 # index
 # ---------------------------------------------------------------------------
 
+# Plain-language phrasing for the reasons a file was not indexed. Ordered so the
+# files a user may want to act on come before routine no-ops.
+_SKIP_REASON_PHRASES = {
+    "no_text": "skipped: no readable text (e.g. an image or an empty file)",
+    "unsupported": "skipped: unsupported file type",
+    "missing": "no longer on disk — removed from the index",
+    "unchanged": "already up to date",
+}
+
+
+def _report_skip_reasons(result: IndexRunResult) -> None:
+    """Explain, in plain language, which files were not indexed and why."""
+    counts = {
+        "no_text": result.no_text,
+        "unsupported": result.unsupported,
+        "missing": result.missing,
+        "unchanged": result.unchanged,
+    }
+    for reason, count in counts.items():
+        if not count:
+            continue
+        noun = "file" if count == 1 else "files"
+        _info(f"{count} {noun} {_SKIP_REASON_PHRASES[reason]}")
+        samples = sorted(result.skipped_samples.get(reason, []))
+        for display_path in samples:
+            _info(f"  - {display_path}")
+        remaining = count - len(samples)
+        if samples and remaining > 0:
+            _info(
+                f"  … and {remaining} more — run `sahara index-report` to list them"
+            )
+
 
 @main.command("index")
 @click.option("--folder", "-f", default=None, help="Index only this folder (local path).")
 @click.option("--force", is_flag=True, help="Re-index all files even if unchanged.")
+@click.option(
+    "--assume-model-ready",
+    is_flag=True,
+    hidden=True,
+    help="Skip the model-download notice (the model was already prepared this run).",
+)
 @click.pass_context
-def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
+def index_cmd(
+    ctx: click.Context, folder: str | None, force: bool, assume_model_ready: bool
+) -> None:
     """Index file contents for semantic search."""
     config: SaharaConfig = ctx.obj["config"]
     _require_library_config(config)
@@ -2889,10 +2933,10 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
     try:
         service = IndexingService(config, db)
         root_path = Path(folder) if folder else None
-        if db.count_embeddings() == 0:
+        if db.count_embeddings() == 0 and not assume_model_ready:
             _info(
                 "Preparing semantic search. First use may download the local "
-                "embedding model (~200 MB)."
+                "embedding model (~70 MB)."
             )
             _info(
                 "Hugging Face authentication is optional; its anonymous-download "
@@ -2908,17 +2952,7 @@ def index_cmd(ctx: click.Context, folder: str | None, force: bool) -> None:
             f"Done — {result.indexed} indexed, {result.skipped} skipped, "
             f"{result.failed} failed."
         )
-        reasons = {
-            "unchanged": result.unchanged,
-            "unsupported": result.unsupported,
-            "no_text": result.no_text,
-            "missing": result.missing,
-        }
-        reason_text = ", ".join(
-            f"{reason}={count}" for reason, count in reasons.items() if count
-        )
-        if reason_text:
-            _info(f"Details: {reason_text}")
+        _report_skip_reasons(result)
         _info(f"Total in index: {db.count_embeddings()} file(s).")
     finally:
         db.close()

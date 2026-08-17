@@ -662,6 +662,33 @@ class TestDoctor:
         assert "Background index watcher: running." in result.output
         assert "autostart not enabled" in result.output.lower()
 
+    def test_doctor_reports_indexed_count_in_basic_mode(self, tmp_path: Path):
+        """State DB line must reflect indexed files, not the sync-files table.
+
+        In basic (index-only) mode, files get embeddings but no tracked-file
+        rows, so the sync-files table is empty while there are indexed files.
+        Reporting "0 file records" contradicts a successful index (#119).
+        """
+        from sahara.storage.state_db import StateDB
+
+        runner = _runner()
+        config_path = tmp_path / "cfg.toml"
+        save_config(SaharaConfig(sync_folder=str(tmp_path / "sync")), config_path)
+        (tmp_path / "sync").mkdir(exist_ok=True)
+
+        db_path = tmp_path / "state.db"
+        with StateDB(db_path) as db:
+            for i in range(3):
+                db.upsert_embedding("", f"doc{i}.md", f"hash{i}", "[]", "snippet")
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(main, ["--config", str(config_path), "doctor"])
+
+        assert result.exit_code == 0, result.output
+        assert "State DB OK" in result.output
+        assert "3 indexed" in result.output
+        assert "0 file records" not in result.output
+
 
 # ---------------------------------------------------------------------------
 # daemon status
@@ -871,6 +898,82 @@ class TestModelsPrepare:
         assert "ready" in second.output.lower()
         # Each run loads the model independently; both succeed the same way.
         assert mock_load.call_count == 2
+
+    def test_prepare_reports_accurate_model_size(self):
+        """The download-size copy must match reality (~70 MB), not ~200 MB (#122)."""
+        runner = _runner()
+        with patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeEmbeddingModel(),
+        ):
+            result = runner.invoke(main, ["models", "prepare"])
+        assert result.exit_code == 0
+        assert "70 MB" in result.output
+        assert "200 MB" not in result.output
+
+
+class TestIndexSkipReporting:
+    def _index(self, tmp_path: Path, content: Path):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            f'sync_folder = "{content}"\nstorage_mode = "none"\n',
+            encoding="utf-8",
+        )
+        with patch("sahara.storage.state_db.DB_PATH", tmp_path / "state.db"):
+            return _runner().invoke(main, ["--config", str(config_path), "index"])
+
+    def test_skip_reasons_are_reported_in_plain_language(self, tmp_path: Path):
+        content = tmp_path / "documents"
+        content.mkdir()
+        (content / "empty.txt").write_text("", encoding="utf-8")
+        (content / "photo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        result = self._index(tmp_path, content)
+
+        assert result.exit_code == 0
+        assert "no readable text" in result.output
+        assert "unsupported file type" in result.output
+        assert "no_text=" not in result.output
+
+    def test_skipped_files_are_named(self, tmp_path: Path):
+        content = tmp_path / "documents"
+        content.mkdir()
+        (content / "empty.txt").write_text("", encoding="utf-8")
+
+        result = self._index(tmp_path, content)
+
+        assert result.exit_code == 0
+        assert "empty.txt" in result.output
+
+    def test_named_files_are_listed_alphabetically(self, capsys):
+        """Directory walk order is arbitrary; the report must not look shuffled."""
+        from sahara.cli import _report_skip_reasons
+        from sahara.library import IndexRunResult
+
+        result = IndexRunResult(skipped=3, unsupported=3)
+        for name in ("gamma.png", "alpha.png", "beta.png"):
+            result.record_skipped_sample("unsupported", name)
+
+        _report_skip_reasons(result)
+
+        listed = [
+            line.strip()[2:]
+            for line in capsys.readouterr().out.splitlines()
+            if line.strip().startswith("- ")
+        ]
+        assert listed == ["alpha.png", "beta.png", "gamma.png"]
+
+    def test_long_skip_lists_are_truncated_with_a_pointer(self, tmp_path: Path):
+        content = tmp_path / "documents"
+        content.mkdir()
+        for number in range(7):
+            (content / f"photo{number}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        result = self._index(tmp_path, content)
+
+        assert result.exit_code == 0
+        assert "and 2 more" in result.output
+        assert "sahara index-report" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -1168,6 +1271,41 @@ class TestSetup:
 
         assert result.exit_code == 0, result.output
         assert "Smoke test passed" in result.output
+
+    def test_setup_does_not_duplicate_model_download_notice(
+        self, tmp_path, monkeypatch
+    ):
+        """Setup prepares the model once; the index step must not repeat the
+        download notice in the same run (#122)."""
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        (folder / "note.txt").write_text("Some indexable content")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.search.search_engine.load_embedding_model",
+            return_value=_FakeSearchModel(),
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "setup",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        # models_prepare owns the download notice during setup.
+        assert "downloads the model" in result.output
+        # index_cmd must not repeat its own download notice in the same run.
+        assert "First use may download" not in result.output
 
     def test_setup_mcp_failure_does_not_abort(self, tmp_path, monkeypatch):
         config_path, db_path = self._isolate(tmp_path, monkeypatch)

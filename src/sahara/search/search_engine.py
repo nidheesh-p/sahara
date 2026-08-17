@@ -41,7 +41,35 @@ def load_embedding_model() -> Any:
             "fastembed is required for semantic search. "
             "Install it with: pip install 'sahara-memory[search]'"
         )
-    return TextEmbedding(model_name=EMBEDDING_MODEL_NAME)
+    with _quiet_hf_download():
+        return TextEmbedding(model_name=EMBEDDING_MODEL_NAME)
+
+
+@contextmanager
+def _quiet_hf_download() -> Any:
+    """Silence Hugging Face progress bars and warnings during model download.
+
+    First use otherwise emits overprinting tqdm progress bars and a harmless
+    "unauthenticated requests to the HF Hub" warning that clutter first-run
+    setup output. Sahara prints its own clean status lines around the download.
+    """
+    from huggingface_hub.utils import (
+        are_progress_bars_disabled,
+        disable_progress_bars,
+        enable_progress_bars,
+    )
+    from huggingface_hub.utils import logging as hf_logging
+
+    was_disabled = are_progress_bars_disabled()
+    old_verbosity = hf_logging.get_verbosity()
+    try:
+        disable_progress_bars()
+        hf_logging.set_verbosity_error()
+        yield
+    finally:
+        if not was_disabled:
+            enable_progress_bars()
+        hf_logging.set_verbosity(old_verbosity)
 
 
 @dataclass(frozen=True)
