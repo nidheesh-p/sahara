@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "updated_at": "2026-11-16T07:07:18.890742Z",
+  "tasks": [
+    {
+      "id": "first-run-auto-index-default",
+      "status": "planned",
+      "brief": ".selfware/briefs/first-run-auto-index-default.txt",
+      "owns": [
+        "src/sahara/cli.py",
+        "tests/test_cli.py"
+      ],
+      "attempts": 0,
+      "updated_at": "2026-11-16T07:07:18.806308Z"
+    },
+    {
+      "id": "first-run-scan-preview",
+      "status": "planned",
+      "brief": ".selfware/briefs/first-run-scan-preview.txt",
+      "needs": [
+        "first-run-auto-index-default"
+      ],
+      "owns": [
+        "src/sahara/scan_preview.py",
+        "src/sahara/cli.py",
+        "tests/test_scan_preview.py",
+        "tests/test_cli.py"
+      ],
+      "attempts": 0,
+      "updated_at": "2026-11-16T07:07:18.890742Z"
+    },
+    {
+      "id": "retrieval-eval-harness",
+      "status": "planned",
+      "brief": ".selfware/briefs/retrieval-eval-harness.txt",
+      "owns": [
+        "src/sahara/eval/",
+        "tests/eval/",
+        "tests/test_eval_harness.py"
+      ],
+      "attempts": 0,
+      "updated_at": "2026-11-16T07:07:18.721315Z"
+    }
+  ],
+  "counts": {
+    "planned": 3
+  }
+}

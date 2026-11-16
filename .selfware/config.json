@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "workers": [
+    {
+      "name": "default",
+      "adapter": "claude",
+      "model": "claude-opus-5-5",
+      "max_parallel": 4
+    }
+  ],
+  "limits": {},
+  "feedback": {
+    "submit": "ask"
+  },
+  "gates": {
+    "env_allow": [
+      "HOME",
+      "LANG",
+      "TMPDIR",
+      "PATH",
+      "HF_*",
+      "XDG_*"
+    ]
+  }
+}

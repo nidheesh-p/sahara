@@ -1,0 +1,16 @@
+owns: src/sahara/cli.py, tests/test_cli.py
+needs: none
+class: code-in-repo
+kind: fix
+gate: /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/ruff check src tests
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest tests/test_cli.py -q
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest -q
+
+# TASK: first-run-auto-index-default — default the first-run auto-reindex prompt to Yes (GitHub #126)
+
+In src/sahara/cli.py, the first-run command asks "Keep this index automatically up to date in the background from now on?" with default=False. Change the interactive default to True and reword the prompt so the consequence of No is explicit, for example "Keep this index automatically up to date in the background? (Choose No and new or changed files will not be searchable until you run 'sahara index')". Keep the unattended behaviour unchanged: with --assume-yes and no --auto-index flag the watcher stays off, and --auto-index / --no-auto-index still win over everything. Update the decline message only if the new wording contradicts it.
+Add tests in tests/test_cli.py following the existing first-run test style: (1) pressing Enter at the prompt starts the daemon path, (2) answering n skips it and prints the enable-later hint, (3) --assume-yes without a flag skips it. Do not change any other prompt. At most one write per response.
+
+## Checks
+
+Run every gate above in order and report each command with its real exit status (cmd; echo "exit=$?"), never behind a pipe.

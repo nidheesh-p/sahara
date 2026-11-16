@@ -1,0 +1,19 @@
+owns: src/sahara/eval/ (new), tests/eval/ (new), tests/test_eval_harness.py (new)
+needs: none
+class: code-in-repo
+kind: feature
+gate: /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/ruff check src tests
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest tests/test_eval_harness.py -q
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest -q
+
+# TASK: retrieval-eval-harness — golden-query benchmark with recall@k, MRR and not-present rate (GitHub #132)
+
+Add a deterministic, offline retrieval evaluation. Read src/sahara/search/search_engine.py first and use the existing public search API as it is; do not change it.
+1. tests/eval/corpus/ holds 15-25 small FICTIONAL text/markdown files (invented people, vendors, invoice numbers like INV-2031, dates, one OCR-noisy file). tests/eval/queries.json holds 30+ queries, each with a query string, a category (exact_token, paraphrase, date_number, not_present) and the expected relevant file names (empty for not_present).
+2. src/sahara/eval/metrics.py: pure functions recall_at_k, reciprocal_rank, and not_present_false_positive_rate (a result above a given score threshold for a not_present query counts as a false positive). src/sahara/eval/runner.py: builds a temporary index from the corpus using the real indexer, runs every query, returns per-category and overall numbers.
+3. tests/test_eval_harness.py: unit tests for the metrics with hand-computed values, and one end-to-end test that runs the runner and asserts the result structure and that overall recall@5 is at least a recorded floor. Mark it so it is skipped (with a clear reason) only when the embedding model cannot be loaded offline, never silently passed.
+4. Write the measured baseline numbers for current vector-only search into tests/eval/BASELINE.md. Do not add a CLI command in this unit. At most one write per response.
+
+## Checks
+
+Run every gate above in order and report each command with its real exit status (cmd; echo "exit=$?"), never behind a pipe.
