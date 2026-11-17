@@ -1013,8 +1013,9 @@ def first_run(
                 if assume_yes
                 else click.confirm(
                     "  Keep this index automatically up to date in the "
-                    "background from now on?",
-                    default=False,
+                    "background? (Choose No and new or changed files will "
+                    "not be searchable until you run 'sahara index')",
+                    default=True,
                 )
             )
         if want_auto_index:

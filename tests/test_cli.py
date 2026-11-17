@@ -1989,6 +1989,118 @@ class TestSetup:
         assert result.exit_code == 0, result.output
         mock_run.assert_called_once()
 
+    def test_first_run_auto_index_prompt_defaults_to_yes_on_enter(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        sahara_bin = tmp_path / "sahara"
+        sahara_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=sahara_bin,
+        ), patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+                # Continue with setup, then press Enter at the auto-index prompt.
+                input="y\n\n",
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "will not be searchable until you run 'sahara index'" in result.output
+        assert "[Y/n]" in result.output
+        mock_run.assert_called_once_with(
+            [
+                str(sahara_bin),
+                "--config",
+                str(config_path),
+                "daemon",
+                "start",
+                "--autostart",
+            ],
+            check=False,
+        )
+        assert "Skipping automatic re-indexing" not in result.output
+
+    def test_first_run_auto_index_prompt_declined_prints_enable_hint(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch("subprocess.run") as mock_run:
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+                # Continue with setup, then decline auto-indexing.
+                input="y\nn\n",
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_run.assert_not_called()
+        assert "Skipping automatic re-indexing" in result.output
+        assert "sahara daemon start --autostart" in result.output
+
+    def test_first_run_yes_without_auto_index_flag_skips_prompt_and_watcher(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch("subprocess.run") as mock_run:
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_run.assert_not_called()
+        assert "Keep this index automatically up to date" not in result.output
+        assert "Skipping automatic re-indexing" in result.output
+
     def test_first_run_auto_index_skipped_when_watcher_already_running(
         self, tmp_path, monkeypatch
     ):
