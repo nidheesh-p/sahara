@@ -1,7 +1,7 @@
 owns: src/sahara/cli.py, tests/test_cli.py
 needs: none
 class: code-in-repo
-kind: fix
+kind: feature
 gate: /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/ruff check src tests
 gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest tests/test_cli.py -q
 gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest -q
