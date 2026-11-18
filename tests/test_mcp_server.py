@@ -315,6 +315,106 @@ def test_memory_write_tool_requires_explicit_local_opt_in() -> None:
     assert "sahara_remember" in tool_names
 
 
+def test_index_freshness_honours_folder_allowlist(tmp_path: Path) -> None:
+    from sahara.mcp_server import index_freshness
+
+    (tmp_path / "primary").mkdir()
+    (tmp_path / "primary" / "a.md").write_text("a")
+    (tmp_path / "work").mkdir()
+    (tmp_path / "work" / "b.md").write_text("b")
+    config = SaharaConfig(sync_folder=str(tmp_path / "primary"))
+    with StateDB(tmp_path / "state.db") as db, patch(
+        "sahara.sync.daemon.is_daemon_running", return_value=False
+    ):
+        db.add_sync_target(str(tmp_path / "work"), "work")
+        list_folders(config=config, db=db)  # registers both content roots
+
+        everything = index_freshness(config=config, db=db)
+        work_only = index_freshness(
+            config=config, allowed_storage_prefixes=("work",), db=db
+        )
+
+    assert everything["pending_changes"] == 2
+    assert everything["stale"] is True
+    assert work_only["pending_changes"] == 1
+    assert work_only["new_files"] == 1
+
+
+def test_freshness_cache_reuses_value_until_ttl_or_clear() -> None:
+    from sahara.mcp_server import FreshnessCache
+
+    now = [100.0]
+    calls: list[int] = []
+
+    def compute() -> dict:
+        calls.append(1)
+        return {"stale": False, "computed": len(calls)}
+
+    cache = FreshnessCache(compute, clock=lambda: now[0])
+
+    assert cache.get()["computed"] == 1
+    now[0] += 59
+    assert cache.get()["computed"] == 1
+    now[0] += 1
+    assert cache.get()["computed"] == 2
+    cache.clear()
+    assert cache.get()["computed"] == 3
+
+
+def _tool(server, name: str):
+    tool = server._tool_manager.get_tool(name)
+    assert tool is not None
+    return tool.fn
+
+
+def test_mcp_tools_report_index_freshness() -> None:
+    pytest.importorskip("mcp.server.fastmcp")
+    from sahara.mcp_server import FreshnessCache
+
+    freshness = {"stale": True, "pending_changes": 2, "watcher_running": False}
+    calls: list[int] = []
+
+    def compute() -> dict:
+        calls.append(1)
+        return freshness
+
+    server = build_mcp_server(
+        freshness_cache=FreshnessCache(compute, clock=lambda: 0.0)
+    )
+    result = {"relative_path": "notes.txt", "score": 0.5, "confidence": "high"}
+    with patch("sahara.mcp_server.search_files", return_value=[result]), patch(
+        "sahara.mcp_server.ask_question",
+        return_value={"answer": "yes", "sources": []},
+    ), patch(
+        "sahara.mcp_server.index_status", return_value={"indexed_files": 1}
+    ):
+        first = _tool(server, "sahara_search")(query="notes")
+        second = _tool(server, "sahara_search")(query="notes")
+        asked = _tool(server, "sahara_ask")(question="notes?")
+        status = _tool(server, "sahara_index_status")()
+
+    assert first == [{**result, "index_stale": True}]
+    assert second == first
+    assert asked == {"answer": "yes", "sources": [], "index": freshness}
+    assert status == {"indexed_files": 1, **freshness}
+    assert len(calls) == 1
+    assert server.sahara_freshness_cache is not None
+
+
+def test_search_survives_freshness_failure() -> None:
+    pytest.importorskip("mcp.server.fastmcp")
+    from sahara.mcp_server import FreshnessCache
+
+    def compute() -> dict:
+        raise OSError("disk gone")
+
+    server = build_mcp_server(freshness_cache=FreshnessCache(compute))
+    with patch("sahara.mcp_server.search_files", return_value=[{"score": 1.0}]):
+        results = _tool(server, "sahara_search")(query="notes")
+
+    assert results == [{"score": 1.0, "index_stale": False}]
+
+
 def test_recall_memories_returns_body_citations_and_filters(
     tmp_path: Path,
 ) -> None:

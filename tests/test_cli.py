@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import boto3
+import pytest
 from click.testing import CliRunner
 from moto import mock_aws
 
@@ -21,6 +22,13 @@ from sahara.sync_engine import DiffResult
 BUCKET = "cli-test-bucket"
 REGION = "us-east-1"
 NOW = datetime.datetime.now(datetime.UTC)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_state_db_path(tmp_path: Path):
+    """Keep status/doctor freshness checks off the developer's real state DB."""
+    with patch("sahara.storage.state_db.DB_PATH", tmp_path / "isolated-state.db"):
+        yield
 
 
 def _runner() -> CliRunner:
@@ -333,15 +341,16 @@ class TestConfigSetGet:
 
 
 class TestStatus:
-    def test_status_with_no_bucket_shows_error(self, tmp_path: Path):
-        """status requires config.bucket and config.sync_folder."""
+    def test_status_with_no_bucket_shows_only_index_status(self, tmp_path: Path):
+        """Without storage, status reports the index and skips sync changes."""
         runner = _runner()
-        # Use a config with empty bucket
         empty_config = tmp_path / "empty.toml"
         save_config(SaharaConfig(), empty_config)
-        result = runner.invoke(main, ["--config", str(empty_config), "status"])
-        # Should fail or show warning since bucket not configured
-        assert "not initialised" in result.output.lower() or result.exit_code != 0
+        with patch("sahara.storage.state_db.DB_PATH", tmp_path / "absent.db"):
+            result = runner.invoke(main, ["--config", str(empty_config), "status"])
+        assert result.exit_code == 0, result.output
+        assert "Index Status" in result.output
+        assert "Pending Changes" not in result.output
 
     def test_status_up_to_date(self, tmp_path: Path):
         cfg, config_path = _make_config(tmp_path)
@@ -688,6 +697,96 @@ class TestDoctor:
         assert "State DB OK" in result.output
         assert "3 indexed" in result.output
         assert "0 file records" not in result.output
+
+    def test_doctor_reports_stale_index(self, tmp_path: Path):
+        config_path, db_path = _freshness_setup(tmp_path)
+        (tmp_path / "sync" / "added.md").write_text("new")
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch("sahara.sync.daemon.is_autostart_installed", return_value=False):
+            result = _runner().invoke(main, ["--config", str(config_path), "doctor"])
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "Index freshness: 1 (1 new, 0 modified, 0 missing) pending change(s)."
+            in result.output
+        )
+        assert "sahara daemon start --autostart" in result.output
+
+
+def _freshness_setup(tmp_path: Path) -> tuple[Path, Path]:
+    """Config plus a state DB that recorded sync/kept.md as indexed three days ago."""
+    from sahara.storage.state_db import StateDB
+
+    sync = tmp_path / "sync"
+    sync.mkdir(exist_ok=True)
+    (sync / "kept.md").write_text("kept")
+    config_path = tmp_path / "cfg.toml"
+    save_config(SaharaConfig(sync_folder=str(sync)), config_path)
+    db_path = tmp_path / "state.db"
+    indexed_at = (
+        datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=3, minutes=1)
+    ).isoformat()
+    stat = (sync / "kept.md").stat()
+    with StateDB(db_path) as db:
+        db.upsert_content_root(str(sync.resolve()), "", is_primary=True)
+        db.upsert_index_entry(
+            "",
+            "kept.md",
+            content_hash="hash",
+            size_bytes=stat.st_size,
+            modified_ns=stat.st_mtime_ns,
+            status="indexed",
+            indexed_at=indexed_at,
+        )
+    return config_path, db_path
+
+
+class TestIndexStatus:
+    def _status(self, tmp_path: Path, db_path: Path, *, watcher: bool):
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=watcher
+        ):
+            return _runner().invoke(
+                main, ["--config", str(tmp_path / "cfg.toml"), "status"]
+            )
+
+    def test_status_reports_stale_index(self, tmp_path: Path):
+        _, db_path = _freshness_setup(tmp_path)
+        (tmp_path / "sync" / "kept.md").write_text("edited contents")
+        (tmp_path / "sync" / "added.md").write_text("new")
+
+        result = self._status(tmp_path, db_path, watcher=False)
+
+        assert result.exit_code == 0, result.output
+        assert "Indexed files:   1" in result.output
+        assert "Last indexed:    3 days ago" in result.output
+        assert "Pending changes: 2 (1 new, 1 modified, 0 missing)" in result.output
+        assert "Watcher:         not running" in result.output
+        assert (
+            "Run sahara index, or enable the watcher with "
+            "sahara daemon start --autostart" in result.output
+        )
+
+    def test_status_reports_fresh_index(self, tmp_path: Path):
+        _, db_path = _freshness_setup(tmp_path)
+
+        result = self._status(tmp_path, db_path, watcher=True)
+
+        assert result.exit_code == 0, result.output
+        assert "Pending changes: 0" in result.output
+        assert "Watcher:         running" in result.output
+        assert "Index is up to date." in result.output
+        assert "sahara daemon start --autostart" not in result.output
+
+    def test_status_before_first_index(self, tmp_path: Path):
+        _freshness_setup(tmp_path)
+
+        result = self._status(tmp_path, tmp_path / "absent.db", watcher=False)
+
+        assert result.exit_code == 0, result.output
+        assert "not built yet" in result.output
 
 
 # ---------------------------------------------------------------------------

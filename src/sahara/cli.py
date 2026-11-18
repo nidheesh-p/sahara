@@ -1208,6 +1208,26 @@ def doctor(ctx: click.Context, repair: bool) -> None:
             "`sahara daemon start --autostart` to keep the index current "
             "automatically."
         )
+    try:
+        freshness = _compute_index_freshness(config)
+    except Exception as exc:
+        freshness = None
+        _warn(f"Index freshness: unavailable ({exc}).")
+    else:
+        if freshness is None:
+            _info("Index freshness: not indexed yet. Run sahara index to build it.")
+        elif freshness.stale:
+            _warn(
+                f"Index freshness: {_describe_pending(freshness)} pending change(s). "
+                f"{_STALE_HINT}"
+            )
+        elif freshness.pending_changes:
+            _info(
+                f"Index freshness: {_describe_pending(freshness)} pending change(s); "
+                "the watcher is catching up."
+            )
+        else:
+            _ok("Index freshness: up to date.")
 
     # DB
     from sahara.storage.state_db import DB_PATH, StateDB
@@ -2017,11 +2037,75 @@ def pull(ctx: click.Context, dry_run: bool, wait: bool, folder: str | None) -> N
 # ---------------------------------------------------------------------------
 
 
+_STALE_HINT = (
+    "Run sahara index, or enable the watcher with sahara daemon start --autostart."
+)
+
+
+def _compute_index_freshness(config: SaharaConfig) -> Any:
+    """Return index freshness for the configured content roots, or None before the first index."""
+    from sahara.freshness import compute_freshness, registered_roots
+    from sahara.storage import state_db
+    from sahara.sync.daemon import is_daemon_running
+
+    if not state_db.DB_PATH.exists():
+        return None
+    with state_db.StateDB(state_db.DB_PATH) as db:
+        # Read-only: status and doctor must never migrate or replace content roots.
+        return compute_freshness(
+            db,
+            registered_roots(db),
+            is_daemon_running(),
+            exclude_patterns=config.exclude_patterns,
+        )
+
+
+def _describe_pending(freshness: Any) -> str:
+    count = f"{freshness.pending_changes:,}{'+' if freshness.is_lower_bound else ''}"
+    return (
+        f"{count} ({freshness.new_files} new, {freshness.modified_files} modified, "
+        f"{freshness.missing_files} missing)"
+    )
+
+
+def _print_index_status(config: SaharaConfig) -> None:
+    from sahara.freshness import format_age
+
+    _section("Index Status")
+    try:
+        freshness = _compute_index_freshness(config)
+    except Exception as exc:
+        _warn(f"Index status unavailable: {exc}")
+        return
+    if freshness is None:
+        _info("Index: not built yet. Run sahara index to build it.")
+        return
+    now = datetime.datetime.now(datetime.UTC)
+    click.echo(f"  Indexed files:   {freshness.indexed_file_count:,}")
+    click.echo(f"  Last indexed:    {format_age(freshness.last_indexed_at, now)}")
+    click.echo(f"  Pending changes: {_describe_pending(freshness)}")
+    click.echo(
+        f"  Watcher:         {'running' if freshness.watcher_running else 'not running'}"
+    )
+    if freshness.stale:
+        _warn(f"Index is stale. {_STALE_HINT}")
+    else:
+        _ok("Index is up to date." if not freshness.pending_changes else "Watcher is catching up.")
+
+
 @main.command()
 @click.pass_context
 def status(ctx: click.Context) -> None:
-    """Show pending changes without executing them."""
+    """Show index freshness and, with storage configured, pending sync changes."""
     config: SaharaConfig = ctx.obj["config"]
+    _print_index_status(config)
+    if not config.sync_folder or not config.has_storage_backend:
+        return
+    _print_sync_status(config)
+
+
+def _print_sync_status(config: SaharaConfig) -> None:
+    """Print pending sync changes without executing them."""
     _require_config(config)
 
     engine, db, s3 = _build_engine(config)
@@ -2056,8 +2140,8 @@ def status(ctx: click.Context) -> None:
 @main.command("diff")
 @click.pass_context
 def diff_cmd(ctx: click.Context) -> None:
-    """Alias for `status` — show pending changes."""
-    ctx.invoke(status)
+    """Show pending sync changes without executing them."""
+    _print_sync_status(ctx.obj["config"])
 
 
 # ---------------------------------------------------------------------------
