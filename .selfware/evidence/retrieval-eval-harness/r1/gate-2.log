@@ -5,7 +5,7 @@ configfile: pyproject.toml
 plugins: cov-7.1.0, anyio-4.13.0
 collected 7 items
 
-tests/test_eval_harness.py ......s                                       [100%]
+tests/test_eval_harness.py .......                                       [100%]
 
 =============================== warnings summary ===============================
 ../../../.venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
@@ -14,4 +14,4 @@ tests/test_eval_harness.py ......s                                       [100%]
     self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-=================== 6 passed, 1 skipped, 1 warning in 0.22s ====================
+========================= 7 passed, 1 warning in 1.46s =========================

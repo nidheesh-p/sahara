@@ -64,4 +64,4 @@ tests/test_windows_native_installer.py ..........                        [100%]
     self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-======================= 1215 passed, 1 warning in 30.38s =======================
+======================= 1215 passed, 1 warning in 30.57s =======================

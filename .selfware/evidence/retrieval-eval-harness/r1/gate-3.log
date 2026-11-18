@@ -4,12 +4,12 @@ rootdir: /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.selfware/worktrees/r
 configfile: pyproject.toml
 testpaths: tests
 plugins: cov-7.1.0, anyio-4.13.0
-collected 1219 items
+collected 1222 items
 
 tests/test_ask_openai.py ..................                              [  1%]
 tests/test_claude_desktop.py ...................                         [  3%]
 tests/test_cli.py ...................................................... [  7%]
-........................................                                 [ 10%]
+...........................................                              [ 10%]
 tests/test_cli_extended.py ............................................. [ 14%]
 ..........                                                               [ 15%]
 tests/test_config.py .........................................           [ 18%]
@@ -17,22 +17,22 @@ tests/test_cost_estimator.py ..................................          [ 21%]
 tests/test_daemon.py ........................................            [ 24%]
 tests/test_daemon_extended.py .................                          [ 26%]
 tests/test_encryption.py ............................                    [ 28%]
-tests/test_encryption_extended.py ..................                     [ 29%]
+tests/test_encryption_extended.py ..................                     [ 30%]
 tests/test_epub_extraction.py .................                          [ 31%]
-tests/test_eval_harness.py ......s                                       [ 31%]
+tests/test_eval_harness.py .......                                       [ 31%]
 tests/test_file_watcher.py ...................                           [ 33%]
-tests/test_final_coverage.py ........................................... [ 36%]
+tests/test_final_coverage.py ........................................... [ 37%]
 ..................                                                       [ 38%]
 tests/test_ignore_rules.py .........................                     [ 40%]
-tests/test_index_watcher.py ......                                       [ 40%]
+tests/test_index_watcher.py ......                                       [ 41%]
 tests/test_installation_docs.py ..                                       [ 41%]
 tests/test_local_backends.py ........................................... [ 44%]
 .......................                                                  [ 46%]
 tests/test_manifest.py ...........                                       [ 47%]
-tests/test_mcp_server.py ..............................                  [ 49%]
+tests/test_mcp_server.py ..............................                  [ 50%]
 tests/test_memory.py ................................................... [ 54%]
 ...................................................                      [ 58%]
-tests/test_memory_format_edges.py .........                              [ 58%]
+tests/test_memory_format_edges.py .........                              [ 59%]
 tests/test_mobile_api.py ..........                                      [ 59%]
 tests/test_mobile_setup.py ...............                               [ 61%]
 tests/test_models.py ...............................                     [ 63%]
@@ -65,4 +65,4 @@ tests/test_windows_native_installer.py ..........                        [100%]
     self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-================= 1218 passed, 1 skipped, 1 warning in 30.62s ==================
+======================= 1222 passed, 1 warning in 31.24s =======================

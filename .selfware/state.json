@@ -1,10 +1,10 @@
 {
   "version": 2,
-  "updated_at": "2026-11-17T07:16:33.875827Z",
+  "updated_at": "2026-11-18T04:16:41.394801Z",
   "tasks": [
     {
       "id": "first-run-auto-index-default",
-      "status": "passed",
+      "status": "landed",
       "session": "e3d4f7f6-562b-4442-bd26-f1686a0733ff",
       "model": "claude-opus-5-5",
       "attempt": "r1",
@@ -17,11 +17,14 @@
         "tests/test_cli.py"
       ],
       "attempts": 1,
-      "updated_at": "2026-11-17T07:16:33.715696Z"
+      "updated_at": "2026-11-17T07:17:19.142476Z"
     },
     {
       "id": "first-run-scan-preview",
-      "status": "planned",
+      "status": "running",
+      "session": "f876bf7f-e813-41f3-9907-48047f65c394",
+      "model": "claude-opus-5-5",
+      "attempt": "r1",
       "brief": ".selfware/briefs/first-run-scan-preview.txt",
       "needs": [
         "first-run-auto-index-default"
@@ -32,12 +35,30 @@
         "tests/test_scan_preview.py",
         "tests/test_cli.py"
       ],
+      "attempts": 1,
+      "updated_at": "2026-11-18T04:16:12.284254Z"
+    },
+    {
+      "id": "hybrid-retrieval",
+      "status": "planned",
+      "brief": ".selfware/briefs/hybrid-retrieval.txt",
+      "needs": [
+        "retrieval-eval-harness"
+      ],
+      "owns": [
+        "src/sahara/search/hybrid.py",
+        "src/sahara/search/search_engine.py",
+        "src/sahara/storage/state_db.py",
+        "src/sahara/eval/runner.py",
+        "tests/test_hybrid_retrieval.py",
+        "tests/eval/BASELINE.md"
+      ],
       "attempts": 0,
-      "updated_at": "2026-11-16T07:07:18.890742Z"
+      "updated_at": "2026-11-18T04:16:41.394801Z"
     },
     {
       "id": "retrieval-eval-harness",
-      "status": "passed",
+      "status": "landed",
       "session": "2b919315-dc31-4cde-b915-a7cf73a5a9f7",
       "model": "claude-opus-5-5",
       "attempt": "r1",
@@ -51,11 +72,12 @@
         "tests/test_eval_harness.py"
       ],
       "attempts": 1,
-      "updated_at": "2026-11-17T07:16:33.875827Z"
+      "updated_at": "2026-11-17T07:17:57.594917Z"
     }
   ],
   "counts": {
-    "passed": 2,
-    "planned": 1
+    "landed": 2,
+    "planned": 1,
+    "running": 1
   }
 }

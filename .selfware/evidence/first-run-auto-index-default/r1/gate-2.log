@@ -15,4 +15,4 @@ tests/test_cli.py ...................................................... [ 55%]
     self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-======================== 97 passed, 1 warning in 3.54s =========================
+======================== 97 passed, 1 warning in 2.95s =========================
