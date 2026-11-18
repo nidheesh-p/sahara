@@ -8,6 +8,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+### Added
+
+- Hybrid retrieval: search now fuses SQLite FTS5 BM25 keyword results with vector
+  results using Reciprocal Rank Fusion, so exact identifiers, amounts and dates are
+  found reliably. Results gain `rrf_score` and `match` fields; `score` keeps its
+  vector-similarity meaning. Existing indexes migrate automatically. If FTS5 is
+  unavailable, search falls back to vector-only. (#133)
+- Offline retrieval evaluation harness (`sahara.eval`): fictional golden corpus, 44
+  golden queries, recall@k, MRR and not-present false-positive rate, with a recorded
+  baseline in `tests/eval/BASELINE.md`. On the golden set, hybrid raises recall@5
+  from 0.944 to 1.000 and MRR@5 from 0.884 to 0.954. (#132)
+- `sahara first-run` shows a per-folder file count and size ("Found N files (~X MB)
+  to index") and points to `.saharaignore` before asking to continue. (#125)
+
+### Changed
+
+- `sahara first-run` now defaults the automatic re-index prompt to Yes and states what
+  declining means. Unattended `--yes` runs are unchanged. (#126)
+
 ## [0.3.0] — 2026-08-09
 
 ### Added
