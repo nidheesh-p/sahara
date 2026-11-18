@@ -199,7 +199,12 @@ FILES = {
 }
 
 
-def test_search_modes_on_cosine_backend(db: StateDB, tmp_path: Path) -> None:
+def test_search_modes_on_cosine_backend(
+    db: StateDB, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Force the cosine fallback: sqlite-vec loads on some machines (e.g. Linux CI)
+    # and not on others, and this test is about the fallback path.
+    monkeypatch.setattr(db, "has_vec_table", lambda: False)
     engine = _engine(db, tmp_path, FILES)
     assert not db.has_vec_table()
     keyword = engine.search("INV-2047", top_k=3, mode="keyword")
