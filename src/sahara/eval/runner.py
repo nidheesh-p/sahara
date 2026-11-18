@@ -70,11 +70,14 @@ def run_eval(
     queries_path: Path,
     k: int = 5,
     threshold: float = DEFAULT_THRESHOLD,
+    mode: str = "hybrid",
 ) -> dict[str, Any]:
     """Index ``corpus_dir`` into a temporary database and score every query.
 
-    Recall and reciprocal rank use the top ``k`` results (MRR@k). Returns a
-    dict with ``overall`` and per-``categories`` numbers plus per-query rows.
+    ``mode`` is passed to ``SearchEngine.search`` ("hybrid", "vector" or
+    "keyword"). Recall and reciprocal rank use the top ``k`` results (MRR@k).
+    Returns a dict with ``overall`` and per-``categories`` numbers plus
+    per-query rows.
     """
     queries = load_queries(queries_path)
     with tempfile.TemporaryDirectory(prefix="sahara-eval-") as tmp:
@@ -83,9 +86,12 @@ def run_eval(
             engine = SearchEngine(db)
             indexed = _index_corpus(engine, corpus_dir)
             vec_backend = db.has_vec_table()
+            fts_backend = db.has_fts_table()
             rows = []
             for q in queries:
-                results = engine.search(q.query, top_k=k, storage_prefix=_STORAGE_PREFIX)
+                results = engine.search(
+                    q.query, top_k=k, storage_prefix=_STORAGE_PREFIX, mode=mode
+                )
                 ranked = [r["relative_path"] for r in results]
                 row: dict[str, Any] = {
                     "id": q.id,
@@ -115,7 +121,9 @@ def run_eval(
     return {
         "k": k,
         "threshold": threshold,
+        "mode": mode,
         "vec_backend": vec_backend,
+        "fts_backend": fts_backend,
         "corpus_files": len(indexed),
         "num_queries": len(rows),
         "overall": {

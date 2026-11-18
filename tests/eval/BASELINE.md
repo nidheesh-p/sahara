@@ -53,3 +53,36 @@ FASTEMBED_CACHE_PATH=<model cache> HF_HUB_OFFLINE=1 PYTHONPATH=src \
 
 The end-to-end test is skipped, with the reason printed, when the embedding
 model cannot be loaded offline.
+
+# Hybrid retrieval — FTS5 BM25 + vector, fused with RRF
+
+Measured on 2026-11-17 with `run_eval(corpus, queries, k=5, mode=...)` on the
+same corpus, queries and model as above. Hybrid fetches `3 * top_k` files from
+each side and fuses them with Reciprocal Rank Fusion (k = 60).
+
+- Backend: `vec_backend = false` (cosine fallback; sqlite-vec imports but the
+  measuring Python cannot load SQLite extensions), `fts_backend = true`.
+- The vector column reproduces the baseline above exactly.
+
+## Results (k = 5)
+
+| Category    | Queries | Vector R@5 | Hybrid R@5 | Vector MRR@5 | Hybrid MRR@5 | Vector FP | Hybrid FP |
+|-------------|--------:|-----------:|-----------:|-------------:|-------------:|----------:|----------:|
+| exact_token |      12 |      0.917 |  **1.000** |        0.875 |    **1.000** |         — |         — |
+| paraphrase  |      14 |      1.000 |      1.000 |        1.000 |        1.000 |         — |         — |
+| date_number |      10 |      0.900 |  **1.000** |        0.733 |    **0.833** |         — |         — |
+| not_present |       8 |          — |          — |            — |            — |     1.000 |     1.000 |
+| **overall** |  36 + 8 |      0.944 |  **1.000** |        0.884 |    **0.954** |     1.000 |     1.000 |
+
+## Observations
+
+- `INV-2047` now ranks the Kestrel invoice first (vector: missed);
+  `HX-55902` and one renewal-date query move from rank 2 to rank 1.
+- The `annual fee $18,000` miss is fixed (rank 3 in hybrid).
+  `payment due 2025-07-05 amount $97.40` improves from rank 3 to rank 2.
+- Not-present FP rate is unchanged: `score` keeps its vector-similarity
+  meaning, so the 0.5 threshold behaves exactly as before. Keyword-only
+  results carry `score = 0.0`; `rrf_score` and `match` are new keys.
+- `test_hybrid_retrieval.py` asserts hybrid ≥ vector recall@5 on exact_token
+  and date_number (strictly greater on at least one), no paraphrase drop,
+  and the Kestrel invoice in the top 5 for `INV-2047`.
