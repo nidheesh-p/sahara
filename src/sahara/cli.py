@@ -3428,6 +3428,28 @@ def memory_rebuild(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _result_badge(result: dict) -> str:
+    """Bracket text for one search result.
+
+    Keyword-only hits have no vector score (it is 0.0), so they show their
+    confidence label instead of a misleading percentage.
+    """
+    if result.get("match") == "keyword":
+        confidence = result.get("confidence", "low")
+        color = {"high": "green", "medium": "yellow"}.get(confidence, "white")
+        return click.style(f"keyword match, {confidence} confidence", fg=color)
+    score_pct = int(result.get("score", 0) * 100)
+    score_color = "green" if score_pct >= 70 else "yellow" if score_pct >= 50 else "white"
+    return click.style(f"{score_pct}%", fg=score_color)
+
+
+def _warn_if_not_confident(results: list[dict]) -> None:
+    """Warn when every result is labelled low confidence."""
+    labels = [r.get("confidence") for r in results]
+    if labels and None not in labels and not {"high", "medium"} & set(labels):
+        _warn("No confident matches found; showing the closest results.")
+
+
 @main.command("search")
 @click.argument("query")
 @click.option("--top", "-n", default=5, show_default=True, help="Number of results to return.")
@@ -3466,16 +3488,14 @@ def search_cmd(
             return
 
         _section(f"Results for: \"{query}\"")
+        _warn_if_not_confident(results)
         for i, r in enumerate(results, 1):
             prefix = r.get("storage_prefix", r.get("s3_prefix", ""))
             display = f"{prefix}/{r['relative_path']}" if prefix else r["relative_path"]
-            score_pct = int(r["score"] * 100)
-            score_color = "green" if score_pct >= 70 else "yellow" if score_pct >= 50 else "white"
-            score_str = click.style(f"{score_pct}%", fg=score_color)
             residency = (
                 " [offloaded]" if r.get("local_state") == "offloaded" else ""
             )
-            click.echo(f"  {i}. [{score_str}] {display}{residency}")
+            click.echo(f"  {i}. [{_result_badge(r)}] {display}{residency}")
             if snippet and r["snippet"]:
                 # Print first 150 chars of snippet, indented
                 snip = r["snippet"].replace("\n", " ")[:150].strip()
@@ -3607,21 +3627,19 @@ def ask_cmd(
                 )
             _info("Showing top matching results:")
 
+        _warn_if_not_confident(result.sources)
         if result.sources and (snippet or not result.answer):
             click.echo()
             _section("Sources")
             for i, r in enumerate(result.sources, 1):
                 prefix = r.get("storage_prefix", r.get("s3_prefix", ""))
                 display = f"{prefix}/{r['relative_path']}" if prefix else r["relative_path"]
-                score_pct = int(r.get("score", 0) * 100)
-                score_color = "green" if score_pct >= 70 else "yellow" if score_pct >= 50 else "white"
-                score_str = click.style(f"{score_pct}%", fg=score_color)
                 residency = (
                     " [offloaded]"
                     if r.get("local_state") == "offloaded"
                     else ""
                 )
-                click.echo(f"  {i}. [{score_str}] {display}{residency}")
+                click.echo(f"  {i}. [{_result_badge(r)}] {display}{residency}")
                 snip = r.get("snippet", "")
                 if snip:
                     snip_display = snip.replace("\n", " ")[:200].strip()

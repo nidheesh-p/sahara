@@ -108,6 +108,9 @@ def _normalise_result(result: dict[str, Any], *, max_snippet_chars: int = 500) -
         "score": float(result.get("score", 0.0)),
         "snippet": _truncate(result.get("snippet", ""), max_snippet_chars),
         "local_state": result.get("local_state", "present"),
+        # "vector", "keyword" or "both"; "high", "medium" or "low".
+        "match": result.get("match", "vector"),
+        "confidence": result.get("confidence", "low"),
     }
 
 

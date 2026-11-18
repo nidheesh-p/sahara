@@ -141,6 +141,9 @@ def test_search_files_normalises_results(tmp_path: Path) -> None:
                 "relative_path": "notes.txt",
                 "score": 0.75,
                 "snippet": "hello from sahara",
+                "rrf_score": 0.03,
+                "match": "both",
+                "confidence": "high",
             }]
 
             result = search_files("hello", top_k=100, max_snippet_chars=5, db=db)
@@ -152,6 +155,8 @@ def test_search_files_normalises_results(tmp_path: Path) -> None:
             "score": 0.75,
             "snippet": "hello",
             "local_state": "present",
+            "match": "both",
+            "confidence": "high",
         }]
     finally:
         db.close()

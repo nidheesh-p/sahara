@@ -33,13 +33,23 @@ class EvalQuery:
     category: str
     query: str
     relevant: tuple[str, ...]
+    # Held-out queries are never used to tune search; see tests/eval/BASELINE.md.
+    holdout: bool = False
 
 
 def load_queries(queries_path: Path) -> list[EvalQuery]:
-    """Load and validate the golden query file."""
+    """Load and validate the golden query file.
+
+    An optional ``"holdout": true`` marks a query kept out of tuning.
+    """
     queries = []
     for raw in json.loads(queries_path.read_text(encoding="utf-8")):
-        query = EvalQuery(raw["id"], raw["category"], raw["query"], tuple(raw["relevant"]))
+        holdout = raw.get("holdout", False)
+        if not isinstance(holdout, bool):
+            raise ValueError(f"{raw['id']}: holdout must be true or false")
+        query = EvalQuery(
+            raw["id"], raw["category"], raw["query"], tuple(raw["relevant"]), holdout
+        )
         if query.category not in CATEGORIES:
             raise ValueError(f"{query.id}: unknown category {query.category!r}")
         if (query.category == NOT_PRESENT) != (not query.relevant):
@@ -76,8 +86,12 @@ def run_eval(
 
     ``mode`` is passed to ``SearchEngine.search`` ("hybrid", "vector" or
     "keyword"). Recall and reciprocal rank use the top ``k`` results (MRR@k).
-    Returns a dict with ``overall`` and per-``categories`` numbers plus
-    per-query rows.
+    Returns a dict with ``overall`` and per-``categories`` numbers for the
+    non-holdout queries, the same numbers for held-out queries under
+    ``holdout``, and per-query rows. ``not_present_confident_fp_rate`` is the
+    share of not_present queries whose top result is labelled "high" or
+    "medium"; ``confident_top1_rate`` the share of answerable queries whose top
+    result is relevant and labelled so.
     """
     queries = load_queries(queries_path)
     with tempfile.TemporaryDirectory(prefix="sahara-eval-") as tmp:
@@ -93,31 +107,27 @@ def run_eval(
                     q.query, top_k=k, storage_prefix=_STORAGE_PREFIX, mode=mode
                 )
                 ranked = [r["relative_path"] for r in results]
+                confidence = [r.get("confidence", "low") for r in results]
                 row: dict[str, Any] = {
                     "id": q.id,
                     "category": q.category,
+                    "holdout": q.holdout,
                     "ranked": ranked,
                     "scores": [r["score"] for r in results],
+                    "confidence": confidence,
+                    "match": [r.get("match", "vector") for r in results],
                 }
                 if q.category != NOT_PRESENT:
                     row["recall_at_k"] = recall_at_k(ranked, q.relevant, k)
                     row["reciprocal_rank"] = reciprocal_rank(ranked, q.relevant)
+                    row["confident_top1"] = bool(ranked) and (
+                        ranked[0] in q.relevant and confidence[0] in ("high", "medium")
+                    )
                 rows.append(row)
         finally:
             db.close()
 
-    answerable = [r for r in rows if r["category"] != NOT_PRESENT]
-    absent_scores = [r["scores"] for r in rows if r["category"] == NOT_PRESENT]
-    categories: dict[str, dict[str, Any]] = {}
-    for category in CATEGORIES:
-        members = [r for r in rows if r["category"] == category]
-        if category == NOT_PRESENT:
-            stats: dict[str, Any] = {
-                "fp_rate": not_present_false_positive_rate(absent_scores, threshold)
-            }
-        else:
-            stats = _answerable_summary(members)
-        categories[category] = {"count": len(members), **stats}
+    tuning = _summarise([r for r in rows if not r["holdout"]], threshold)
     return {
         "k": k,
         "threshold": threshold,
@@ -126,10 +136,52 @@ def run_eval(
         "fts_backend": fts_backend,
         "corpus_files": len(indexed),
         "num_queries": len(rows),
+        **tuning,
+        "holdout": _summarise([r for r in rows if r["holdout"]], threshold),
+        "queries": rows,
+    }
+
+
+def _confident_fp_rate(rows: Sequence[dict[str, Any]]) -> float:
+    """Share of not_present rows whose top result is labelled high or medium."""
+    if not rows:
+        return 0.0
+    return sum(1 for r in rows if r["confidence"][:1] in (["high"], ["medium"])) / len(rows)
+
+
+def _confident_top1_rate(rows: Sequence[dict[str, Any]]) -> float:
+    """Share of answerable rows whose top result is relevant and high or medium."""
+    if not rows:
+        return 0.0
+    return sum(1 for r in rows if r["confident_top1"]) / len(rows)
+
+
+def _summarise(rows: Sequence[dict[str, Any]], threshold: float) -> dict[str, Any]:
+    """``overall``, per-``categories`` and confidence numbers for ``rows``."""
+    answerable = [r for r in rows if r["category"] != NOT_PRESENT]
+    absent = [r for r in rows if r["category"] == NOT_PRESENT]
+    absent_scores = [r["scores"] for r in absent]
+    categories: dict[str, dict[str, Any]] = {}
+    for category in CATEGORIES:
+        members = [r for r in rows if r["category"] == category]
+        if category == NOT_PRESENT:
+            stats: dict[str, Any] = {
+                "fp_rate": not_present_false_positive_rate(absent_scores, threshold),
+                "confident_fp_rate": _confident_fp_rate(members),
+            }
+        else:
+            stats = {
+                **_answerable_summary(members),
+                "confident_top1_rate": _confident_top1_rate(members),
+            }
+        categories[category] = {"count": len(members), **stats}
+    return {
         "overall": {
             **_answerable_summary(answerable),
             "not_present_fp_rate": not_present_false_positive_rate(absent_scores, threshold),
         },
         "categories": categories,
-        "queries": rows,
+        # Not in "overall" so the score-threshold metric keeps its exact shape.
+        "not_present_confident_fp_rate": _confident_fp_rate(absent),
+        "confident_top1_rate": _confident_top1_rate(answerable),
     }

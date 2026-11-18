@@ -2266,3 +2266,69 @@ class TestSetup:
 
         assert result.exit_code == 0, result.output
         assert "sahara daemon start" in result.output
+
+
+# ---------------------------------------------------------------------------
+# search / ask confidence output
+# ---------------------------------------------------------------------------
+
+
+def _hit(path: str, score: float, match: str, confidence: str) -> dict:
+    return {
+        "storage_prefix": "", "relative_path": path, "score": score,
+        "snippet": "text", "rrf_score": 0.01, "match": match,
+        "confidence": confidence, "local_state": "present",
+    }
+
+
+def _invoke_with_results(tmp_path: Path, args: list[str], results: list[dict]):
+    from sahara.search.ask_engine import AskResult
+
+    _, config_path = _make_config(tmp_path)
+    db = MagicMock()
+    db.count_embeddings.return_value = 3
+    with patch("sahara.storage.state_db.StateDB") as db_cls, patch(
+        "sahara.search.search_engine.SearchEngine"
+    ) as engine_cls, patch("sahara.search.ask_engine.AskEngine") as ask_cls:
+        db_cls.return_value.connect.return_value = db
+        engine_cls.return_value.search.return_value = results
+        ask_cls.return_value.ask.return_value = AskResult(answer=None, sources=results)
+        return _runner().invoke(main, ["--config", str(config_path), *args])
+
+
+class TestSearchConfidenceOutput:
+    def test_search_shows_keyword_match_instead_of_zero_percent(self, tmp_path):
+        results = [
+            _hit("kestrel.txt", 0.0, "keyword", "high"),
+            _hit("garden.txt", 0.64, "both", "medium"),
+        ]
+        result = _invoke_with_results(tmp_path, ["search", "INV-2047"], results)
+        assert result.exit_code == 0, result.output
+        assert "1. [keyword match, high confidence] kestrel.txt" in result.output
+        assert "2. [64%] garden.txt" in result.output
+        assert "[0%]" not in result.output
+        assert "No confident matches found" not in result.output
+
+    def test_search_warns_when_no_result_is_confident(self, tmp_path):
+        results = [
+            _hit("utility.txt", 0.62, "both", "low"),
+            _hit("tax.txt", 0.0, "keyword", "low"),
+        ]
+        result = _invoke_with_results(tmp_path, ["search", "mortgage quote"], results)
+        assert result.exit_code == 0, result.output
+        assert "No confident matches found" in result.output
+        assert "1. [62%] utility.txt" in result.output  # results are still listed
+        assert "2. [keyword match, low confidence] tax.txt" in result.output
+
+    def test_ask_sources_use_confidence_output(self, tmp_path):
+        low = [_hit("tax.txt", 0.0, "keyword", "low")]
+        result = _invoke_with_results(tmp_path, ["ask", "mortgage", "quote"], low)
+        assert result.exit_code == 0, result.output
+        assert "No confident matches found" in result.output
+        assert "1. [keyword match, low confidence] tax.txt" in result.output
+
+        confident = [_hit("tax.txt", 0.0, "keyword", "high")]
+        result = _invoke_with_results(tmp_path, ["ask", "charity", "receipts"], confident)
+        assert result.exit_code == 0, result.output
+        assert "No confident matches found" not in result.output
+        assert "1. [keyword match, high confidence] tax.txt" in result.output
