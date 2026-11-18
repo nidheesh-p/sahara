@@ -132,12 +132,12 @@ def compute_freshness(
         try:
             for relative_path, stat in _walk(root, ignore, budget):
                 seen.add(relative_path)
-                row = entries.get(relative_path)
-                if row is None or row["status"] == "missing":
+                recorded = entries.get(relative_path)
+                if recorded is None or recorded["status"] == "missing":
                     new += 1
                 elif (
-                    row["size_bytes"] != stat.st_size
-                    or row["modified_ns"] != stat.st_mtime_ns
+                    recorded["size_bytes"] != stat.st_size
+                    or recorded["modified_ns"] != stat.st_mtime_ns
                 ):
                     modified += 1
         except _EntryLimitError:

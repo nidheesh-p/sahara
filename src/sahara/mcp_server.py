@@ -581,7 +581,7 @@ def build_mcp_server(
             allowed_storage_prefixes=allowed_storage_prefixes,
         )
     )
-    server.sahara_freshness_cache = cache
+    server.sahara_freshness_cache = cache  # type: ignore[attr-defined]
 
     def cached_freshness() -> dict[str, Any] | None:
         """Return cached freshness, or None when it cannot be computed; never fail a search."""
