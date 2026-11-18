@@ -17,4 +17,4 @@ tests/test_mcp_server.py ..................................              [100%]
     self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-======================== 154 passed, 1 warning in 3.49s ========================
+======================== 154 passed, 1 warning in 3.79s ========================
