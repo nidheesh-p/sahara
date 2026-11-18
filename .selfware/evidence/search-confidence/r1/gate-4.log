@@ -1,0 +1,71 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.7, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.selfware/worktrees/search-confidence
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-7.1.0, anyio-4.13.0
+collected 1293 items
+
+tests/test_ask_openai.py ..................                              [  1%]
+tests/test_claude_desktop.py ...................                         [  2%]
+tests/test_cli.py ...................................................... [  7%]
+................................................                         [ 10%]
+tests/test_cli_extended.py ............................................. [ 14%]
+..........                                                               [ 15%]
+tests/test_config.py .........................................           [ 18%]
+tests/test_cost_estimator.py ..................................          [ 20%]
+tests/test_daemon.py ........................................            [ 23%]
+tests/test_daemon_extended.py .................                          [ 25%]
+tests/test_encryption.py ............................                    [ 27%]
+tests/test_encryption_extended.py ..................                     [ 28%]
+tests/test_epub_extraction.py .................                          [ 30%]
+tests/test_eval_harness.py .......                                       [ 30%]
+tests/test_file_watcher.py ...................                           [ 32%]
+tests/test_final_coverage.py ........................................... [ 35%]
+..................                                                       [ 36%]
+tests/test_hybrid_retrieval.py ......................................    [ 39%]
+tests/test_ignore_rules.py .........................                     [ 41%]
+tests/test_index_watcher.py ......                                       [ 42%]
+tests/test_installation_docs.py ..                                       [ 42%]
+tests/test_local_backends.py ........................................... [ 45%]
+.......................                                                  [ 47%]
+tests/test_manifest.py ...........                                       [ 48%]
+tests/test_mcp_server.py ..............................                  [ 50%]
+tests/test_memory.py ................................................... [ 54%]
+...................................................                      [ 58%]
+tests/test_memory_format_edges.py .........                              [ 59%]
+tests/test_mobile_api.py ..........                                      [ 59%]
+tests/test_mobile_setup.py ...............                               [ 61%]
+tests/test_models.py ...............................                     [ 63%]
+tests/test_native_artifact_workflow.py ......                            [ 63%]
+tests/test_native_bundle.py ...................                          [ 65%]
+tests/test_notifier.py ...............                                   [ 66%]
+tests/test_phase0.py ................................................... [ 70%]
+..                                                                       [ 70%]
+tests/test_phase0_coverage.py .................................          [ 73%]
+tests/test_phase0_final.py ...........                                   [ 74%]
+tests/test_phase0_init.py ........                                       [ 74%]
+tests/test_release_artifacts.py ....                                     [ 75%]
+tests/test_s3_client.py .........................................        [ 78%]
+tests/test_s3_client_extended.py ................                        [ 79%]
+tests/test_saharaignore_template.py .........                            [ 80%]
+tests/test_scan_preview.py .........                                     [ 80%]
+tests/test_search_confidence.py ...................                      [ 82%]
+tests/test_search_engine_alias.py .                                      [ 82%]
+tests/test_shortcuts.py .....................                            [ 83%]
+tests/test_state_db.py ..........................................        [ 87%]
+tests/test_sync_engine.py ...............................                [ 89%]
+tests/test_sync_engine_coverage.py ..................................... [ 92%]
+............................                                             [ 94%]
+tests/test_sync_engine_extended.py .................................     [ 97%]
+tests/test_three_step_model.py ..........................                [ 99%]
+tests/test_windows_native_installer.py ..........                        [100%]
+
+=============================== warnings summary ===============================
+../../../.venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: asyncio_default_fixture_loop_scope
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 1293 passed, 1 warning in 39.04s =======================

@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_at": "2026-11-18T17:09:00.333246Z",
+  "updated_at": "2026-11-18T17:18:55.210049Z",
   "tasks": [
     {
       "id": "first-run-auto-index-default",
@@ -103,7 +103,13 @@
     },
     {
       "id": "search-confidence",
-      "status": "planned",
+      "status": "passed",
+      "session": "a61f866b-319f-47c6-bca2-e3654c6a6b87",
+      "model": "claude-opus-5-5",
+      "attempt": "r1",
+      "rc": 0,
+      "verdict": "pass",
+      "reason": "stop",
       "brief": ".selfware/briefs/search-confidence.txt",
       "owns": [
         "src/sahara/search/search_engine.py",
@@ -118,12 +124,13 @@
         "tests/test_cli.py",
         "tests/eval/BASELINE.md"
       ],
-      "attempts": 0,
-      "updated_at": "2026-11-18T17:09:00.117773Z"
+      "attempts": 1,
+      "updated_at": "2026-11-18T17:18:55.210049Z"
     }
   ],
   "counts": {
     "landed": 4,
-    "planned": 2
+    "passed": 1,
+    "planned": 1
   }
 }
