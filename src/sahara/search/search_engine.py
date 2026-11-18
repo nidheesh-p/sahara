@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import posixpath
+import sqlite3
 import struct
 import zipfile
 from contextlib import contextmanager
@@ -15,7 +16,14 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
-from sahara.search.hybrid import build_fts_query, reciprocal_rank_fusion
+from sahara.search.hybrid import (
+    build_fts_query,
+    confidence_label,
+    query_terms,
+    reciprocal_rank_fusion,
+    term_coverage,
+    term_weight,
+)
 
 if TYPE_CHECKING:
     from sahara.storage.state_db import StateDB
@@ -472,9 +480,11 @@ class SearchEngine:
         vector when the keyword index is unavailable.
 
         Returns list of dicts: {storage_prefix, relative_path, score, snippet,
-        rrf_score, match, local_state}. ``score`` is the vector similarity of
-        the file's best vector hit (0.0 if only keyword search found it);
-        ``match`` is "vector", "keyword" or "both".
+        rrf_score, match, confidence, local_state}. ``score`` is the vector
+        similarity of the file's best vector hit (0.0 if only keyword search
+        found it); ``match`` is "vector", "keyword" or "both"; ``confidence``
+        is "high", "medium" or "low" (see ``hybrid.confidence_label``) and
+        only labels results, it never filters or reorders them.
         """
         if mode not in SEARCH_MODES:
             raise ValueError(f"unknown search mode {mode!r}; expected one of {SEARCH_MODES}")
@@ -496,6 +506,7 @@ class SearchEngine:
                 query, fetch_k, storage_prefix, candidate_paths
             )
         results = self._fuse(vector_hits, keyword_hits, top_k)
+        self._label_confidence(query, results, vector_hits, keyword_hits, storage_prefix)
         for result in results:
             residency = self._db.get_storage_residency(
                 result["storage_prefix"], result["relative_path"]
@@ -542,6 +553,7 @@ class SearchEngine:
                     "storage_prefix": row["storage_prefix"],
                     "relative_path": row["relative_path"],
                     "snippet": row.get("chunk_text", "")[:500],
+                    "chunk_id": row.get("id"),
                 }
         return list(seen.values())[:top_k]
 
@@ -578,6 +590,85 @@ class SearchEngine:
                 "match": match,
             })
         return results
+
+    def _label_confidence(
+        self,
+        query: str,
+        results: list[dict],
+        vector_hits: list[dict],
+        keyword_hits: list[dict],
+        storage_prefix: str | None,
+    ) -> None:
+        """Set ``confidence`` ("high", "medium", "low") on every result in place."""
+        if not results:
+            return
+
+        def key(hit: dict) -> tuple[str, str]:
+            return (hit["storage_prefix"], hit["relative_path"])
+
+        vector_keys = {key(h) for h in vector_hits}
+        keyword_rank = {key(h): rank for rank, h in enumerate(keyword_hits, start=1)}
+        chunk_ids: dict[tuple[str, str], set[int]] = {}
+        for hit in (*vector_hits, *keyword_hits):
+            if hit.get("chunk_id") is not None:
+                chunk_ids.setdefault(key(hit), set()).add(hit["chunk_id"])
+
+        terms = query_terms(query)
+        postings = self._term_postings(terms, storage_prefix)
+        if postings is None:  # no keyword index: equal weights, judge the snippet
+            weights = {term: 1.0 for term in terms}
+        else:
+            total = self._db.count_chunks(storage_prefix)
+            weights = {term: term_weight(len(postings[term]), total) for term in terms}
+
+        for result in results:
+            file_key = key(result)
+            if postings is None:
+                present = set(query_terms(result.get("snippet", "")))
+            else:
+                ids = chunk_ids.get(file_key)
+                present = {
+                    term for term in terms
+                    if any(
+                        (row[0] in ids) if ids else (row[1], row[2]) == file_key
+                        for row in postings[term]
+                    )
+                }
+            result["confidence"] = confidence_label(
+                result["match"],
+                result["score"] if file_key in vector_keys else None,
+                keyword_rank.get(file_key),
+                term_coverage(weights, present),
+            )
+
+    def _term_postings(
+        self, terms: list[str], storage_prefix: str | None
+    ) -> dict[str, list[tuple]] | None:
+        """``(chunk id, storage_prefix, relative_path)`` of every chunk holding each term.
+
+        Returns None when the FTS5 keyword index is unavailable.
+        """
+        if not self._db.has_fts_table():
+            return None
+        sql = """
+            SELECT c.id, c.storage_prefix, c.relative_path
+            FROM chunks_fts
+            JOIN chunks c ON c.id = chunks_fts.rowid
+            WHERE chunks_fts MATCH ?
+        """
+        if storage_prefix is not None:
+            sql += " AND c.storage_prefix = ?"
+        postings: dict[str, list[tuple]] = {}
+        try:
+            for term in terms:
+                params: list[object] = [f'"{term}"']
+                if storage_prefix is not None:
+                    params.append(storage_prefix)
+                rows = self._db.conn.execute(sql, params).fetchall()
+                postings[term] = [tuple(row) for row in rows]
+        except sqlite3.Error:
+            return None
+        return postings
 
     def _search_vec(
         self,
@@ -669,6 +760,7 @@ class SearchEngine:
                     "relative_path": row["relative_path"],
                     "score": score,
                     "snippet": row.get("chunk_text", "")[:500],
+                    "chunk_id": row.get("id"),
                 }
         results = sorted(seen.values(), key=lambda x: x["score"], reverse=True)
         return results[:top_k]

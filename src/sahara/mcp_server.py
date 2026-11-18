@@ -6,12 +6,15 @@ import hashlib
 import inspect
 import re
 import secrets
+import time
+from collections.abc import Callable
 from dataclasses import asdict
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Literal
 
 from sahara.config import DEFAULT_CONFIG_PATH, SaharaConfig, load_config
+from sahara.freshness import compute_freshness
 from sahara.memory import CaptureRequest, MemoryFilters, MemoryService
 from sahara.memory.format import SOURCE_TYPES
 from sahara.search.ask_engine import AskEngine
@@ -49,6 +52,7 @@ DEFAULT_MCP_TOOLS: tuple[McpToolName, ...] = (
     "sahara_recall",
 )
 MCP_MEMORY_MAX_CHARS = 20_000
+FRESHNESS_CACHE_SECONDS = 60.0
 
 
 def _require_compatible_mcp_sdk(fast_mcp_class: type[Any]) -> None:
@@ -108,6 +112,9 @@ def _normalise_result(result: dict[str, Any], *, max_snippet_chars: int = 500) -
         "score": float(result.get("score", 0.0)),
         "snippet": _truncate(result.get("snippet", ""), max_snippet_chars),
         "local_state": result.get("local_state", "present"),
+        # "vector", "keyword" or "both"; "high", "medium" or "low".
+        "match": result.get("match", "vector"),
+        "confidence": result.get("confidence", "low"),
     }
 
 
@@ -260,6 +267,66 @@ def index_status(db: StateDB | None = None) -> dict[str, Any]:
     finally:
         if should_close:
             db.close()
+
+
+def index_freshness(
+    config: SaharaConfig | None = None,
+    allowed_storage_prefixes: tuple[str, ...] | None = None,
+    db: StateDB | None = None,
+) -> dict[str, Any]:
+    """Return how many files changed since the last index, within the folder allowlist.
+
+    Read-only: uses the already registered content roots and never reads file contents.
+    """
+    from sahara.freshness import registered_roots
+    from sahara.sync.daemon import is_daemon_running
+
+    config = config or load_config(DEFAULT_CONFIG_PATH)
+    allowed = _normalise_allowed_prefixes(allowed_storage_prefixes)
+    should_close = db is None
+    db = db or StateDB().connect()
+    try:
+        roots = [
+            root
+            for root in registered_roots(db)
+            if allowed is None or root.storage_prefix in allowed
+        ]
+        return compute_freshness(
+            db,
+            roots,
+            is_daemon_running(),
+            exclude_patterns=config.exclude_patterns,
+        ).to_dict()
+    finally:
+        if should_close:
+            db.close()
+
+
+class FreshnessCache:
+    """Memoise index freshness for ``ttl`` seconds so searches stay fast."""
+
+    def __init__(
+        self,
+        compute: Callable[[], dict[str, Any]],
+        *,
+        ttl: float = FRESHNESS_CACHE_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._compute = compute
+        self._ttl = ttl
+        self._clock = clock
+        self._value: dict[str, Any] | None = None
+        self._computed_at = 0.0
+
+    def get(self) -> dict[str, Any]:
+        now = self._clock()
+        if self._value is None or now - self._computed_at >= self._ttl:
+            self._value = self._compute()
+            self._computed_at = now
+        return self._value
+
+    def clear(self) -> None:
+        self._value = None
 
 
 def _ensure_memory_scope_allowed(
@@ -463,11 +530,13 @@ def build_mcp_server(
     allowed_storage_prefixes: tuple[str, ...] | None = None,
     max_snippet_chars: int = 500,
     enable_memory_write: bool = False,
+    freshness_cache: FreshnessCache | None = None,
 ) -> Any:
     """Create the Sahara FastMCP server.
 
     The import is lazy so normal Sahara installs do not require the optional
-    `mcp` extra unless this server is used.
+    `mcp` extra unless this server is used. Index freshness is cached per
+    server; the cache is exposed as ``server.sahara_freshness_cache``.
     """
     try:
         from mcp.server.fastmcp import FastMCP
@@ -506,6 +575,21 @@ def build_mcp_server(
             "sahara_remember requires the explicit --enable-memory-write opt-in"
         )
 
+    cache = freshness_cache or FreshnessCache(
+        lambda: index_freshness(
+            config=config,
+            allowed_storage_prefixes=allowed_storage_prefixes,
+        )
+    )
+    server.sahara_freshness_cache = cache  # type: ignore[attr-defined]
+
+    def cached_freshness() -> dict[str, Any] | None:
+        """Return cached freshness, or None when it cannot be computed; never fail a search."""
+        try:
+            return cache.get()
+        except Exception:
+            return None
+
     if "sahara_search" in tool_allowlist:
         @server.tool()
         def sahara_search(
@@ -513,14 +597,21 @@ def build_mcp_server(
             top_k: int = 5,
             storage_prefix: str | None = None,
         ) -> list[dict[str, Any]]:
-            """Search Sahara's local index and return ranked cited snippets."""
-            return search_files(
+            """Search Sahara's local index and return ranked cited snippets.
+
+            Each result carries ``index_stale``: true when files changed since
+            the last index and no watcher is catching up.
+            """
+            results = search_files(
                 query=query,
                 top_k=top_k,
                 storage_prefix=storage_prefix,
                 allowed_storage_prefixes=allowed_storage_prefixes,
                 max_snippet_chars=max_snippet_chars,
             )
+            freshness = cached_freshness()
+            stale = bool(freshness and freshness["stale"])
+            return [{**result, "index_stale": stale} for result in results]
 
     if "sahara_ask" in tool_allowlist:
         @server.tool()
@@ -531,7 +622,7 @@ def build_mcp_server(
             provider: str | None = None,
         ) -> dict[str, Any]:
             """Ask a question over Sahara's local index and return cited sources."""
-            return ask_question(
+            payload = ask_question(
                 question=question,
                 top_k=top_k,
                 storage_prefix=storage_prefix,
@@ -540,6 +631,8 @@ def build_mcp_server(
                 allowed_storage_prefixes=allowed_storage_prefixes,
                 max_snippet_chars=max_snippet_chars,
             )
+            payload["index"] = cached_freshness()
+            return payload
 
     if "sahara_read_chunk" in tool_allowlist:
         @server.tool()
@@ -560,8 +653,13 @@ def build_mcp_server(
     if "sahara_index_status" in tool_allowlist:
         @server.tool()
         def sahara_index_status() -> dict[str, Any]:
-            """Return local index counts and vector-index availability."""
-            return index_status()
+            """Return index counts, vector-index availability and freshness.
+
+            Freshness covers only allowlisted folders: last_indexed_at,
+            indexed_file_count, pending_changes (new/modified/missing files
+            since the last index), is_lower_bound, watcher_running and stale.
+            """
+            return {**index_status(), **cache.get()}
 
     if "sahara_recall" in tool_allowlist:
         @server.tool()
