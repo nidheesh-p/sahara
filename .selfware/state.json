@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_at": "2026-11-18T17:21:12.640756Z",
+  "updated_at": "2026-11-18T17:29:30.398164Z",
   "tasks": [
     {
       "id": "first-run-auto-index-default",
@@ -67,10 +67,13 @@
     },
     {
       "id": "index-freshness",
-      "status": "running",
-      "session": "329fe2d4-8f92-4674-be87-3feab0888064",
+      "status": "passed",
+      "session": "10a171d2-a628-43ad-8ff9-630eaf0cb63b",
       "model": "claude-opus-5-5",
-      "attempt": "r1",
+      "attempt": "r2",
+      "rc": 0,
+      "verdict": "pass",
+      "reason": "stop",
       "brief": ".selfware/briefs/index-freshness.txt",
       "needs": [
         "search-confidence"
@@ -83,8 +86,8 @@
         "tests/test_cli.py",
         "tests/test_mcp_server.py"
       ],
-      "attempts": 1,
-      "updated_at": "2026-11-18T17:19:48.790965Z"
+      "attempts": 2,
+      "updated_at": "2026-11-18T17:29:30.398164Z"
     },
     {
       "id": "retrieval-eval-harness",
@@ -133,6 +136,6 @@
   ],
   "counts": {
     "landed": 5,
-    "running": 1
+    "passed": 1
   }
 }
