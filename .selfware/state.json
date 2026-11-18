@@ -1,0 +1,91 @@
+{
+  "version": 2,
+  "updated_at": "2026-11-18T04:24:32.084128Z",
+  "tasks": [
+    {
+      "id": "first-run-auto-index-default",
+      "status": "landed",
+      "session": "e3d4f7f6-562b-4442-bd26-f1686a0733ff",
+      "model": "claude-opus-5-5",
+      "attempt": "r1",
+      "rc": 0,
+      "verdict": "pass",
+      "reason": "stop",
+      "brief": ".selfware/briefs/first-run-auto-index-default.txt",
+      "owns": [
+        "src/sahara/cli.py",
+        "tests/test_cli.py"
+      ],
+      "attempts": 1,
+      "updated_at": "2026-11-17T07:17:19.142476Z"
+    },
+    {
+      "id": "first-run-scan-preview",
+      "status": "passed",
+      "session": "f876bf7f-e813-41f3-9907-48047f65c394",
+      "model": "claude-opus-5-5",
+      "attempt": "r1",
+      "rc": 0,
+      "verdict": "pass",
+      "reason": "stop",
+      "brief": ".selfware/briefs/first-run-scan-preview.txt",
+      "needs": [
+        "first-run-auto-index-default"
+      ],
+      "owns": [
+        "src/sahara/scan_preview.py",
+        "src/sahara/cli.py",
+        "tests/test_scan_preview.py",
+        "tests/test_cli.py"
+      ],
+      "attempts": 1,
+      "updated_at": "2026-11-18T04:24:31.893792Z"
+    },
+    {
+      "id": "hybrid-retrieval",
+      "status": "passed",
+      "session": "56385d65-9d6b-494a-8678-603ab0e2ed75",
+      "model": "claude-opus-5-5",
+      "attempt": "r1",
+      "rc": 0,
+      "verdict": "pass",
+      "reason": "stop",
+      "brief": ".selfware/briefs/hybrid-retrieval.txt",
+      "needs": [
+        "retrieval-eval-harness"
+      ],
+      "owns": [
+        "src/sahara/search/hybrid.py",
+        "src/sahara/search/search_engine.py",
+        "src/sahara/storage/state_db.py",
+        "src/sahara/eval/runner.py",
+        "tests/test_hybrid_retrieval.py",
+        "tests/eval/BASELINE.md"
+      ],
+      "attempts": 1,
+      "updated_at": "2026-11-18T04:24:32.084128Z"
+    },
+    {
+      "id": "retrieval-eval-harness",
+      "status": "landed",
+      "session": "2b919315-dc31-4cde-b915-a7cf73a5a9f7",
+      "model": "claude-opus-5-5",
+      "attempt": "r1",
+      "rc": 0,
+      "verdict": "pass",
+      "reason": "stop",
+      "brief": ".selfware/briefs/retrieval-eval-harness.txt",
+      "owns": [
+        "src/sahara/eval/",
+        "tests/eval/",
+        "tests/test_eval_harness.py"
+      ],
+      "attempts": 1,
+      "updated_at": "2026-11-17T07:17:57.594917Z"
+    }
+  ],
+  "counts": {
+    "landed": 2,
+    "passed": 2
+  }
+}

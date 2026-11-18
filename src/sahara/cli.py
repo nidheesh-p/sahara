@@ -978,8 +978,12 @@ def first_run(
     if not assume_yes:
         click.echo()
         _info("Sahara will index these folder(s):")
+        from sahara.scan_preview import format_summary, summarize_folder
+
         for path in existing:
             _info(f"- {path}")
+            _info(f"  {format_summary(summarize_folder(path))}")
+        _info("To exclude subfolders, add them to a .saharaignore file in the folder.")
         if not click.confirm("  Continue with setup and indexing?", default=True):
             _abort("Setup cancelled.")
 
@@ -1013,8 +1017,9 @@ def first_run(
                 if assume_yes
                 else click.confirm(
                     "  Keep this index automatically up to date in the "
-                    "background from now on?",
-                    default=False,
+                    "background? (Choose No and new or changed files will "
+                    "not be searchable until you run 'sahara index')",
+                    default=True,
                 )
             )
         if want_auto_index:
@@ -3087,7 +3092,9 @@ def remember_cmd(
     if not content.strip() and not sys.stdin.isatty():
         from sahara.memory.format import MAX_MEMORY_CHARS
 
-        content = click.get_text_stream("stdin").read(MAX_MEMORY_CHARS + 1)
+        # click.get_text_stream is deprecated (removed in Click 9); sys.stdin is
+        # already a text stream, and click's test runner swaps it in tests.
+        content = sys.stdin.read(MAX_MEMORY_CHARS + 1)
         if len(content) > MAX_MEMORY_CHARS:
             raise click.UsageError(
                 f"Memory text exceeds the {MAX_MEMORY_CHARS:,}-character limit."

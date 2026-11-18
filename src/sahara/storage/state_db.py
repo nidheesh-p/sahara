@@ -433,6 +433,64 @@ def _migrate_v4(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _fts5_available(conn: sqlite3.Connection) -> bool:
+    """Return True if this SQLite build can create FTS5 tables."""
+    try:
+        conn.execute("CREATE VIRTUAL TABLE temp._sahara_fts5_probe USING fts5(x)")
+        conn.execute("DROP TABLE temp._sahara_fts5_probe")
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+def _migrate_v5(conn: sqlite3.Connection) -> None:
+    """Create the chunks_fts keyword index plus sync triggers (idempotent).
+
+    chunks_fts is an external-content FTS5 table over chunks.chunk_text; the
+    triggers keep it in sync with every insert, update and delete on chunks.
+    If FTS5 is unavailable the migration is skipped and keyword search is off.
+    """
+    exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE name = 'chunks_fts'"
+    ).fetchone()
+    marker = conn.execute(
+        "SELECT value FROM config_kv WHERE key = 'schema_v5_fts'"
+    ).fetchone()
+    if exists is not None and marker is not None:
+        return
+    if not _fts5_available(conn):
+        return  # FTS5 not compiled in; degrade gracefully
+
+    conn.executescript("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+            chunk_text, content='chunks', content_rowid='id'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS chunks_fts_ai AFTER INSERT ON chunks BEGIN
+            INSERT INTO chunks_fts (rowid, chunk_text)
+            VALUES (new.id, new.chunk_text);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS chunks_fts_ad AFTER DELETE ON chunks BEGIN
+            INSERT INTO chunks_fts (chunks_fts, rowid, chunk_text)
+            VALUES ('delete', old.id, old.chunk_text);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS chunks_fts_au AFTER UPDATE ON chunks BEGIN
+            INSERT INTO chunks_fts (chunks_fts, rowid, chunk_text)
+            VALUES ('delete', old.id, old.chunk_text);
+            INSERT INTO chunks_fts (rowid, chunk_text)
+            VALUES (new.id, new.chunk_text);
+        END;
+    """)
+    conn.execute("INSERT INTO chunks_fts (chunks_fts) VALUES ('rebuild')")
+    conn.execute(
+        "INSERT INTO config_kv (key, value) VALUES ('schema_v5_fts', '1') "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+    conn.commit()
+
+
 class StateDB:
     """Manages the local SQLite state database for Sahara.
 
@@ -471,6 +529,7 @@ class StateDB:
                 conn.commit()
                 _migrate_v3(conn)
                 _migrate_v4(conn)
+                _migrate_v5(conn)
         except Exception:
             conn.close()
             raise
@@ -2040,6 +2099,52 @@ class StateDB:
             "SELECT name FROM sqlite_master WHERE name = 'vec_chunks'"
         ).fetchone()
         return row is not None
+
+    def has_fts_table(self) -> bool:
+        """Return True if the chunks_fts keyword index exists."""
+        row = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'chunks_fts'"
+        ).fetchone()
+        return row is not None
+
+    def fts_keyword_search(
+        self,
+        fts_query: str,
+        k: int,
+        storage_prefix: str | None = None,
+        candidate_paths: set[str] | None = None,
+    ) -> list[dict]:
+        """Run an FTS5 BM25 query over chunk text, best match first.
+
+        ``fts_query`` must already be valid FTS5 syntax (see
+        ``sahara.search.hybrid.build_fts_query``). Returns chunk rows with
+        ``id``, ``storage_prefix``, ``relative_path``, ``chunk_text`` and
+        ``rank`` (bm25, lower is better). Returns [] when the index is missing,
+        the query is empty or FTS5 rejects it.
+        """
+        if not fts_query or candidate_paths == set() or not self.has_fts_table():
+            return []
+        sql = """
+            SELECT c.id, c.storage_prefix, c.relative_path, c.chunk_index,
+                   c.chunk_text, bm25(chunks_fts) AS rank
+            FROM chunks_fts
+            JOIN chunks c ON c.id = chunks_fts.rowid
+            WHERE chunks_fts MATCH ?
+        """
+        params: list[object] = [fts_query]
+        if storage_prefix is not None:
+            sql += " AND c.storage_prefix = ?"
+            params.append(storage_prefix)
+        if candidate_paths is not None:
+            sql += " AND c.relative_path IN (SELECT value FROM json_each(?))"
+            params.append(json.dumps(sorted(candidate_paths)))
+        sql += " ORDER BY rank LIMIT ?"
+        params.append(max(1, k))
+        try:
+            rows = self.conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        return [dict(r) for r in rows]
 
     def count_chunks(self, storage_prefix: str | None = None) -> int:
         """Return the total number of indexed chunks."""
