@@ -978,8 +978,12 @@ def first_run(
     if not assume_yes:
         click.echo()
         _info("Sahara will index these folder(s):")
+        from sahara.scan_preview import format_summary, summarize_folder
+
         for path in existing:
             _info(f"- {path}")
+            _info(f"  {format_summary(summarize_folder(path))}")
+        _info("To exclude subfolders, add them to a .saharaignore file in the folder.")
         if not click.confirm("  Continue with setup and indexing?", default=True):
             _abort("Setup cancelled.")
 

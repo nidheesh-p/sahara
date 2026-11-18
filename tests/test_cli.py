@@ -1609,6 +1609,70 @@ class TestSetup:
         assert "Memory capture is enabled" in result.output
         assert "--enable-memory-write" in claude_config.read_text(encoding="utf-8")
 
+    def test_first_run_previews_scan_before_confirm(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        (folder / "a.md").write_text("hello", encoding="utf-8")
+        (folder / "b.txt").write_text("world", encoding="utf-8")
+        (folder / "c.png").write_bytes(b"\x89PNG")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--folder",
+                    str(folder),
+                    "--no-folder-picker",
+                    "--no-index",
+                    "--no-doctor",
+                ],
+                input="n\n",
+            )
+
+        assert "Setup cancelled" in result.output
+        summary_at = result.output.index("Found 2 files (~0.0 MB) to index")
+        ignore_at = result.output.index(".saharaignore")
+        confirm_at = result.output.index("Continue with setup and indexing?")
+        assert summary_at < confirm_at
+        assert ignore_at < confirm_at
+
+    def test_first_run_yes_skips_scan_preview(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.scan_preview.summarize_folder"
+        ) as summarize, patch(
+            "sahara.cli._claude_desktop_detected", return_value=False
+        ), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-auto-index",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        summarize.assert_not_called()
+        assert "MB) to index" not in result.output
+
     def _assert_ends_with_completion_banner(self, output: str) -> None:
         lines = [line for line in output.splitlines() if line.strip()]
         assert "Setup complete" in lines[-3], output
