@@ -3092,7 +3092,8 @@ def remember_cmd(
     if not content.strip() and not sys.stdin.isatty():
         from sahara.memory.format import MAX_MEMORY_CHARS
 
-        content = click.get_text_stream("stdin").read(MAX_MEMORY_CHARS + 1)
+        # cast: newer click typing stubs make this attribute type-check as ``object``.
+        content = cast(Any, click.get_text_stream("stdin")).read(MAX_MEMORY_CHARS + 1)
         if len(content) > MAX_MEMORY_CHARS:
             raise click.UsageError(
                 f"Memory text exceeds the {MAX_MEMORY_CHARS:,}-character limit."
