@@ -1,0 +1,18 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.7, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.selfware/worktrees/mcp-injection-hardening
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.13.0
+collected 47 items
+
+tests/test_mcp_injection.py .............                                [ 27%]
+tests/test_mcp_server.py ..................................              [100%]
+
+=============================== warnings summary ===============================
+../../../.venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: asyncio_default_fixture_loop_scope
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 47 passed, 1 warning in 1.09s =========================
