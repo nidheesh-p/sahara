@@ -1,0 +1,6 @@
+Seed catalogue for the gardening club.
+\x1b[31m\x1b[1mred terminal text\x1b[0m and a \x1b]0;fake title\x07 link
+zero​width‌joiners‍here﻿ and bidi ‮reversed‬ text ⁦isolated⁩ here
+bell\x07 and backspace\x08 and null\x00 and C1 csi\x9b2J and del\x7f
+carriage\r
+return

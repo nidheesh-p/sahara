@@ -157,6 +157,7 @@ def test_search_files_normalises_results(tmp_path: Path) -> None:
             "local_state": "present",
             "match": "both",
             "confidence": "high",
+            "content_trust": "untrusted",
         }]
     finally:
         db.close()
