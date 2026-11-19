@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_at": "2026-11-18T17:30:12.645421Z",
+  "updated_at": "2026-11-19T02:41:47.269613Z",
   "tasks": [
     {
       "id": "first-run-auto-index-default",
@@ -90,6 +90,24 @@
       "updated_at": "2026-11-18T17:30:12.645421Z"
     },
     {
+      "id": "mcp-injection-hardening",
+      "status": "planned",
+      "brief": ".selfware/briefs/mcp-injection-hardening.txt",
+      "needs": [
+        "index-freshness"
+      ],
+      "owns": [
+        "src/sahara/mcp_server.py",
+        "src/sahara/mcp_sanitize.py",
+        "SECURITY.md",
+        "tests/test_mcp_injection.py",
+        "tests/fixtures/injection/",
+        "tests/test_mcp_server.py"
+      ],
+      "attempts": 0,
+      "updated_at": "2026-11-19T02:41:47.269613Z"
+    },
+    {
       "id": "retrieval-eval-harness",
       "status": "landed",
       "session": "2b919315-dc31-4cde-b915-a7cf73a5a9f7",
@@ -135,6 +153,7 @@
     }
   ],
   "counts": {
-    "landed": 6
+    "landed": 6,
+    "planned": 1
   }
 }
