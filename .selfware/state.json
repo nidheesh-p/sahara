@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_at": "2026-11-18T17:30:12.645421Z",
+  "updated_at": "2026-11-19T02:49:54.235422Z",
   "tasks": [
     {
       "id": "first-run-auto-index-default",
@@ -90,6 +90,30 @@
       "updated_at": "2026-11-18T17:30:12.645421Z"
     },
     {
+      "id": "mcp-injection-hardening",
+      "status": "landed",
+      "session": "9bab91db-9391-4009-8343-0c5943a22222",
+      "model": "claude-opus-5-5",
+      "attempt": "r1",
+      "rc": 0,
+      "verdict": "pass",
+      "reason": "stop",
+      "brief": ".selfware/briefs/mcp-injection-hardening.txt",
+      "needs": [
+        "index-freshness"
+      ],
+      "owns": [
+        "src/sahara/mcp_server.py",
+        "src/sahara/mcp_sanitize.py",
+        "SECURITY.md",
+        "tests/test_mcp_injection.py",
+        "tests/fixtures/injection/",
+        "tests/test_mcp_server.py"
+      ],
+      "attempts": 1,
+      "updated_at": "2026-11-19T02:49:54.235422Z"
+    },
+    {
       "id": "retrieval-eval-harness",
       "status": "landed",
       "session": "2b919315-dc31-4cde-b915-a7cf73a5a9f7",
@@ -135,6 +159,6 @@
     }
   ],
   "counts": {
-    "landed": 6
+    "landed": 7
   }
 }
