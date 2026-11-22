@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import posixpath
+import sqlite3
 import struct
 import zipfile
 from contextlib import contextmanager
@@ -15,10 +16,19 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
+from sahara.search.hybrid import (
+    build_fts_query,
+    confidence_label,
+    query_terms,
+    reciprocal_rank_fusion,
+    term_coverage,
+    term_weight,
+)
+
 if TYPE_CHECKING:
     from sahara.storage.state_db import StateDB
 
-__all__ = ["IndexFileResult", "SearchEngine", "TextExtractor"]
+__all__ = ["IndexFileResult", "SEARCH_MODES", "SearchEngine", "TextExtractor"]
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +36,8 @@ CHUNK_SIZE = 1600       # chars ≈ 400 tokens
 CHUNK_OVERLAP = 320     # chars ≈ 80 tokens overlap between adjacent chunks
 EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIM = 384     # BAAI/bge-small-en-v1.5 output dimension
+SEARCH_MODES = ("hybrid", "vector", "keyword")
+HYBRID_FETCH_FACTOR = 3  # hybrid fetches top_k * 3 files from each side before fusing
 
 
 def load_embedding_model() -> Any:
@@ -459,29 +471,42 @@ class SearchEngine:
         top_k: int = 5,
         storage_prefix: str | None = None,
         candidate_paths: set[str] | None = None,
+        mode: str = "hybrid",
     ) -> list[dict]:
-        """Search for files semantically similar to query.
+        """Search for files matching query.
 
-        Returns list of dicts: {storage_prefix, relative_path, score, snippet}.
+        ``mode`` is "hybrid" (vector plus FTS5 keyword search fused with
+        Reciprocal Rank Fusion), "vector" or "keyword". Hybrid behaves as
+        vector when the keyword index is unavailable.
+
+        Returns list of dicts: {storage_prefix, relative_path, score, snippet,
+        rrf_score, match, confidence, local_state}. ``score`` is the vector
+        similarity of the file's best vector hit (0.0 if only keyword search
+        found it); ``match`` is "vector", "keyword" or "both"; ``confidence``
+        is "high", "medium" or "low" (see ``hybrid.confidence_label``) and
+        only labels results, it never filters or reorders them.
         """
-        query_embs = self._embed([query])
-        if not query_embs or candidate_paths == set():
+        if mode not in SEARCH_MODES:
+            raise ValueError(f"unknown search mode {mode!r}; expected one of {SEARCH_MODES}")
+        if candidate_paths == set():
             return []
 
-        if self._db.has_vec_table():
-            results = self._search_vec(
-                query_embs[0],
-                top_k,
-                storage_prefix,
-                candidate_paths,
+        fetch_k = top_k if mode == "vector" else top_k * HYBRID_FETCH_FACTOR
+        vector_hits: list[dict] = []
+        keyword_hits: list[dict] = []
+        if mode != "keyword":
+            query_embs = self._embed([query])
+            if not query_embs:
+                return []
+            vector_hits = self._vector_ranking(
+                query_embs[0], fetch_k, storage_prefix, candidate_paths
             )
-        else:
-            results = self._search_cosine(
-                query_embs[0],
-                top_k,
-                storage_prefix,
-                candidate_paths,
+        if mode != "vector":
+            keyword_hits = self._keyword_ranking(
+                query, fetch_k, storage_prefix, candidate_paths
             )
+        results = self._fuse(vector_hits, keyword_hits, top_k)
+        self._label_confidence(query, results, vector_hits, keyword_hits, storage_prefix)
         for result in results:
             residency = self._db.get_storage_residency(
                 result["storage_prefix"], result["relative_path"]
@@ -490,6 +515,160 @@ class SearchEngine:
                 residency["local_state"] if residency else "present"
             )
         return results
+
+    def _vector_ranking(
+        self,
+        query_emb: Any,
+        top_k: int,
+        storage_prefix: str | None,
+        candidate_paths: set[str] | None,
+    ) -> list[dict]:
+        """Per-file vector hits, best first, via sqlite-vec or the cosine fallback."""
+        if self._db.has_vec_table():
+            return self._search_vec(query_emb, top_k, storage_prefix, candidate_paths)
+        return self._search_cosine(query_emb, top_k, storage_prefix, candidate_paths)
+
+    def _keyword_ranking(
+        self,
+        query: str,
+        top_k: int,
+        storage_prefix: str | None,
+        candidate_paths: set[str] | None,
+    ) -> list[dict]:
+        """Per-file FTS5 BM25 hits, best first; [] when keyword search is unavailable."""
+        fts_query = build_fts_query(query)
+        if not fts_query or not self._db.has_fts_table():
+            return []
+        rows = self._db.fts_keyword_search(
+            fts_query,
+            k=top_k * 4,
+            storage_prefix=storage_prefix,
+            candidate_paths=candidate_paths,
+        )
+        seen: dict[tuple, dict] = {}
+        for row in rows:  # already ordered by bm25, best first
+            key = (row["storage_prefix"], row["relative_path"])
+            if key not in seen:
+                seen[key] = {
+                    "storage_prefix": row["storage_prefix"],
+                    "relative_path": row["relative_path"],
+                    "snippet": row.get("chunk_text", "")[:500],
+                    "chunk_id": row.get("id"),
+                }
+        return list(seen.values())[:top_k]
+
+    @staticmethod
+    def _fuse(
+        vector_hits: list[dict], keyword_hits: list[dict], top_k: int
+    ) -> list[dict]:
+        """Merge per-file hits with RRF; keep vector score and snippet when present."""
+        def key(hit: dict) -> tuple[str, str]:
+            return (hit["storage_prefix"], hit["relative_path"])
+
+        by_vector = {key(h): h for h in vector_hits}
+        by_keyword = {key(h): h for h in keyword_hits}
+        rankings = [
+            ranking
+            for ranking in ([key(h) for h in vector_hits], [key(h) for h in keyword_hits])
+            if ranking
+        ]
+        results: list[dict] = []
+        for file_key, rrf_score in reciprocal_rank_fusion(rankings)[:top_k]:
+            vec_hit = by_vector.get(file_key)
+            kw_hit = by_keyword.get(file_key)
+            if vec_hit and kw_hit:
+                match = "both"
+            else:
+                match = "vector" if vec_hit else "keyword"
+            base = vec_hit or kw_hit or {}
+            results.append({
+                "storage_prefix": file_key[0],
+                "relative_path": file_key[1],
+                "score": vec_hit["score"] if vec_hit else 0.0,
+                "snippet": base.get("snippet", ""),
+                "rrf_score": rrf_score,
+                "match": match,
+            })
+        return results
+
+    def _label_confidence(
+        self,
+        query: str,
+        results: list[dict],
+        vector_hits: list[dict],
+        keyword_hits: list[dict],
+        storage_prefix: str | None,
+    ) -> None:
+        """Set ``confidence`` ("high", "medium", "low") on every result in place."""
+        if not results:
+            return
+
+        def key(hit: dict) -> tuple[str, str]:
+            return (hit["storage_prefix"], hit["relative_path"])
+
+        vector_keys = {key(h) for h in vector_hits}
+        keyword_rank = {key(h): rank for rank, h in enumerate(keyword_hits, start=1)}
+        chunk_ids: dict[tuple[str, str], set[int]] = {}
+        for hit in (*vector_hits, *keyword_hits):
+            if hit.get("chunk_id") is not None:
+                chunk_ids.setdefault(key(hit), set()).add(hit["chunk_id"])
+
+        terms = query_terms(query)
+        postings = self._term_postings(terms, storage_prefix)
+        if postings is None:  # no keyword index: equal weights, judge the snippet
+            weights = {term: 1.0 for term in terms}
+        else:
+            total = self._db.count_chunks(storage_prefix)
+            weights = {term: term_weight(len(postings[term]), total) for term in terms}
+
+        for result in results:
+            file_key = key(result)
+            if postings is None:
+                present = set(query_terms(result.get("snippet", "")))
+            else:
+                ids = chunk_ids.get(file_key)
+                present = {
+                    term for term in terms
+                    if any(
+                        (row[0] in ids) if ids else (row[1], row[2]) == file_key
+                        for row in postings[term]
+                    )
+                }
+            result["confidence"] = confidence_label(
+                result["match"],
+                result["score"] if file_key in vector_keys else None,
+                keyword_rank.get(file_key),
+                term_coverage(weights, present),
+            )
+
+    def _term_postings(
+        self, terms: list[str], storage_prefix: str | None
+    ) -> dict[str, list[tuple]] | None:
+        """``(chunk id, storage_prefix, relative_path)`` of every chunk holding each term.
+
+        Returns None when the FTS5 keyword index is unavailable.
+        """
+        if not self._db.has_fts_table():
+            return None
+        sql = """
+            SELECT c.id, c.storage_prefix, c.relative_path
+            FROM chunks_fts
+            JOIN chunks c ON c.id = chunks_fts.rowid
+            WHERE chunks_fts MATCH ?
+        """
+        if storage_prefix is not None:
+            sql += " AND c.storage_prefix = ?"
+        postings: dict[str, list[tuple]] = {}
+        try:
+            for term in terms:
+                params: list[object] = [f'"{term}"']
+                if storage_prefix is not None:
+                    params.append(storage_prefix)
+                rows = self._db.conn.execute(sql, params).fetchall()
+                postings[term] = [tuple(row) for row in rows]
+        except sqlite3.Error:
+            return None
+        return postings
 
     def _search_vec(
         self,
@@ -573,14 +752,19 @@ class SearchEngine:
         seen: dict[tuple, dict] = {}
         for row in rows:
             key = (row["storage_prefix"], row["relative_path"])
-            # vec distance is lower-is-better; clamp to [0, 1] similarity score
-            score = max(0.0, 1.0 - float(row.get("distance", 0.0)))
+            # vec0 reports L2 distance (lower is better). Embeddings are unit
+            # vectors, so cosine similarity = 1 - d^2 / 2. This keeps ``score`` on
+            # the same cosine scale as the fallback path, which the confidence and
+            # not-present thresholds are tuned on. Clamp to [0, 1].
+            distance = float(row.get("distance", 0.0))
+            score = max(0.0, 1.0 - distance * distance / 2.0)
             if key not in seen or score > seen[key]["score"]:
                 seen[key] = {
                     "storage_prefix": row["storage_prefix"],
                     "relative_path": row["relative_path"],
                     "score": score,
                     "snippet": row.get("chunk_text", "")[:500],
+                    "chunk_id": row.get("id"),
                 }
         results = sorted(seen.values(), key=lambda x: x["score"], reverse=True)
         return results[:top_k]

@@ -1,0 +1,17 @@
+owns: src/sahara/scan_preview.py (new), src/sahara/cli.py, tests/test_scan_preview.py (new), tests/test_cli.py
+needs: first-run-auto-index-default
+class: code-in-repo
+kind: feature
+gate: /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/ruff check src tests
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest tests/test_scan_preview.py tests/test_cli.py -q
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest -q
+
+# TASK: first-run-scan-preview — show how many files will be indexed before the first-run confirm (GitHub #125)
+
+Create src/sahara/scan_preview.py with a pure function summarize_folder(path, ignore_rules=None) that walks the folder honouring the existing .saharaignore rules (see src/sahara/ignore_rules.py and how library.py chooses indexable files) and returns a small dataclass with supported_file_count, total_bytes and unsupported_count. It must not read file contents, must not follow symlinks out of the folder, and must stop after 200000 entries, reporting that the count is a lower bound.
+In src/sahara/cli.py first-run, before "Continue with setup and indexing?", print per folder "Found N files (~X MB) to index" (use "50,000+ files" wording for the lower-bound case) and one line naming .saharaignore as the way to exclude subfolders. Skip the scan in --assume-yes mode.
+Tests: tmp_path trees covering counting, ignore rules, symlink escape, unsupported files, the lower-bound cap (patch the cap small), and a first-run CLI test asserting the summary text appears before the confirm. At most one write per response.
+
+## Checks
+
+Run every gate above in order and report each command with its real exit status (cmd; echo "exit=$?"), never behind a pipe.

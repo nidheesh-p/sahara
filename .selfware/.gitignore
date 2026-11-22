@@ -1,0 +1,8 @@
+runs/
+worktrees/
+locks/
+leases/
+cache/
+*.lock
+suspend.stop
+*.tmp

@@ -1,0 +1,23 @@
+owns: src/sahara/search/search_engine.py, src/sahara/search/hybrid.py, src/sahara/eval/runner.py, src/sahara/mcp_server.py, src/sahara/cli.py, tests/eval/queries.json, tests/eval/corpus/ (new), tests/test_search_confidence.py (new), tests/test_mcp_server.py, tests/test_cli.py, tests/eval/BASELINE.md
+needs: none
+class: code-in-repo
+kind: feature
+gate: /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/ruff check src tests
+gate: FASTEMBED_CACHE_PATH=$HOME/.cache/sahara-eval-models PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -c "from sahara.search.search_engine import load_embedding_model; load_embedding_model()"
+gate: out=$(FASTEMBED_CACHE_PATH=$HOME/.cache/sahara-eval-models PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest tests/test_search_confidence.py tests/test_hybrid_retrieval.py tests/test_eval_harness.py -q -rs 2>&1); rc=$?; echo "$out" | tail -15; [ $rc -eq 0 ] && ! echo "$out" | grep -q SKIPPED
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest -q
+
+# TASK: search-confidence — let Sahara say "that is not in your files", and stop showing 0% for keyword hits
+
+Problem, from tests/eval/BASELINE.md: for queries whose answer is absent from the corpus, the best vector score is 0.52-0.67 while the lowest correct top-1 score is 0.48, so no score threshold separates real hits from absent answers (not-present false-positive rate 1.0). Also, keyword-only hits from hybrid search carry score 0.0, which the CLI renders as "[0%]".
+
+1. Add a per-result field "confidence" with values "high", "medium", "low" to SearchEngine.search results, computed from signals the engine already has: whether the file matched on both vector and keyword sides, the vector score, the BM25 rank, and how many of the query's distinctive terms appear in the matched chunk (terms found in many corpus chunks should count for less than rare terms; derive this from FTS5 or chunk counts, no new dependency). Put the pure scoring logic in src/sahara/search/hybrid.py as a function with unit tests. Do not remove or reorder results; confidence only labels them. Keep every existing key.
+2. Evaluation, to avoid overfitting eight queries: first append at least 10 NEW not_present queries and 8 NEW answerable queries to tests/eval/queries.json (add new fictional corpus files only if needed). Tune the scoring ONLY against the original queries and treat the new ones as a held-out set; add a "holdout": true field on the new entries (load_queries must tolerate it) and report holdout results separately in BASELINE.md.
+3. src/sahara/eval/runner.py: report a second false-positive metric, not_present_confident_fp_rate: the share of not_present queries whose top result is labelled "high" or "medium". Keep the existing score-threshold metric unchanged for comparison.
+4. Acceptance in tests/test_search_confidence.py (must run for real, never skip): on the held-out not_present queries confident_fp_rate is at most 0.35; on the held-out answerable queries at least 80 percent have their correct file labelled "high" or "medium" as the top result; on the original answerable queries recall@5 is unchanged from hybrid mode. If the targets are not reachable honestly, report the best achievable numbers and why in BASELINE.md instead of weakening a test or tuning on the holdout; the lead will decide.
+5. Surface it: in src/sahara/cli.py search and ask output show the confidence label instead of a misleading percent when the result's match is "keyword" (for example "[keyword match]"), and print "No confident matches found" when no result is high or medium. In src/sahara/mcp_server.py add "confidence" and "match" to _normalise_result and keep every existing key.
+Update existing tests only where they assert exact result dicts or CLI text. Never weaken an assertion. At most one write per response.
+
+## Checks
+
+Run every gate above in order and report each command with its real exit status (cmd; echo "exit=$?"), never behind a pipe.

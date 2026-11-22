@@ -1,0 +1,19 @@
+owns: src/sahara/freshness.py (new), src/sahara/cli.py, src/sahara/mcp_server.py, tests/test_freshness.py (new), tests/test_cli.py, tests/test_mcp_server.py
+needs: search-confidence
+class: code-in-repo
+kind: feature
+gate: /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/ruff check src tests
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest tests/test_freshness.py tests/test_cli.py tests/test_mcp_server.py -q
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest -q
+
+# TASK: index-freshness — make index staleness visible in doctor, a new status command, and MCP (GitHub #134)
+
+A stale index is the most common failure of a recall tool, and nothing today tells the user or the connected AI client that files changed since the last index.
+1. src/sahara/freshness.py (new): compute_freshness(db, folders, watcher_running, max_entries=200000) returning a frozen dataclass with last_indexed_at (latest indexed_at across index_entries, or None), indexed_file_count, pending_changes (files under the content roots that are new, or whose size or mtime differ from the recorded index entry, plus indexed files now missing), is_lower_bound (hit max_entries), watcher_running and stale (pending_changes > 0 and not watcher_running). Reuse the file walk and ignore semantics from src/sahara/scan_preview.py and the change detection that Library uses; do not read file contents. Include a to_dict() for JSON and a format_age(timestamp, now) helper ("3 minutes ago", "2 days ago", "never").
+2. src/sahara/cli.py: add a top-level "sahara status" command printing indexed file count, last indexed age, pending changes, watcher state, and one actionable line when stale ("Run sahara index, or enable the watcher with sahara daemon start --autostart"). Add a freshness line to "sahara doctor" next to the existing watcher lines. Exit code 0 either way.
+3. src/sahara/mcp_server.py: add a read-only tool "sahara_index_status" returning freshness.to_dict(), included in the default tool allowlist and honouring the folder allowlist. Add an "index_stale" boolean to every result of sahara_search and an "index" object to the sahara_ask response, keeping every existing key. Cache the computed freshness for 60 seconds per server so searches stay fast; the cache must be injectable or clearable for tests.
+4. Tests: tmp_path indexes where a file is added, edited, deleted and left unchanged; the lower-bound cap (patch it small); age formatting; status and doctor output; the MCP tool, the extra keys, and cache behaviour with a fake clock. At most one write per response.
+
+## Checks
+
+Run every gate above in order and report each command with its real exit status (cmd; echo "exit=$?"), never behind a pipe.

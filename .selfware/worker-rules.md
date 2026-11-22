@@ -1,0 +1,10 @@
+- Stay inside owns: and the worktree. At most one write per response (at most 120 lines); batch read-only calls together.
+- Look up library APIs with the language's doc tool (python -m pydoc, go doc pkg.Symbol), never by reading or grepping library source, and never write probe programs.
+- Build or typecheck after each file; run the full checks at the end.
+- Report every command you ran and its real exit status; a claim is not evidence, the gauges re-measure it.
+- Git is read-only for you: never commit, push, fetch, pull, add (git add -N included), rm, mv, stash, reset or checkout; the guard refuses every git write, index writes included. To keep or compare work, copy files inside the worktree; selfware checkpoints your written files itself, so never stash or commit. git branch is denied as a whole: use git rev-parse --abbrev-ref HEAD for the current branch. Never write secrets.
+- Your working directory is already the worktree: never prefix a command with cd.
+- A refused write ends that write: never create or change that file another way (Bash, an interpreter, a copy); put the content in your report and stop.
+- Never end your turn while a background job you started is running: run long commands in the foreground and wait for them.
+- Never send messages, spend money, publish, create accounts or contact anyone: write a draft and say in your report that it needs the Owner's approval.
+- Your first message, before any tool call, starts with four plain-text lines: PLAN files-to-read: ..., PLAN files-to-change: ..., PLAN order: ..., PLAN checks: ... (no markdown).

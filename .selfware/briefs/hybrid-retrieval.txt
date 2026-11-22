@@ -1,0 +1,25 @@
+owns: src/sahara/search/hybrid.py (new), src/sahara/search/search_engine.py, src/sahara/storage/state_db.py, src/sahara/eval/runner.py, tests/test_hybrid_retrieval.py (new), tests/eval/BASELINE.md
+needs: retrieval-eval-harness
+class: code-in-repo
+kind: feature
+gate: /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/ruff check src tests
+gate: FASTEMBED_CACHE_PATH=$HOME/.cache/sahara-eval-models PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -c "from sahara.search.search_engine import load_embedding_model; load_embedding_model()"
+gate: out=$(FASTEMBED_CACHE_PATH=$HOME/.cache/sahara-eval-models PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest tests/test_hybrid_retrieval.py tests/test_eval_harness.py -q -rs 2>&1); rc=$?; echo "$out" | tail -15; [ $rc -eq 0 ] && ! echo "$out" | grep -q SKIPPED
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest -q
+
+# TASK: hybrid-retrieval — SQLite FTS5 BM25 plus vector search merged with Reciprocal Rank Fusion (GitHub #133)
+
+Vector-only search misses exact identifiers and amounts (see tests/eval/BASELINE.md: INV-2047 and "annual fee $18,000" are missed). Add keyword search and fuse it with the vector results. No new dependency; FTS5 is in the standard library's SQLite.
+
+1. src/sahara/storage/state_db.py: add a migration, following the existing _migrate_vN pattern and schema-version bookkeeping, that creates an external-content FTS5 table chunks_fts over chunks.chunk_text (content='chunks', content_rowid='id') plus AFTER INSERT / DELETE / UPDATE triggers on chunks so every existing delete and update path stays in sync without edits, then backfills with the FTS5 'rebuild' command. It must be idempotent and must degrade gracefully (keyword search simply unavailable) if FTS5 is missing. Add a StateDB method that runs a keyword query returning (chunk id or storage_prefix/relative_path, bm25 rank) rows, honouring the same storage_prefix and candidate_paths filters the vector search uses.
+2. src/sahara/search/hybrid.py (new): a pure function reciprocal_rank_fusion(rankings, k=60) over lists of keys, and build_fts_query(text) that turns free text into a safe FTS5 query: split on whitespace, strip characters that break FTS5 syntax, double-quote every term, join with OR. Inputs such as INV-2047, $18,000, 2025-07-05, O'Brien, a lone quote, AND, NEAR and an empty string must never raise.
+3. src/sahara/search/search_engine.py: add a mode argument to SearchEngine.search(): "hybrid" (new default), "vector", "keyword". Hybrid fetches roughly 3x top_k from each side, fuses with RRF, de-duplicates per file like the existing code, and returns the same dict shape as today. Keep the existing "score" key meaning the vector similarity of the best vector hit for that file (0.0 when only the keyword side found it) so no caller or threshold changes, and add "rrf_score" and "match" ("vector", "keyword" or "both"). If FTS5 is unavailable, hybrid silently behaves as vector. Both vector backends (sqlite-vec and the cosine fallback) must work.
+4. src/sahara/eval/runner.py: add a mode parameter to run_eval passed through to search, default "hybrid".
+5. tests/test_hybrid_retrieval.py: unit tests for RRF with hand-computed values, build_fts_query on the hostile inputs above, the migration and trigger sync (insert, update, delete a chunk and observe FTS results), filter handling, the FTS5-missing fallback, and the eval-based acceptance tests below. Acceptance: with run_eval on the real corpus, hybrid recall@5 on exact_token and date_number is greater than or equal to vector mode on each category and strictly greater on at least one, paraphrase recall@5 does not drop, and the query containing INV-2047 returns the Kestrel invoice file in its top 5. These tests must run for real, never skip.
+6. tests/eval/BASELINE.md: append a Hybrid section with the measured numbers for both modes side by side and the backend (vec_backend) used. Do not rewrite the existing baseline.
+
+Do not change MCP tool signatures or CLI flags in this unit. At most one write per response.
+
+## Checks
+
+Run every gate above in order and report each command with its real exit status (cmd; echo "exit=$?"), never behind a pipe.

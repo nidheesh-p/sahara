@@ -1,0 +1,24 @@
+KESTREL FREIGHT LOGISTICS
+Depot 7, Harrowgate Industrial Park
+
+FREIGHT INVOICE
+Invoice no.: INV-2047
+Issued: 2025-04-02
+Customer: Halvorsen Design Studio
+Shipment reference: KFL-88412
+
+Description of service:
+  Pickup of 6 pallets (furniture and display stands) from Westbrook
+  warehouse, line-haul delivery to the Pinecrest exhibition hall,
+  tail-lift unloading on arrival.
+
+Charges:
+  Line-haul freight, 6 pallets ............... $ 3,240.00
+  Fuel surcharge ............................. $   410.00
+  Tail-lift and handling ..................... $   260.00
+
+Total freight charge: $3,910.00
+Payment due within 14 days of the issue date.
+
+Driver on record: Augustin Pell. Contact dispatch at the depot for
+proof-of-delivery copies.

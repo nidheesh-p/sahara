@@ -27,7 +27,22 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[search,dev]"
 
+      # The retrieval eval tests load the real embedding model offline, so it
+      # must be cached before pytest runs (they fail rather than skip without it).
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.fastembed-cache
+          key: fastembed-bge-small-en-v1.5-${{ runner.os }}-v1
+
+      - name: Prime embedding model
+        env:
+          FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.fastembed-cache
+        run: python -c "from sahara.search.search_engine import load_embedding_model; load_embedding_model()"
+
       - name: Run tests with coverage
+        env:
+          FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.fastembed-cache
         run: pytest --cov=src/sahara --cov-report=term-missing --cov-fail-under=85
 
       - name: Lint

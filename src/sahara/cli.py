@@ -978,8 +978,12 @@ def first_run(
     if not assume_yes:
         click.echo()
         _info("Sahara will index these folder(s):")
+        from sahara.scan_preview import format_summary, summarize_folder
+
         for path in existing:
             _info(f"- {path}")
+            _info(f"  {format_summary(summarize_folder(path))}")
+        _info("To exclude subfolders, add them to a .saharaignore file in the folder.")
         if not click.confirm("  Continue with setup and indexing?", default=True):
             _abort("Setup cancelled.")
 
@@ -1013,8 +1017,9 @@ def first_run(
                 if assume_yes
                 else click.confirm(
                     "  Keep this index automatically up to date in the "
-                    "background from now on?",
-                    default=False,
+                    "background? (Choose No and new or changed files will "
+                    "not be searchable until you run 'sahara index')",
+                    default=True,
                 )
             )
         if want_auto_index:
@@ -1203,6 +1208,26 @@ def doctor(ctx: click.Context, repair: bool) -> None:
             "`sahara daemon start --autostart` to keep the index current "
             "automatically."
         )
+    try:
+        freshness = _compute_index_freshness(config)
+    except Exception as exc:
+        freshness = None
+        _warn(f"Index freshness: unavailable ({exc}).")
+    else:
+        if freshness is None:
+            _info("Index freshness: not indexed yet. Run sahara index to build it.")
+        elif freshness.stale:
+            _warn(
+                f"Index freshness: {_describe_pending(freshness)} pending change(s). "
+                f"{_STALE_HINT}"
+            )
+        elif freshness.pending_changes:
+            _info(
+                f"Index freshness: {_describe_pending(freshness)} pending change(s); "
+                "the watcher is catching up."
+            )
+        else:
+            _ok("Index freshness: up to date.")
 
     # DB
     from sahara.storage.state_db import DB_PATH, StateDB
@@ -2012,11 +2037,75 @@ def pull(ctx: click.Context, dry_run: bool, wait: bool, folder: str | None) -> N
 # ---------------------------------------------------------------------------
 
 
+_STALE_HINT = (
+    "Run sahara index, or enable the watcher with sahara daemon start --autostart."
+)
+
+
+def _compute_index_freshness(config: SaharaConfig) -> Any:
+    """Return index freshness for the configured content roots, or None before the first index."""
+    from sahara.freshness import compute_freshness, registered_roots
+    from sahara.storage import state_db
+    from sahara.sync.daemon import is_daemon_running
+
+    if not state_db.DB_PATH.exists():
+        return None
+    with state_db.StateDB(state_db.DB_PATH) as db:
+        # Read-only: status and doctor must never migrate or replace content roots.
+        return compute_freshness(
+            db,
+            registered_roots(db),
+            is_daemon_running(),
+            exclude_patterns=config.exclude_patterns,
+        )
+
+
+def _describe_pending(freshness: Any) -> str:
+    count = f"{freshness.pending_changes:,}{'+' if freshness.is_lower_bound else ''}"
+    return (
+        f"{count} ({freshness.new_files} new, {freshness.modified_files} modified, "
+        f"{freshness.missing_files} missing)"
+    )
+
+
+def _print_index_status(config: SaharaConfig) -> None:
+    from sahara.freshness import format_age
+
+    _section("Index Status")
+    try:
+        freshness = _compute_index_freshness(config)
+    except Exception as exc:
+        _warn(f"Index status unavailable: {exc}")
+        return
+    if freshness is None:
+        _info("Index: not built yet. Run sahara index to build it.")
+        return
+    now = datetime.datetime.now(datetime.UTC)
+    click.echo(f"  Indexed files:   {freshness.indexed_file_count:,}")
+    click.echo(f"  Last indexed:    {format_age(freshness.last_indexed_at, now)}")
+    click.echo(f"  Pending changes: {_describe_pending(freshness)}")
+    click.echo(
+        f"  Watcher:         {'running' if freshness.watcher_running else 'not running'}"
+    )
+    if freshness.stale:
+        _warn(f"Index is stale. {_STALE_HINT}")
+    else:
+        _ok("Index is up to date." if not freshness.pending_changes else "Watcher is catching up.")
+
+
 @main.command()
 @click.pass_context
 def status(ctx: click.Context) -> None:
-    """Show pending changes without executing them."""
+    """Show index freshness and, with storage configured, pending sync changes."""
     config: SaharaConfig = ctx.obj["config"]
+    _print_index_status(config)
+    if not config.sync_folder or not config.has_storage_backend:
+        return
+    _print_sync_status(config)
+
+
+def _print_sync_status(config: SaharaConfig) -> None:
+    """Print pending sync changes without executing them."""
     _require_config(config)
 
     engine, db, s3 = _build_engine(config)
@@ -2051,8 +2140,8 @@ def status(ctx: click.Context) -> None:
 @main.command("diff")
 @click.pass_context
 def diff_cmd(ctx: click.Context) -> None:
-    """Alias for `status` — show pending changes."""
-    ctx.invoke(status)
+    """Show pending sync changes without executing them."""
+    _print_sync_status(ctx.obj["config"])
 
 
 # ---------------------------------------------------------------------------
@@ -3087,7 +3176,9 @@ def remember_cmd(
     if not content.strip() and not sys.stdin.isatty():
         from sahara.memory.format import MAX_MEMORY_CHARS
 
-        content = click.get_text_stream("stdin").read(MAX_MEMORY_CHARS + 1)
+        # click.get_text_stream is deprecated (removed in Click 9); sys.stdin is
+        # already a text stream, and click's test runner swaps it in tests.
+        content = sys.stdin.read(MAX_MEMORY_CHARS + 1)
         if len(content) > MAX_MEMORY_CHARS:
             raise click.UsageError(
                 f"Memory text exceeds the {MAX_MEMORY_CHARS:,}-character limit."
@@ -3423,6 +3514,28 @@ def memory_rebuild(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _result_badge(result: dict) -> str:
+    """Bracket text for one search result.
+
+    Keyword-only hits have no vector score (it is 0.0), so they show their
+    confidence label instead of a misleading percentage.
+    """
+    if result.get("match") == "keyword":
+        confidence = result.get("confidence", "low")
+        color = {"high": "green", "medium": "yellow"}.get(confidence, "white")
+        return click.style(f"keyword match, {confidence} confidence", fg=color)
+    score_pct = int(result.get("score", 0) * 100)
+    score_color = "green" if score_pct >= 70 else "yellow" if score_pct >= 50 else "white"
+    return click.style(f"{score_pct}%", fg=score_color)
+
+
+def _warn_if_not_confident(results: list[dict]) -> None:
+    """Warn when every result is labelled low confidence."""
+    labels = [r.get("confidence") for r in results]
+    if labels and None not in labels and not {"high", "medium"} & set(labels):
+        _warn("No confident matches found; showing the closest results.")
+
+
 @main.command("search")
 @click.argument("query")
 @click.option("--top", "-n", default=5, show_default=True, help="Number of results to return.")
@@ -3461,16 +3574,14 @@ def search_cmd(
             return
 
         _section(f"Results for: \"{query}\"")
+        _warn_if_not_confident(results)
         for i, r in enumerate(results, 1):
             prefix = r.get("storage_prefix", r.get("s3_prefix", ""))
             display = f"{prefix}/{r['relative_path']}" if prefix else r["relative_path"]
-            score_pct = int(r["score"] * 100)
-            score_color = "green" if score_pct >= 70 else "yellow" if score_pct >= 50 else "white"
-            score_str = click.style(f"{score_pct}%", fg=score_color)
             residency = (
                 " [offloaded]" if r.get("local_state") == "offloaded" else ""
             )
-            click.echo(f"  {i}. [{score_str}] {display}{residency}")
+            click.echo(f"  {i}. [{_result_badge(r)}] {display}{residency}")
             if snippet and r["snippet"]:
                 # Print first 150 chars of snippet, indented
                 snip = r["snippet"].replace("\n", " ")[:150].strip()
@@ -3602,21 +3713,19 @@ def ask_cmd(
                 )
             _info("Showing top matching results:")
 
+        _warn_if_not_confident(result.sources)
         if result.sources and (snippet or not result.answer):
             click.echo()
             _section("Sources")
             for i, r in enumerate(result.sources, 1):
                 prefix = r.get("storage_prefix", r.get("s3_prefix", ""))
                 display = f"{prefix}/{r['relative_path']}" if prefix else r["relative_path"]
-                score_pct = int(r.get("score", 0) * 100)
-                score_color = "green" if score_pct >= 70 else "yellow" if score_pct >= 50 else "white"
-                score_str = click.style(f"{score_pct}%", fg=score_color)
                 residency = (
                     " [offloaded]"
                     if r.get("local_state") == "offloaded"
                     else ""
                 )
-                click.echo(f"  {i}. [{score_str}] {display}{residency}")
+                click.echo(f"  {i}. [{_result_badge(r)}] {display}{residency}")
                 snip = r.get("snippet", "")
                 if snip:
                     snip_display = snip.replace("\n", " ")[:200].strip()

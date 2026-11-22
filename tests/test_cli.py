@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import boto3
+import pytest
 from click.testing import CliRunner
 from moto import mock_aws
 
@@ -21,6 +22,13 @@ from sahara.sync_engine import DiffResult
 BUCKET = "cli-test-bucket"
 REGION = "us-east-1"
 NOW = datetime.datetime.now(datetime.UTC)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_state_db_path(tmp_path: Path):
+    """Keep status/doctor freshness checks off the developer's real state DB."""
+    with patch("sahara.storage.state_db.DB_PATH", tmp_path / "isolated-state.db"):
+        yield
 
 
 def _runner() -> CliRunner:
@@ -333,15 +341,16 @@ class TestConfigSetGet:
 
 
 class TestStatus:
-    def test_status_with_no_bucket_shows_error(self, tmp_path: Path):
-        """status requires config.bucket and config.sync_folder."""
+    def test_status_with_no_bucket_shows_only_index_status(self, tmp_path: Path):
+        """Without storage, status reports the index and skips sync changes."""
         runner = _runner()
-        # Use a config with empty bucket
         empty_config = tmp_path / "empty.toml"
         save_config(SaharaConfig(), empty_config)
-        result = runner.invoke(main, ["--config", str(empty_config), "status"])
-        # Should fail or show warning since bucket not configured
-        assert "not initialised" in result.output.lower() or result.exit_code != 0
+        with patch("sahara.storage.state_db.DB_PATH", tmp_path / "absent.db"):
+            result = runner.invoke(main, ["--config", str(empty_config), "status"])
+        assert result.exit_code == 0, result.output
+        assert "Index Status" in result.output
+        assert "Pending Changes" not in result.output
 
     def test_status_up_to_date(self, tmp_path: Path):
         cfg, config_path = _make_config(tmp_path)
@@ -688,6 +697,96 @@ class TestDoctor:
         assert "State DB OK" in result.output
         assert "3 indexed" in result.output
         assert "0 file records" not in result.output
+
+    def test_doctor_reports_stale_index(self, tmp_path: Path):
+        config_path, db_path = _freshness_setup(tmp_path)
+        (tmp_path / "sync" / "added.md").write_text("new")
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch("sahara.sync.daemon.is_autostart_installed", return_value=False):
+            result = _runner().invoke(main, ["--config", str(config_path), "doctor"])
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "Index freshness: 1 (1 new, 0 modified, 0 missing) pending change(s)."
+            in result.output
+        )
+        assert "sahara daemon start --autostart" in result.output
+
+
+def _freshness_setup(tmp_path: Path) -> tuple[Path, Path]:
+    """Config plus a state DB that recorded sync/kept.md as indexed three days ago."""
+    from sahara.storage.state_db import StateDB
+
+    sync = tmp_path / "sync"
+    sync.mkdir(exist_ok=True)
+    (sync / "kept.md").write_text("kept")
+    config_path = tmp_path / "cfg.toml"
+    save_config(SaharaConfig(sync_folder=str(sync)), config_path)
+    db_path = tmp_path / "state.db"
+    indexed_at = (
+        datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=3, minutes=1)
+    ).isoformat()
+    stat = (sync / "kept.md").stat()
+    with StateDB(db_path) as db:
+        db.upsert_content_root(str(sync.resolve()), "", is_primary=True)
+        db.upsert_index_entry(
+            "",
+            "kept.md",
+            content_hash="hash",
+            size_bytes=stat.st_size,
+            modified_ns=stat.st_mtime_ns,
+            status="indexed",
+            indexed_at=indexed_at,
+        )
+    return config_path, db_path
+
+
+class TestIndexStatus:
+    def _status(self, tmp_path: Path, db_path: Path, *, watcher: bool):
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=watcher
+        ):
+            return _runner().invoke(
+                main, ["--config", str(tmp_path / "cfg.toml"), "status"]
+            )
+
+    def test_status_reports_stale_index(self, tmp_path: Path):
+        _, db_path = _freshness_setup(tmp_path)
+        (tmp_path / "sync" / "kept.md").write_text("edited contents")
+        (tmp_path / "sync" / "added.md").write_text("new")
+
+        result = self._status(tmp_path, db_path, watcher=False)
+
+        assert result.exit_code == 0, result.output
+        assert "Indexed files:   1" in result.output
+        assert "Last indexed:    3 days ago" in result.output
+        assert "Pending changes: 2 (1 new, 1 modified, 0 missing)" in result.output
+        assert "Watcher:         not running" in result.output
+        assert (
+            "Run sahara index, or enable the watcher with "
+            "sahara daemon start --autostart" in result.output
+        )
+
+    def test_status_reports_fresh_index(self, tmp_path: Path):
+        _, db_path = _freshness_setup(tmp_path)
+
+        result = self._status(tmp_path, db_path, watcher=True)
+
+        assert result.exit_code == 0, result.output
+        assert "Pending changes: 0" in result.output
+        assert "Watcher:         running" in result.output
+        assert "Index is up to date." in result.output
+        assert "sahara daemon start --autostart" not in result.output
+
+    def test_status_before_first_index(self, tmp_path: Path):
+        _freshness_setup(tmp_path)
+
+        result = self._status(tmp_path, tmp_path / "absent.db", watcher=False)
+
+        assert result.exit_code == 0, result.output
+        assert "not built yet" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -1609,6 +1708,70 @@ class TestSetup:
         assert "Memory capture is enabled" in result.output
         assert "--enable-memory-write" in claude_config.read_text(encoding="utf-8")
 
+    def test_first_run_previews_scan_before_confirm(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        (folder / "a.md").write_text("hello", encoding="utf-8")
+        (folder / "b.txt").write_text("world", encoding="utf-8")
+        (folder / "c.png").write_bytes(b"\x89PNG")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--folder",
+                    str(folder),
+                    "--no-folder-picker",
+                    "--no-index",
+                    "--no-doctor",
+                ],
+                input="n\n",
+            )
+
+        assert "Setup cancelled" in result.output
+        summary_at = result.output.index("Found 2 files (~0.0 MB) to index")
+        ignore_at = result.output.index(".saharaignore")
+        confirm_at = result.output.index("Continue with setup and indexing?")
+        assert summary_at < confirm_at
+        assert ignore_at < confirm_at
+
+    def test_first_run_yes_skips_scan_preview(self, tmp_path, monkeypatch):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.scan_preview.summarize_folder"
+        ) as summarize, patch(
+            "sahara.cli._claude_desktop_detected", return_value=False
+        ), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-auto-index",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        summarize.assert_not_called()
+        assert "MB) to index" not in result.output
+
     def _assert_ends_with_completion_banner(self, output: str) -> None:
         lines = [line for line in output.splitlines() if line.strip()]
         assert "Setup complete" in lines[-3], output
@@ -1989,6 +2152,118 @@ class TestSetup:
         assert result.exit_code == 0, result.output
         mock_run.assert_called_once()
 
+    def test_first_run_auto_index_prompt_defaults_to_yes_on_enter(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        sahara_bin = tmp_path / "sahara"
+        sahara_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch(
+            "sahara.claude_desktop.resolve_sahara_executable",
+            return_value=sahara_bin,
+        ), patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+                # Continue with setup, then press Enter at the auto-index prompt.
+                input="y\n\n",
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "will not be searchable until you run 'sahara index'" in result.output
+        assert "[Y/n]" in result.output
+        mock_run.assert_called_once_with(
+            [
+                str(sahara_bin),
+                "--config",
+                str(config_path),
+                "daemon",
+                "start",
+                "--autostart",
+            ],
+            check=False,
+        )
+        assert "Skipping automatic re-indexing" not in result.output
+
+    def test_first_run_auto_index_prompt_declined_prints_enable_hint(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch("subprocess.run") as mock_run:
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+                # Continue with setup, then decline auto-indexing.
+                input="y\nn\n",
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_run.assert_not_called()
+        assert "Skipping automatic re-indexing" in result.output
+        assert "sahara daemon start --autostart" in result.output
+
+    def test_first_run_yes_without_auto_index_flag_skips_prompt_and_watcher(
+        self, tmp_path, monkeypatch
+    ):
+        config_path, db_path = self._isolate(tmp_path, monkeypatch)
+        folder = tmp_path / "docs"
+        folder.mkdir()
+        runner = _runner()
+
+        with patch("sahara.storage.state_db.DB_PATH", db_path), patch(
+            "sahara.sync.daemon.is_daemon_running", return_value=False
+        ), patch("subprocess.run") as mock_run:
+            result = runner.invoke(
+                main,
+                [
+                    "--config",
+                    str(config_path),
+                    "first-run",
+                    "--yes",
+                    "--folder",
+                    str(folder),
+                    "--no-index",
+                    "--no-mcp",
+                    "--no-doctor",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_run.assert_not_called()
+        assert "Keep this index automatically up to date" not in result.output
+        assert "Skipping automatic re-indexing" in result.output
+
     def test_first_run_auto_index_skipped_when_watcher_already_running(
         self, tmp_path, monkeypatch
     ):
@@ -2090,3 +2365,69 @@ class TestSetup:
 
         assert result.exit_code == 0, result.output
         assert "sahara daemon start" in result.output
+
+
+# ---------------------------------------------------------------------------
+# search / ask confidence output
+# ---------------------------------------------------------------------------
+
+
+def _hit(path: str, score: float, match: str, confidence: str) -> dict:
+    return {
+        "storage_prefix": "", "relative_path": path, "score": score,
+        "snippet": "text", "rrf_score": 0.01, "match": match,
+        "confidence": confidence, "local_state": "present",
+    }
+
+
+def _invoke_with_results(tmp_path: Path, args: list[str], results: list[dict]):
+    from sahara.search.ask_engine import AskResult
+
+    _, config_path = _make_config(tmp_path)
+    db = MagicMock()
+    db.count_embeddings.return_value = 3
+    with patch("sahara.storage.state_db.StateDB") as db_cls, patch(
+        "sahara.search.search_engine.SearchEngine"
+    ) as engine_cls, patch("sahara.search.ask_engine.AskEngine") as ask_cls:
+        db_cls.return_value.connect.return_value = db
+        engine_cls.return_value.search.return_value = results
+        ask_cls.return_value.ask.return_value = AskResult(answer=None, sources=results)
+        return _runner().invoke(main, ["--config", str(config_path), *args])
+
+
+class TestSearchConfidenceOutput:
+    def test_search_shows_keyword_match_instead_of_zero_percent(self, tmp_path):
+        results = [
+            _hit("kestrel.txt", 0.0, "keyword", "high"),
+            _hit("garden.txt", 0.64, "both", "medium"),
+        ]
+        result = _invoke_with_results(tmp_path, ["search", "INV-2047"], results)
+        assert result.exit_code == 0, result.output
+        assert "1. [keyword match, high confidence] kestrel.txt" in result.output
+        assert "2. [64%] garden.txt" in result.output
+        assert "[0%]" not in result.output
+        assert "No confident matches found" not in result.output
+
+    def test_search_warns_when_no_result_is_confident(self, tmp_path):
+        results = [
+            _hit("utility.txt", 0.62, "both", "low"),
+            _hit("tax.txt", 0.0, "keyword", "low"),
+        ]
+        result = _invoke_with_results(tmp_path, ["search", "mortgage quote"], results)
+        assert result.exit_code == 0, result.output
+        assert "No confident matches found" in result.output
+        assert "1. [62%] utility.txt" in result.output  # results are still listed
+        assert "2. [keyword match, low confidence] tax.txt" in result.output
+
+    def test_ask_sources_use_confidence_output(self, tmp_path):
+        low = [_hit("tax.txt", 0.0, "keyword", "low")]
+        result = _invoke_with_results(tmp_path, ["ask", "mortgage", "quote"], low)
+        assert result.exit_code == 0, result.output
+        assert "No confident matches found" in result.output
+        assert "1. [keyword match, low confidence] tax.txt" in result.output
+
+        confident = [_hit("tax.txt", 0.0, "keyword", "high")]
+        result = _invoke_with_results(tmp_path, ["ask", "charity", "receipts"], confident)
+        assert result.exit_code == 0, result.output
+        assert "No confident matches found" not in result.output
+        assert "1. [keyword match, high confidence] tax.txt" in result.output
