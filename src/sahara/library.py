@@ -9,6 +9,7 @@ import unicodedata
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Any
 
 from filelock import FileLock
 
@@ -403,7 +404,17 @@ class IndexingService:
         *,
         root_path: Path | None = None,
         force: bool = False,
+        changed_only: bool = False,
     ) -> IndexRunResult:
+        """Index every content root (or just *root_path*).
+
+        With *changed_only*, a file whose size and mtime match an inventory row
+        already marked ``indexed`` is skipped without being read or parsed, the
+        same signal ``compute_freshness`` uses. Anything new, modified, failed or
+        missing is processed as usual. Cannot be combined with *force*.
+        """
+        if force and changed_only:
+            raise ValueError("force and changed_only cannot be combined")
         roots = self.roots()
         if root_path is not None:
             resolved = root_path.expanduser().resolve()
@@ -413,7 +424,7 @@ class IndexingService:
 
         result = IndexRunResult()
         for root in roots:
-            self._index_root(root, result, force=force)
+            self._index_root(root, result, force=force, changed_only=changed_only)
         return result
 
     def index_path(self, file_path: Path, *, force: bool = False) -> IndexFileResult:
@@ -446,6 +457,7 @@ class IndexingService:
         result: IndexRunResult,
         *,
         force: bool,
+        changed_only: bool = False,
     ) -> None:
         if not root.local_path.is_dir():
             result.failed += 1
@@ -456,9 +468,23 @@ class IndexingService:
             extra_patterns=self._config.exclude_patterns,
         )
         seen: set[str] = set()
+        known = (
+            {
+                row["relative_path"]: row
+                for row in self._db.list_index_entries(
+                    storage_prefix=root.storage_prefix
+                )
+            }
+            if changed_only
+            else {}
+        )
 
         for file_path, relative_path in self._walk(root.local_path, ignore):
             seen.add(relative_path)
+            if known and self._matches_inventory(known.get(relative_path), file_path):
+                result.skipped += 1
+                result.unchanged += 1
+                continue
             try:
                 indexed = self._index_file(
                     root, file_path, relative_path, force=force
@@ -515,6 +541,20 @@ class IndexingService:
                 "missing", _display_path(root.storage_prefix, relative_path)
             )
         result.missing += len(missing)
+
+    @staticmethod
+    def _matches_inventory(row: Any, file_path: Path) -> bool:
+        """True when *row* says the file is indexed and its size and mtime are unchanged."""
+        if row is None or row["status"] != "indexed":
+            return False
+        try:
+            stat = file_path.stat()
+        except OSError:
+            return False
+        return (
+            row["size_bytes"] == stat.st_size
+            and row["modified_ns"] == stat.st_mtime_ns
+        )
 
     def _index_file(
         self,
