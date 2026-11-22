@@ -382,6 +382,84 @@ def test_indexing_does_not_sample_unchanged_files(tmp_path: Path) -> None:
     assert "unchanged" not in result.skipped_samples
 
 
+def _changed_only_setup(tmp_path: Path) -> tuple[Path, SaharaConfig]:
+    content = tmp_path / "documents"
+    content.mkdir()
+    (content / "a.txt").write_text("alpha note", encoding="utf-8")
+    (content / "b.txt").write_text("bravo note", encoding="utf-8")
+    return content, SaharaConfig(sync_folder=str(content), storage_mode="none")
+
+
+def test_changed_only_skips_unchanged_files_without_reading_them(tmp_path: Path) -> None:
+    content, config = _changed_only_setup(tmp_path)
+
+    with StateDB(tmp_path / "state.db") as db:
+        service = IndexingService(config, db)
+        first = service.index()
+        assert first.indexed == 2
+
+        with patch.object(service._search, "index_file_with_result") as parse:
+            result = service.index(changed_only=True)
+
+        parse.assert_not_called()
+    assert (result.indexed, result.skipped, result.unchanged) == (0, 2, 2)
+
+
+def test_changed_only_indexes_new_modified_and_removes_missing(tmp_path: Path) -> None:
+    content, config = _changed_only_setup(tmp_path)
+
+    with StateDB(tmp_path / "state.db") as db:
+        service = IndexingService(config, db)
+        service.index()
+        (content / "a.txt").write_text("alpha note, now longer", encoding="utf-8")
+        (content / "c.txt").write_text("charlie note", encoding="utf-8")
+        (content / "b.txt").unlink()
+
+        result = service.index(changed_only=True)
+
+        rows = {r["relative_path"]: r["status"] for r in db.list_index_entries()}
+    assert result.indexed == 2  # a.txt (modified) and c.txt (new)
+    assert result.unchanged == 0
+    assert result.missing == 1
+    assert rows == {"a.txt": "indexed", "b.txt": "missing", "c.txt": "indexed"}
+
+
+def test_changed_only_retries_files_that_previously_failed(tmp_path: Path) -> None:
+    content, config = _changed_only_setup(tmp_path)
+
+    with StateDB(tmp_path / "state.db") as db:
+        service = IndexingService(config, db)
+        service.index()
+        stat = (content / "a.txt").stat()
+        db.upsert_index_entry(
+            "", "a.txt", content_hash=None, size_bytes=stat.st_size,
+            modified_ns=stat.st_mtime_ns, status="failed", reason="boom",
+        )
+
+        with patch.object(
+            service._search,
+            "index_file_with_result",
+            return_value=IndexFileResult(indexed=True, reason="indexed"),
+        ) as parse:
+            result = service.index(changed_only=True)
+
+    assert parse.call_count == 1  # only the failed file; b.txt is skipped
+    assert result.indexed == 1 and result.unchanged == 1
+
+
+def test_changed_only_cannot_be_combined_with_force(tmp_path: Path) -> None:
+    _, config = _changed_only_setup(tmp_path)
+    with StateDB(tmp_path / "state.db") as db:
+        with pytest.raises(ValueError, match="cannot be combined"):
+            IndexingService(config, db).index(force=True, changed_only=True)
+
+
+def test_index_command_rejects_changed_with_force() -> None:
+    result = CliRunner().invoke(main, ["index", "--changed", "--force"])
+    assert result.exit_code != 0
+    assert "cannot be used together" in result.output
+
+
 def test_indexing_records_paths_of_files_that_disappeared(tmp_path: Path) -> None:
     content = tmp_path / "documents"
     content.mkdir()

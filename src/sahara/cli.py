@@ -2038,7 +2038,8 @@ def pull(ctx: click.Context, dry_run: bool, wait: bool, folder: str | None) -> N
 
 
 _STALE_HINT = (
-    "Run sahara index, or enable the watcher with sahara daemon start --autostart."
+    "Run sahara index --changed, or enable the watcher with "
+    "sahara daemon start --autostart."
 )
 
 
@@ -3002,6 +3003,12 @@ def _report_skip_reasons(result: IndexRunResult) -> None:
 @click.option("--folder", "-f", default=None, help="Index only this folder (local path).")
 @click.option("--force", is_flag=True, help="Re-index all files even if unchanged.")
 @click.option(
+    "--changed",
+    is_flag=True,
+    help="Fast path: skip files whose size and modified time match the index, "
+    "without reading them. Cannot be used with --force.",
+)
+@click.option(
     "--assume-model-ready",
     is_flag=True,
     hidden=True,
@@ -3009,9 +3016,15 @@ def _report_skip_reasons(result: IndexRunResult) -> None:
 )
 @click.pass_context
 def index_cmd(
-    ctx: click.Context, folder: str | None, force: bool, assume_model_ready: bool
+    ctx: click.Context,
+    folder: str | None,
+    force: bool,
+    changed: bool,
+    assume_model_ready: bool,
 ) -> None:
     """Index file contents for semantic search."""
+    if force and changed:
+        _abort("--changed and --force cannot be used together.")
     config: SaharaConfig = ctx.obj["config"]
     _require_library_config(config)
 
@@ -3032,7 +3045,9 @@ def index_cmd(
                 "warning is harmless."
             )
         try:
-            result = service.index(root_path=root_path, force=force)
+            result = service.index(
+                root_path=root_path, force=force, changed_only=changed
+            )
         except ValueError as exc:
             _abort(str(exc))
 

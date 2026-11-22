@@ -31,6 +31,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
   pending changes (new, modified, missing files) and warn when the index is stale
   with no watcher running. MCP gains `index_stale` on search results, an `index`
   block on ask, and freshness in the index status tool. (#134)
+- `sahara index --changed`: a fast path that skips files whose size and modified time
+  match an indexed inventory row, without reading or parsing them. New, modified,
+  failed and missing files are handled as usual. Cannot be combined with `--force`.
+  The stale-index hint now suggests it. (#134)
 
 ### Changed
 
