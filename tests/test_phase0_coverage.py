@@ -302,7 +302,7 @@ class TestSearchVecPath:
 
         assert len(results) == 1
         assert results[0]["relative_path"] == "doc.txt"
-        assert results[0]["score"] == pytest.approx(0.9, abs=0.01)
+        assert results[0]["score"] == pytest.approx(0.995)
 
     def test_dedup_to_top_k_direct(self):
         """Covers lines 266-279: _dedup_to_top_k static method directly."""
@@ -315,7 +315,18 @@ class TestSearchVecPath:
         assert len(results) == 2
         # doc.txt should have the best (lowest distance → highest score)
         doc_result = next(r for r in results if r["relative_path"] == "doc.txt")
-        assert doc_result["score"] == pytest.approx(0.9, abs=0.01)  # 1.0 - 0.1
+        assert doc_result["score"] == pytest.approx(0.995)  # cosine = 1 - 0.1**2 / 2
+
+    def test_dedup_score_is_cosine_similarity_for_unit_vectors(self):
+        """vec0 returns L2 distance; the score must equal cosine on unit vectors."""
+        import numpy as np
+
+        rng = np.random.default_rng(7)
+        a, b = (v / np.linalg.norm(v) for v in rng.normal(size=(2, 384)))
+        distance = float(np.linalg.norm(a - b))
+        rows = [{"storage_prefix": "", "relative_path": "d.txt", "chunk_text": "c", "distance": distance}]
+        score = SearchEngine._dedup_to_top_k(rows, top_k=1)[0]["score"]
+        assert score == pytest.approx(max(0.0, float(a @ b)), abs=1e-6)
 
     def test_dedup_to_top_k_respects_k(self):
         rows = [

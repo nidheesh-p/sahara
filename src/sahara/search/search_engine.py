@@ -752,8 +752,12 @@ class SearchEngine:
         seen: dict[tuple, dict] = {}
         for row in rows:
             key = (row["storage_prefix"], row["relative_path"])
-            # vec distance is lower-is-better; clamp to [0, 1] similarity score
-            score = max(0.0, 1.0 - float(row.get("distance", 0.0)))
+            # vec0 reports L2 distance (lower is better). Embeddings are unit
+            # vectors, so cosine similarity = 1 - d^2 / 2. This keeps ``score`` on
+            # the same cosine scale as the fallback path, which the confidence and
+            # not-present thresholds are tuned on. Clamp to [0, 1].
+            distance = float(row.get("distance", 0.0))
+            score = max(0.0, 1.0 - distance * distance / 2.0)
             if key not in seen or score > seen[key]["score"]:
                 seen[key] = {
                     "storage_prefix": row["storage_prefix"],
