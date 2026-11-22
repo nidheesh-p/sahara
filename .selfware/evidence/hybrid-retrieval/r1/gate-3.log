@@ -12,4 +12,4 @@ tests/test_eval_harness.py .......                                       [100%]
     self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-======================== 45 passed, 1 warning in 3.10s =========================
+======================== 45 passed, 1 warning in 3.47s =========================

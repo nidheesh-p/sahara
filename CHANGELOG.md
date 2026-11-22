@@ -21,9 +21,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
   from 0.944 to 1.000 and MRR@5 from 0.884 to 0.954. (#132)
 - `sahara first-run` shows a per-folder file count and size ("Found N files (~X MB)
   to index") and points to `.saharaignore` before asking to continue. (#125)
+- Search results carry a `confidence` label (high, medium, low) from term coverage,
+  retriever agreement and vector score; keyword-only hits show "keyword match"
+  instead of 0%, and the CLI says "No confident matches found" when nothing is
+  high or medium. Measured on held-out queries: 25% of unanswerable queries got a
+  confident top result, 80% of answerable ones were labelled confident. This is a
+  heuristic tuned on a small set, not a guarantee. (#133 follow-up)
+- Index freshness: `sahara status` and `sahara doctor` report last-indexed time and
+  pending changes (new, modified, missing files) and warn when the index is stale
+  with no watcher running. MCP gains `index_stale` on search results, an `index`
+  block on ask, and freshness in the index status tool. (#134)
 
 ### Changed
 
+- `sahara status` now works without sync storage configured and reports index
+  freshness first; previously it exited with an error. Sync changes still appear when
+  storage is configured.
 - `sahara first-run` now defaults the automatic re-index prompt to Yes and states what
   declining means. Unattended `--yes` runs are unchanged. (#126)
 

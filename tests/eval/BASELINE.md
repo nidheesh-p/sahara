@@ -86,3 +86,64 @@ each side and fuses them with Reciprocal Rank Fusion (k = 60).
 - `test_hybrid_retrieval.py` asserts hybrid ≥ vector recall@5 on exact_token
   and date_number (strictly greater on at least one), no paraphrase drop,
   and the Kestrel invoice in the top 5 for `INV-2047`.
+
+# Search confidence labels — high / medium / low
+
+Measured on 2026-11-18, hybrid mode, same corpus, model and backends
+(`vec_backend = false`, `fts_backend = true`). Every result now carries
+`confidence`, set by `sahara.search.hybrid.confidence_label` from:
+
+- **term coverage**: the share of the query's IDF weight (BM25-style IDF from
+  FTS5 chunk counts, so terms in many chunks count for little) whose terms
+  appear in the matched chunk;
+- **agreement**: `match == "both"` and BM25 rank 1, scored as
+  `vector_score + 0.5 * coverage`;
+- **vector score alone**, only well above the not-present range.
+
+Rule: high if coverage ≥ 0.50 on a keyword hit or vector ≥ 0.80; medium if
+coverage ≥ 0.40, or agreement ≥ 0.70, or vector ≥ 0.72; otherwise low.
+Labels never filter or reorder results.
+
+## Holdout protocol
+
+`queries.json` gained 22 queries marked `"holdout": true` (10 answerable:
+3 exact_token, 5 paraphrase, 2 date_number; 12 not_present), written
+before any tuning; no corpus files were added. Thresholds were read off the
+original 44 queries only (midway between answerable and not_present
+signals). `run_eval` reports the original queries in `overall` /
+`categories` (unchanged numbers above) and the held-out ones under
+`holdout`. The holdout was run once, after the rule was frozen.
+
+## Results (k = 5)
+
+| Set     | Answerable R@5 | MRR@5 | Correct top-1 labelled high/medium | Not-present FP (score > 0.5) | Not-present confident FP (top-1) | Not-present with any high/medium result |
+|---------|---------------:|------:|-----------------------------------:|-----------------------------:|---------------------------------:|----------------------------------------:|
+| Tuning  |  1.000 (36)    | 0.954 | 0.917 (33/36)                      | 1.000                        | **0.000** (0/8)                  | 1/8                                     |
+| Holdout |  1.000 (10)    | 0.950 | **0.800** (8/10)                   | 1.000                        | **0.250** (3/12)                 | 6/12                                    |
+
+Acceptance targets (`tests/test_search_confidence.py`): holdout confident
+FP ≤ 0.35 (met, 0.25), holdout confident correct top-1 ≥ 0.80 (met exactly,
+**no margin**: one more miss fails), original recall@5 unchanged at 1.000
+(ranked lists are identical with labelling disabled).
+
+## Observations
+
+- Tuning misses on confident top-1 are the three queries whose top-1 is the
+  wrong file (`payment due … $97.40`, `receipt total 42.17`,
+  `annual fee $18,000`); the correct file is at rank 2–3 and labelled high.
+- Holdout confident false positives come from shared vocabulary:
+  `flight booking to Reykjavik in March` → Lisbon itinerary ("flight",
+  "booking"), `home loan offer from Fernbrook Bank` → tax notes,
+  `sourdough starter feeding schedule` → garden journal ("feeding",
+  "schedule"). All three are medium via the agreement rule, none high.
+- Holdout answerable misses: `Halima Strand` ranks a vector-only file first
+  (low) with the exact keyword hit second (high) — a fusion-order issue that
+  labels must not fix; `how long does the dough need to rise` reaches the
+  recipe at rank 1 but scores 0.654 + 0.5 × coverage, below 0.70.
+- Six of 12 held-out absent queries still have some medium result in the top
+  5, so the CLI's "No confident matches found" notice fires for only half of
+  them; the per-query top-1 metric is what the acceptance test measures.
+- The margins are thin (agreement 0.726 vs 0.684 on the tuning set) and the
+  thresholds are tied to the cosine-fallback score scale; re-measure on the
+  sqlite-vec backend. In `vector` mode nothing is on the keyword side, so
+  only vector ≥ 0.72 earns medium and most correct answers are labelled low.
