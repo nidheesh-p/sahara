@@ -256,7 +256,8 @@ def test_hybrid_on_sqlite_vec_backend(
     by_path = {r["relative_path"]: r for r in results}
     assert by_path["kestrel.txt"]["match"] == "keyword"
     assert by_path["kestrel.txt"]["score"] == 0.0
-    assert by_path["brightwell.txt"]["score"] == pytest.approx(0.9)
+    # L2 distance 0.1 on unit vectors is cosine similarity 1 - 0.1**2 / 2.
+    assert by_path["brightwell.txt"]["score"] == pytest.approx(0.995)
     assert by_path["garden.txt"]["match"] == "vector"
     assert _paths(engine.search("INV-2047", top_k=3, mode="vector")) == ["brightwell.txt", "garden.txt"]
 
