@@ -765,7 +765,7 @@ class TestIndexStatus:
         assert "Pending changes: 2 (1 new, 1 modified, 0 missing)" in result.output
         assert "Watcher:         not running" in result.output
         assert (
-            "Run sahara index, or enable the watcher with "
+            "Run sahara index --changed, or enable the watcher with "
             "sahara daemon start --autostart" in result.output
         )
 
