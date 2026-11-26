@@ -75,6 +75,24 @@ class IndexRunResult:
             samples.append(display_path)
 
 
+def stat_matches_entry(row: Any, stat: os.stat_result) -> bool:
+    """True when an inventory *row* records the same size and mtime as *stat*.
+
+    The one definition of "unchanged on disk", shared by ``index --changed`` and
+    the freshness check so the two cannot disagree.
+    """
+    return row["size_bytes"] == stat.st_size and row["modified_ns"] == stat.st_mtime_ns
+
+
+def _is_indexed_and_unchanged(row: Any, file_path: Path) -> bool:
+    if row is None or row["status"] != "indexed":
+        return False
+    try:
+        return stat_matches_entry(row, file_path.stat())
+    except OSError:
+        return False
+
+
 def _display_path(storage_prefix: str, relative_path: str) -> str:
     """Render a file the way `sahara index-report` names it."""
     return f"{storage_prefix}/{relative_path}" if storage_prefix else relative_path
@@ -414,7 +432,7 @@ class IndexingService:
         missing is processed as usual. Cannot be combined with *force*.
         """
         if force and changed_only:
-            raise ValueError("force and changed_only cannot be combined")
+            raise ValueError("--force and --changed cannot be combined")
         roots = self.roots()
         if root_path is not None:
             resolved = root_path.expanduser().resolve()
@@ -481,7 +499,9 @@ class IndexingService:
 
         for file_path, relative_path in self._walk(root.local_path, ignore):
             seen.add(relative_path)
-            if known and self._matches_inventory(known.get(relative_path), file_path):
+            if changed_only and _is_indexed_and_unchanged(
+                known.get(relative_path), file_path
+            ):
                 result.skipped += 1
                 result.unchanged += 1
                 continue
@@ -541,20 +561,6 @@ class IndexingService:
                 "missing", _display_path(root.storage_prefix, relative_path)
             )
         result.missing += len(missing)
-
-    @staticmethod
-    def _matches_inventory(row: Any, file_path: Path) -> bool:
-        """True when *row* says the file is indexed and its size and mtime are unchanged."""
-        if row is None or row["status"] != "indexed":
-            return False
-        try:
-            stat = file_path.stat()
-        except OSError:
-            return False
-        return (
-            row["size_bytes"] == stat.st_size
-            and row["modified_ns"] == stat.st_mtime_ns
-        )
 
     def _index_file(
         self,

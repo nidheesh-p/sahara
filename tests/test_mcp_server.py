@@ -223,6 +223,35 @@ def test_ask_question_defaults_to_retrieval_only(tmp_path: Path) -> None:
         db.close()
 
 
+@pytest.fixture
+def no_network(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+    urlopen = MagicMock(side_effect=AssertionError("network call attempted"))
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    return urlopen
+
+
+def test_mcp_sahara_ask_ignores_client_provider(no_network: MagicMock) -> None:
+    """A client-supplied provider must not reach the engine or the network."""
+    pytest.importorskip("mcp.server.fastmcp")
+    from sahara.mcp_server import FreshnessCache
+    from sahara.search.ask_engine import AskEngine
+
+    with patch("sahara.mcp_server.load_config", return_value=SaharaConfig(answer_provider="none")):
+        server = build_mcp_server(freshness_cache=FreshnessCache(lambda: {"stale": False}))
+
+    chunk = {"relative_path": "notes.md", "score": 0.9, "snippet": "hello"}
+    with patch("sahara.mcp_server.StateDB"), patch("sahara.mcp_server.SearchEngine") as search_cls, patch(
+        "sahara.mcp_server.AskEngine", wraps=AskEngine
+    ) as engine_cls:
+        search_cls.return_value.search.return_value = [chunk]
+        anyio.run(server.call_tool, "sahara_ask", {"question": "notes?", "provider": "openai"})
+
+    no_network.assert_not_called()
+    engine_cls.assert_called_once()
+    assert engine_cls.call_args.kwargs["provider"] == "none"
+
+
 def test_static_token_verifier_accepts_only_configured_token() -> None:
     pytest.importorskip("mcp.server.auth.provider")
     verifier = StaticTokenVerifier("secret")

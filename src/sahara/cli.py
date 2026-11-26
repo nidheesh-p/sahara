@@ -3023,8 +3023,6 @@ def index_cmd(
     assume_model_ready: bool,
 ) -> None:
     """Index file contents for semantic search."""
-    if force and changed:
-        _abort("--changed and --force cannot be used together.")
     config: SaharaConfig = ctx.obj["config"]
     _require_library_config(config)
 

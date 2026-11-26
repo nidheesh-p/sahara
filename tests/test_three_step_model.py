@@ -447,17 +447,21 @@ def test_changed_only_retries_files_that_previously_failed(tmp_path: Path) -> No
     assert result.indexed == 1 and result.unchanged == 1
 
 
-def test_changed_only_cannot_be_combined_with_force(tmp_path: Path) -> None:
-    _, config = _changed_only_setup(tmp_path)
-    with StateDB(tmp_path / "state.db") as db:
-        with pytest.raises(ValueError, match="cannot be combined"):
-            IndexingService(config, db).index(force=True, changed_only=True)
+def test_index_command_rejects_changed_with_force(tmp_path: Path) -> None:
+    content = tmp_path / "documents"
+    content.mkdir()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f'sync_folder = "{content}"\nstorage_mode = "none"\n', encoding="utf-8"
+    )
 
+    with patch("sahara.storage.state_db.DB_PATH", tmp_path / "state.db"):
+        result = CliRunner().invoke(
+            main, ["--config", str(config_path), "index", "--changed", "--force"]
+        )
 
-def test_index_command_rejects_changed_with_force() -> None:
-    result = CliRunner().invoke(main, ["index", "--changed", "--force"])
     assert result.exit_code != 0
-    assert "cannot be used together" in result.output
+    assert "cannot be combined" in result.output
 
 
 def test_indexing_records_paths_of_files_that_disappeared(tmp_path: Path) -> None:
