@@ -140,6 +140,14 @@ Merely setting `OPENAI_API_KEY` does not change Sahara's saved provider. A norma
 `sahara ask` remains retrieval-only on a new installation. When OpenAI is selected,
 the retrieved snippets needed to answer the question are sent to OpenAI.
 
+### What is sent
+
+Each question sends one request to OpenAI's chat completions API. It contains the
+question and the top retrieved snippets with their relative paths, capped at 5
+snippets and 6000 characters of context. Whole files and embeddings are never sent.
+See [What leaves your machine](../SECURITY.md#what-leaves-your-machine) for every
+configuration.
+
 For MCP clients, `OPENAI_API_KEY` must be available to the process that launches
 `sahara mcp serve`. Terminal-launched clients inherit an exported key. Desktop
 clients may use a limited environment; follow the client's secret/environment

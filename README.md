@@ -293,7 +293,8 @@ deletion is not treated as offload.
 - Optional storage encryption uses client-side AES-256-GCM.
 
 Review [SECURITY.md](SECURITY.md) before exposing MCP remotely or relying on encrypted
-storage.
+storage. For a per-configuration table of exactly what is sent, where it goes and how
+to turn it all off, see [What leaves your machine](SECURITY.md#what-leaves-your-machine).
 
 ## Supported Content
 
