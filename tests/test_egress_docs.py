@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
+from sahara.cli import mcp_serve
 from sahara.config import SaharaConfig
+from sahara.mcp_server import ask_question
 from sahara.search.ask_engine import (
     _CONTEXT_CHAR_LIMIT,
     _OPENAI_API_URL,
@@ -64,6 +67,25 @@ def test_context_limits_match_code() -> None:
 
     providers = (ROOT / "docs" / "ANSWER_PROVIDERS.md").read_text(encoding="utf-8")
     assert f"capped at {DEFAULT_MAX_CONTEXT_CHUNKS}\nsnippets and {_CONTEXT_CHAR_LIMIT} characters" in providers
+
+
+def test_mcp_paragraph_documents_client_provider_override() -> None:
+    assert "provider" in inspect.signature(ask_question).parameters
+    assert "--allow-tool" in {opt for p in mcp_serve.params for opt in p.opts}
+
+    section = _section()
+    mcp = section[section.index("**MCP.**"):section.index("### How to turn it all off")]
+    assert "`sahara_ask`" in mcp and "`provider` argument" in mcp
+    assert 'provider="openai"' in mcp
+    assert "`OPENAI_API_KEY` set in the environment" in mcp
+    assert "known gap" in mcp
+    assert "--allow-tool" in mcp
+
+    row = _table_rows()[3]
+    assert 'provider="openai"' in row and "OPENAI_API_KEY" in row
+
+    turn_off = section[section.index("### How to turn it all off"):]
+    assert "OPENAI_API_KEY" in turn_off and "--allow-tool" in turn_off
 
 
 def test_section_mentions_no_unbuilt_flags() -> None:
