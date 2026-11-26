@@ -114,6 +114,33 @@ itself sends nothing over MCP, though the client's own model may process the ret
 snippets in the cloud. With `openai` or `ollama` saved, `sahara_ask` over MCP also sends
 the question and capped snippets described above to that provider.
 
+### Preview, confirm and log
+
+These controls apply to `sahara ask` on the command line only.
+
+- `sahara ask --dry-run "question"` runs the local search and prints the provider,
+  model, destination host, whether the data leaves the machine, the numbered sources
+  with path and score, and the character count with an estimated token count
+  (characters divided by 4, an estimate only). It never calls the provider.
+- `sahara ask --audit "question"` prints the same preview, then asks
+  `Send this to <destination>? [y/N]`. Only `y` sends. A no, end of input or a
+  non-interactive stdin counts as declined and nothing is sent.
+- `--no-confirm` (only with `--audit`) skips the prompt but still prints and logs.
+- `--show-payload` (only with `--dry-run` or `--audit`) prints the exact context text
+  that would be sent.
+
+Every `sahara ask` that calls `openai` or `ollama` records one event (`sent` or
+`failed`), and `--dry-run` and a declined `--audit` record `previewed` and `declined`.
+With `answer_provider = "none"` nothing is recorded. `sahara egress-log` lists recent
+events. The log is local, in `~/.sahara/state.db`, and metadata-only: time, provider,
+model, destination, the query text (up to 500 characters), source paths and chunk ids,
+sizes and outcome. It never stores snippet or context text, but it does include the
+query text.
+
+Not built yet: redaction or never-send path rules, and previews or confirmation for
+MCP. `sahara_ask` over MCP always uses the saved `answer_provider`, and these flags add
+no MCP behaviour.
+
 ### How to turn it all off
 
 - Run `sahara config set answer_provider none`.

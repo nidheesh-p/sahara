@@ -7,10 +7,12 @@ default; Ollama and OpenAI are explicit opt-in providers.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -18,7 +20,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sahara.search.search_engine import SearchEngine
 
-__all__ = ["AskEngine", "AskResult"]
+__all__ = ["AskEngine", "AskResult", "EgressPreview"]
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,38 @@ class AskResult:
     model_used: str | None = None
     provider_used: str | None = None
     error: str | None = None
+    # What was handed to the provider; None when nothing was sent.
+    egress: EgressPreview | None = None
+
+
+@dataclass(frozen=True)
+class EgressPreview:
+    """What ask() would send to the answer provider, built without any network call.
+
+    est_tokens is an estimate (char_count // 4), not a tokenizer count.
+    sources holds (storage_prefix, relative_path, score, chunk_id) per snippet.
+    """
+
+    provider: str
+    model: str | None
+    destination: str | None
+    leaves_machine: bool
+    sources: tuple[tuple[str, str, float | None, int | None], ...]
+    char_count: int
+    est_tokens: int
+    truncated: bool
+    context: str
+
+
+def _is_loopback_host(host: str | None) -> bool:
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class AskEngine:
@@ -85,7 +119,7 @@ class AskEngine:
         top_k: int = 5,
         storage_prefix: str | None = None,
     ) -> AskResult:
-        chunks = self._search.search(question, top_k=top_k, storage_prefix=storage_prefix)
+        chunks, context = self._retrieve(question, top_k, storage_prefix)
         if not chunks:
             return AskResult(answer=None, sources=[], degraded=True,
                              error="No indexed files matched your query.")
@@ -95,8 +129,6 @@ class AskEngine:
                 answer=None,
                 sources=chunks[: self._max_context],
             )
-
-        context = self._build_context(chunks)
 
         if self._provider == "openai":
             answer, model_used, provider_used, err = self._call_openai(question, context)
@@ -111,23 +143,87 @@ class AskEngine:
             model_used=model_used,
             provider_used=provider_used,
             error=err,
+            egress=self._egress(chunks, context),
         )
+
+    def preview(
+        self,
+        question: str,
+        top_k: int = 5,
+        storage_prefix: str | None = None,
+    ) -> EgressPreview:
+        """Show exactly what ask() would send, without contacting the provider."""
+        return self._egress(*self._retrieve(question, top_k, storage_prefix))
+
+    def _egress(self, chunks: list[dict], context: str) -> EgressPreview:
+        sent = self._context_chunks(chunks)
+        sources = tuple(
+            (
+                str(c.get("storage_prefix", c.get("s3_prefix", ""))),
+                str(c.get("relative_path", "?")),
+                c.get("score"),
+                c.get("chunk_id"),
+            )
+            for c in sent
+        )
+        char_count = len(context)
+        return EgressPreview(
+            provider=self._provider,
+            model=self._model,
+            destination=self.destination,
+            leaves_machine=self.leaves_machine,
+            sources=sources,
+            char_count=char_count,
+            est_tokens=char_count // 4,
+            truncated=len(sent) < len(chunks[: self._max_context]),
+            context=context,
+        )
+
+    @property
+    def destination(self) -> str | None:
+        """Host the provider call goes to, or None when nothing is sent."""
+        if self._provider == "openai":
+            return urllib.parse.urlsplit(_OPENAI_API_URL).hostname
+        if self._provider == "ollama":
+            return urllib.parse.urlsplit(self._ollama_url).hostname
+        return None
+
+    @property
+    def leaves_machine(self) -> bool:
+        if self._provider == "openai":
+            return True
+        if self._provider == "ollama":
+            return not _is_loopback_host(self.destination)
+        return False
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
-    def _build_context(self, chunks: list[dict]) -> str:
-        parts: list[str] = []
+    def _retrieve(
+        self, question: str, top_k: int, storage_prefix: str | None
+    ) -> tuple[list[dict], str]:
+        """Run the local search and build the context ask() would send."""
+        chunks = self._search.search(question, top_k=top_k, storage_prefix=storage_prefix)
+        return chunks, self._build_context(chunks)
+
+    def _context_chunks(self, chunks: list[dict]) -> list[dict]:
+        """The chunks _build_context keeps under the character limit."""
+        kept: list[dict] = []
         total = 0
         for chunk in chunks[: self._max_context]:
-            snippet = chunk.get("snippet", "")
-            path = chunk.get("relative_path", "?")
-            entry = f"[{path}]\n{snippet}"
+            entry = f"[{chunk.get('relative_path', '?')}]\n{chunk.get('snippet', '')}"
             if total + len(entry) > _CONTEXT_CHAR_LIMIT:
                 break
-            parts.append(entry)
+            kept.append(chunk)
             total += len(entry)
+        return kept
+
+    def _build_context(self, chunks: list[dict]) -> str:
+        parts = [
+            f"[{chunk.get('relative_path', '?')}]\n{chunk.get('snippet', '')}"
+            for chunk in self._context_chunks(chunks)
+        ]
         return "\n\n---\n\n".join(parts)
 
     def _call_openai(
