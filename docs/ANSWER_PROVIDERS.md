@@ -146,6 +146,13 @@ The question and the top retrieved snippets, never whole files or embeddings. Se
 [What leaves your machine](../SECURITY.md#what-leaves-your-machine) for the exact
 limits and every configuration.
 
+To see the payload before it goes anywhere, run `sahara ask --dry-run "question"`
+(add `--show-payload` for the exact context text). `sahara ask --audit` shows the same
+preview and asks before sending; `--no-confirm` skips that prompt but still prints and
+logs. `sahara egress-log` lists past events from a local, metadata-only log that keeps
+the query text but no document text. Redaction and MCP-side previews do not exist yet;
+`sahara_ask` over MCP always uses the saved `answer_provider`.
+
 For MCP clients, `OPENAI_API_KEY` must be available to the process that launches
 `sahara mcp serve`. Terminal-launched clients inherit an exported key. Desktop
 clients may use a limited environment; follow the client's secret/environment

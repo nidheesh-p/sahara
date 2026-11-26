@@ -22,6 +22,8 @@ from sahara.config import (
 
 if TYPE_CHECKING:
     from sahara.library import IndexRunResult
+    from sahara.search.ask_engine import EgressPreview
+    from sahara.storage.state_db import StateDB
 
 __all__ = ["main"]
 
@@ -3608,6 +3610,81 @@ def search_cmd(
 # ---------------------------------------------------------------------------
 
 
+def _print_egress_preview(preview: EgressPreview, show_payload: bool) -> None:
+    """Print what an ask would hand to the answer provider."""
+    _section("Egress preview")
+    click.echo(f"  Provider:    {preview.provider}")
+    click.echo(f"  Model:       {preview.model or '-'}")
+    click.echo(f"  Destination: {preview.destination or '-'}")
+    if preview.provider == "none":
+        click.echo("  Leaves machine: no (answer_provider is none; nothing is sent)")
+        return
+    click.echo(f"  Leaves machine: {'yes' if preview.leaves_machine else 'no (loopback)'}")
+    if not preview.sources:
+        click.echo("  No indexed files matched; nothing would be sent.")
+        return
+    click.echo("  Sources:")
+    for i, (prefix, path, score, _chunk_id) in enumerate(preview.sources, 1):
+        display = f"{prefix}/{path}" if prefix else path
+        score_text = f"{score:.2f}" if isinstance(score, (int, float)) else "-"
+        click.echo(f"    {i}. {display} (score {score_text})")
+    note = " (context trimmed to the character limit)" if preview.truncated else ""
+    click.echo(
+        f"  Size: {preview.char_count} characters, ~{preview.est_tokens} tokens "
+        f"(estimate){note}"
+    )
+    if show_payload:
+        click.echo()
+        _section("Payload context")
+        click.echo(preview.context)
+
+
+def _confirm_egress(preview: EgressPreview) -> bool:
+    """Ask before sending; EOF or a non-interactive stdin counts as no."""
+    if not sys.stdin.isatty():
+        _warn("stdin is not interactive; treating as declined.")
+        return False
+    try:
+        return click.confirm(f"Send this to {preview.destination}?", default=False)
+    except click.Abort:
+        return False
+
+
+def _egress_error_category(error: str) -> str:
+    """Map a provider error to a fixed category; the raw message is never logged."""
+    lowered = error.lower()
+    if "api key not set" in lowered:
+        return "no_api_key"
+    if "unreachable" in lowered or "unavailable" in lowered:
+        return "unreachable"
+    if "http" in lowered:
+        return "http_error"
+    return "error"
+
+
+def _record_egress(
+    db: StateDB,
+    query: str,
+    preview: EgressPreview,
+    outcome: str,
+    details: str | None = None,
+) -> None:
+    db.record_egress_event(
+        provider=preview.provider,
+        model=preview.model,
+        destination=preview.destination,
+        query=query,
+        sources=[
+            {"storage_prefix": prefix, "relative_path": path, "chunk_id": chunk_id}
+            for prefix, path, _score, chunk_id in preview.sources
+        ],
+        char_count=preview.char_count,
+        est_tokens=preview.est_tokens,
+        outcome=outcome,
+        details=details,
+    )
+
+
 @main.command("ask")
 @click.argument("question", nargs=-1, required=True)
 @click.option("--top", "-n", default=5, show_default=True, help="Number of chunks to retrieve.")
@@ -3626,6 +3703,13 @@ def search_cmd(
     help="Ollama base URL (default: http://localhost:11434).",
 )
 @click.option("--snippet", is_flag=True, help="Always show source snippets even when an answer is produced.")
+@click.option("--dry-run", is_flag=True, help="Show what would be sent to the provider, then stop.")
+@click.option("--audit", is_flag=True, help="Show what would be sent and ask before sending.")
+@click.option("--no-confirm", is_flag=True, help="With --audit: skip the prompt, still print and log.")
+@click.option(
+    "--show-payload", is_flag=True,
+    help="With --dry-run or --audit: print the exact context text that would be sent.",
+)
 @click.pass_context
 def ask_cmd(
     ctx: click.Context,
@@ -3636,6 +3720,10 @@ def ask_cmd(
     provider: str | None,
     ollama_url: str | None,
     snippet: bool,
+    dry_run: bool,
+    audit: bool,
+    no_confirm: bool,
+    show_payload: bool,
 ) -> None:
     """Answer a natural language question about your files.
 
@@ -3650,6 +3738,11 @@ def ask_cmd(
         sahara ask local "what is my passport expiry date?"
     """
     import os as _os
+
+    if no_confirm and not audit:
+        raise click.UsageError("--no-confirm is only valid with --audit.")
+    if show_payload and not (dry_run or audit):
+        raise click.UsageError("--show-payload is only valid with --dry-run or --audit.")
 
     # 'local' as the first word forces Ollama provider
     if question and question[0].lower() == "local":
@@ -3699,7 +3792,28 @@ def ask_cmd(
             return
 
         _info(f"Searching {total} indexed file(s)…")
-        result = ask_engine.ask(question_str, top_k=top, storage_prefix=storage_prefix_filter)
+        if dry_run or audit:
+            preview = ask_engine.preview(
+                question_str, top_k=top, storage_prefix=storage_prefix_filter
+            )
+            _print_egress_preview(preview, show_payload)
+            sends = preview.provider != "none" and bool(preview.sources)
+            if dry_run:
+                if sends:
+                    _record_egress(db, question_str, preview, "previewed")
+                return
+            if sends and not no_confirm and not _confirm_egress(preview):
+                _record_egress(db, question_str, preview, "declined")
+                _info("Not sent. Nothing left the machine.")
+                return
+
+        result, egress = ask_engine.ask_with_egress(
+            question_str, top_k=top, storage_prefix=storage_prefix_filter
+        )
+        if egress is not None:
+            outcome = "failed" if result.error else "sent"
+            details = _egress_error_category(result.error) if result.error else None
+            _record_egress(db, question_str, egress, outcome, details)
 
         click.echo()
         if result.answer:
@@ -3745,6 +3859,32 @@ def ask_cmd(
                     click.echo(click.style(f'       "{snip_display}..."', fg="bright_black"))
     finally:
         db.close()
+
+
+@main.command("egress-log")
+@click.option("--limit", "-n", default=20, show_default=True, help="Number of events to show.")
+def egress_log_cmd(limit: int) -> None:
+    """List recent `sahara ask` answer-provider events, newest first."""
+    from sahara.storage.state_db import StateDB
+
+    db = StateDB().connect()
+    try:
+        events = db.list_egress_events(limit=limit)
+    finally:
+        db.close()
+
+    _section("Answer-provider egress log (local, metadata only; no document text is stored)")
+    if not events:
+        _info("No egress events recorded.")
+        return
+    for event in events:
+        model = f"/{event['model']}" if event["model"] else ""
+        click.echo(
+            f"  {event['requested_at']}  {event['outcome']:<9}  "
+            f"{event['provider']}{model}  -> {event['destination'] or '-'}  "
+            f"sources={len(event['sources'])}  ~{event['est_tokens']} tokens"
+        )
+        click.echo(click.style(f"       query: {event['query']}", fg="bright_black"))
 
 
 # ---------------------------------------------------------------------------

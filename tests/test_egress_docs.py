@@ -10,7 +10,7 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
-from sahara.cli import mcp_serve
+from sahara.cli import ask_cmd, main, mcp_serve
 from sahara.config import SaharaConfig
 from sahara.mcp_server import ask_question
 from sahara.search.ask_engine import (
@@ -57,3 +57,13 @@ def test_mcp_cannot_choose_the_provider_and_documented_flag_exists() -> None:
 def test_readme_and_providers_link_to_section() -> None:
     for path, prefix in (("README.md", ""), ("docs/ANSWER_PROVIDERS.md", "../")):
         assert f"({prefix}{ANCHOR})" in (ROOT / path).read_text(encoding="utf-8")
+
+
+def test_documented_ask_egress_flags_and_log_command_exist() -> None:
+    section = _section()
+    ask_opts = {opt for p in ask_cmd.params for opt in p.opts}
+    for flag in ("--dry-run", "--audit", "--no-confirm", "--show-payload"):
+        assert f"`{flag}`" in section or f"ask {flag}" in section
+        assert flag in ask_opts
+    assert "egress-log" in main.commands and "`sahara egress-log`" in section
+    assert "redaction or never-send path rules, and previews or confirmation for MCP" in section

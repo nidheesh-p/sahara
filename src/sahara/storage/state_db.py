@@ -17,6 +17,9 @@ __all__ = ["StateDB", "DB_PATH"]
 
 DB_PATH = Path.home() / ".sahara" / "state.db"
 
+EGRESS_OUTCOMES = ("previewed", "sent", "declined", "failed")
+EGRESS_QUERY_LIMIT = 500
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS files (
     s3_prefix           TEXT    NOT NULL DEFAULT '',
@@ -190,6 +193,24 @@ CREATE TABLE IF NOT EXISTS mcp_memory_audit (
 
 CREATE INDEX IF NOT EXISTS idx_mcp_memory_audit_requested
     ON mcp_memory_audit (requested_at DESC);
+
+CREATE TABLE IF NOT EXISTS egress_audit (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    requested_at  TEXT    NOT NULL,
+    provider      TEXT    NOT NULL,
+    model         TEXT,
+    destination   TEXT,
+    query         TEXT    NOT NULL,
+    sources_json  TEXT    NOT NULL,
+    char_count    INTEGER NOT NULL,
+    est_tokens    INTEGER NOT NULL,
+    outcome       TEXT    NOT NULL
+                  CHECK(outcome IN ('previewed', 'sent', 'declined', 'failed')),
+    details       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_egress_audit_requested
+    ON egress_audit (requested_at DESC);
 
 CREATE TABLE IF NOT EXISTS mobile_devices (
     device_id       TEXT    PRIMARY KEY,
@@ -1740,6 +1761,72 @@ class StateDB:
             (limit,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def record_egress_event(
+        self,
+        *,
+        provider: str,
+        model: str | None,
+        destination: str | None,
+        query: str,
+        sources: list[dict],
+        char_count: int,
+        est_tokens: int,
+        outcome: str,
+        details: str | None = None,
+    ) -> int:
+        """Record one metadata-only answer-provider egress event.
+
+        Only storage_prefix, relative_path and chunk_id are kept per source;
+        snippet and context text are never stored.
+        """
+        if outcome not in EGRESS_OUTCOMES:
+            raise ValueError(f"outcome must be one of {', '.join(EGRESS_OUTCOMES)}")
+        kept = [
+            {
+                "storage_prefix": src.get("storage_prefix"),
+                "relative_path": src.get("relative_path"),
+                "chunk_id": src.get("chunk_id"),
+            }
+            for src in sources
+        ]
+        with self.transaction():
+            cursor = self.conn.execute(
+                """
+                INSERT INTO egress_audit (
+                    requested_at, provider, model, destination, query,
+                    sources_json, char_count, est_tokens, outcome, details
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    datetime.datetime.now(datetime.UTC).isoformat(),
+                    provider,
+                    model,
+                    destination,
+                    query[:EGRESS_QUERY_LIMIT],
+                    json.dumps(kept),
+                    char_count,
+                    est_tokens,
+                    outcome,
+                    details,
+                ),
+            )
+        if cursor.lastrowid is None:
+            raise RuntimeError("Could not record egress event")
+        return cursor.lastrowid
+
+    def list_egress_events(self, limit: int = 20) -> list[dict]:
+        """Return recent egress events, newest first, with sources decoded."""
+        rows = self.conn.execute(
+            "SELECT * FROM egress_audit ORDER BY requested_at DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        events = []
+        for row in rows:
+            event = dict(row)
+            event["sources"] = json.loads(event.pop("sources_json"))
+            events.append(event)
+        return events
 
     def create_mobile_device(
         self,
