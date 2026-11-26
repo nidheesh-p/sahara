@@ -69,23 +69,20 @@ def test_context_limits_match_code() -> None:
     assert f"capped at {DEFAULT_MAX_CONTEXT_CHUNKS}\nsnippets and {_CONTEXT_CHAR_LIMIT} characters" in providers
 
 
-def test_mcp_paragraph_documents_client_provider_override() -> None:
-    assert "provider" in inspect.signature(ask_question).parameters
+def test_mcp_paragraph_documents_saved_provider_lock() -> None:
+    assert "provider" not in inspect.signature(ask_question).parameters
     assert "--allow-tool" in {opt for p in mcp_serve.params for opt in p.opts}
 
     section = _section()
     mcp = section[section.index("**MCP.**"):section.index("### How to turn it all off")]
-    assert "`sahara_ask`" in mcp and "`provider` argument" in mcp
-    assert 'provider="openai"' in mcp
-    assert "`OPENAI_API_KEY` set in the environment" in mcp
-    assert "known gap" in mcp
-    assert "--allow-tool" in mcp
-
-    row = _table_rows()[3]
-    assert 'provider="openai"' in row and "OPENAI_API_KEY" in row
+    assert "`sahara_ask` over\nMCP always uses the saved `answer_provider`" in mcp
+    assert "the client cannot change it" in mcp
+    assert "known gap" not in section
+    assert 'provider="openai"' not in section
 
     turn_off = section[section.index("### How to turn it all off"):]
-    assert "OPENAI_API_KEY" in turn_off and "--allow-tool" in turn_off
+    assert "--allow-tool" in turn_off
+    assert "OPENAI_API_KEY" not in turn_off
 
 
 def test_section_mentions_no_unbuilt_flags() -> None:

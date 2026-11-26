@@ -44,6 +44,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 - `sahara first-run` now defaults the automatic re-index prompt to Yes and states what
   declining means. Unattended `--yes` runs are unchanged. (#126)
 
+### Fixed
+
+- MCP `sahara_ask` no longer accepts a client-chosen answer provider; the saved
+  `answer_provider` always decides, so a client can no longer cause a cloud call when
+  it is `none`. (#145)
+
 ## [0.3.0] — 2026-08-09
 
 ### Added

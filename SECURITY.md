@@ -92,7 +92,7 @@ Sahara sends over the network in each configuration.
 | `answer_provider = "none"` (the default), CLI `sahara search` / `sahara ask`, no MCP client | Source files, extracted chunks, embeddings, paths, the index in `~/.sahara/state.db`, questions and results | Nothing after the one-time embedding model download | Hugging Face, once, to download the embedding model | No |
 | `answer_provider = "ollama"` | Everything in the first row | The question plus retrieved snippets and their relative paths | The Ollama URL (`--ollama-url` or `OLLAMA_URL`, default `http://localhost:11434`). A non-loopback URL sends this data off the machine | No |
 | `answer_provider = "openai"` | Everything in the first row except the question and the snippets sent | The question plus retrieved snippets and their relative paths | `https://api.openai.com/v1/chat/completions` | No |
-| MCP over stdio or HTTP, with a client such as Claude Desktop | Source files, embeddings and the index | Snippets returned by tools such as `sahara_search` and `sahara_ask`. If the client passes `provider="openai"` to `sahara_ask` and `OPENAI_API_KEY` is set for the server process, also the question and capped snippets | The connected client, whose own model may process them in the cloud. With `provider="openai"`, also OpenAI, even when the saved `answer_provider` is `none` | No |
+| MCP over stdio or HTTP, with a client such as Claude Desktop | Source files, embeddings and the index | Snippets returned by tools such as `sahara_search` and `sahara_ask`. With `openai` or `ollama` saved as `answer_provider`, `sahara_ask` also sends the question and capped snippets to that provider | The connected client, whose own model may process them in the cloud. `sahara_ask` always uses the saved `answer_provider`, and the client cannot change it | No |
 | Sync storage (local drive, S3, MinIO) | Embeddings and the index | Synced file content (ciphertext when encryption is on, plaintext otherwise) and a manifest with paths, checksums, sizes and timestamps | The configured drive, S3 bucket or MinIO endpoint | No |
 
 **Indexing and embeddings.** Text extraction, chunking and embedding run locally.
@@ -110,32 +110,23 @@ With the default local URL nothing leaves the machine. If you point it at anothe
 the payload goes to that host.
 
 **MCP.** Sahara returns snippets to the connected client, and that client's model, which
-may run in the cloud, processes them under the client's own policy. The `sahara_ask`
-tool also takes a `provider` argument supplied by the client, and it overrides the
-saved `answer_provider`. A client can pass `provider="openai"` or `provider="ollama"`
-even when the saved `answer_provider` is `none`:
+may run in the cloud, processes them under the client's own policy. `sahara_ask` over
+MCP always uses the saved `answer_provider`; the client cannot change it, and only you
+can, with `sahara config set answer_provider`. With the saved provider `none`, Sahara
+itself sends nothing over MCP, though the client's own model may process the returned
+snippets in the cloud. With `openai` or `ollama` saved, `sahara_ask` over MCP also sends
+the question and capped snippets described above to that provider.
 
-- With `provider="openai"` and `OPENAI_API_KEY` set in the environment of the
-  `sahara mcp serve` process, Sahara sends the question and the capped snippets
-  described above to OpenAI.
-- With `provider="openai"` and no key set, the call returns an error and nothing is sent.
-- With `provider="ollama"`, the payload goes to the default local Ollama URL,
-  `http://localhost:11434`.
-
-This is current behaviour and a known gap. A document can steer the client into making
-this call (see [MCP and prompt injection](#mcp-and-prompt-injection)), so a saved
-`answer_provider = "none"` alone does not keep MCP questions away from OpenAI. Until
-that changes, the mitigation is to leave `OPENAI_API_KEY` unset in the environment that
-launches `sahara mcp serve`. You can also leave `sahara_ask` out of the MCP tool list
-by starting the server with `--allow-tool` and naming only the tools you want, for
-example `sahara mcp serve --allow-tool sahara_search --allow-tool sahara_read_chunk`.
+Versions before the fix for GitHub #145 let an MCP client choose the provider for
+`sahara_ask`.
 
 ### How to turn it all off
 
 - Run `sahara config set answer_provider none`.
-- Do not connect an MCP client. If you do connect one, leave `OPENAI_API_KEY` unset in
-  the environment that launches `sahara mcp serve`, or leave `sahara_ask` out of the
-  `--allow-tool` list, because the client can pick the provider for `sahara_ask`.
+- Do not connect an MCP client. If you do connect one and have `openai` saved, you can
+  leave `sahara_ask` out of the MCP tool list by starting the server with
+  `--allow-tool` and naming only the tools you want, for example
+  `sahara mcp serve --allow-tool sahara_search --allow-tool sahara_read_chunk`.
 - Leave storage at basic index-only mode (`storage_mode = "none"`).
 
 Provider setup details are in [docs/ANSWER_PROVIDERS.md](docs/ANSWER_PROVIDERS.md).
