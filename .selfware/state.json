@@ -1,7 +1,35 @@
 {
   "version": 2,
-  "updated_at": "2026-11-26T07:35:46.800031Z",
+  "updated_at": "2026-11-26T09:02:31.36883Z",
   "tasks": [
+    {
+      "id": "ask-egress-preview",
+      "status": "landed",
+      "session": "ff5eb6d2-5eaf-4a97-8423-2437e91725e4",
+      "model": "claude-opus-5-5",
+      "attempt": "c2",
+      "rc": 0,
+      "verdict": "pass",
+      "reason": "stop",
+      "brief": ".selfware/briefs/ask-egress-preview.txt",
+      "needs": [
+        "egress-data-flow-docs"
+      ],
+      "owns": [
+        "src/sahara/search/ask_engine.py",
+        "src/sahara/storage/state_db.py",
+        "src/sahara/cli.py",
+        "SECURITY.md",
+        "docs/ANSWER_PROVIDERS.md",
+        "docs/COMMAND_REFERENCE.md",
+        "tests/test_ask_egress.py",
+        "tests/test_ask_openai.py",
+        "tests/test_state_db.py",
+        "tests/test_egress_docs.py"
+      ],
+      "attempts": 3,
+      "updated_at": "2026-11-26T09:02:31.36883Z"
+    },
     {
       "id": "egress-data-flow-docs",
       "status": "landed",
@@ -198,6 +226,6 @@
     }
   ],
   "counts": {
-    "landed": 9
+    "landed": 10
   }
 }
