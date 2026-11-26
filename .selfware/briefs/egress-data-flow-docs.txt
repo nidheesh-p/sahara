@@ -1,0 +1,18 @@
+owns: SECURITY.md, README.md, docs/ANSWER_PROVIDERS.md, tests/test_egress_docs.py (new)
+class: code-in-repo
+kind: feature
+gate: /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/ruff check src tests
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest tests/test_egress_docs.py -q
+gate: PYTHONPATH=src /Users/nidheesh/PlayGround/AgentPlayground/Sahara/.venv/bin/python -m pytest -q
+
+# TASK: egress-data-flow-docs — document exactly what leaves the machine, per configuration (GitHub #118, P0 documentation slice)
+
+Privacy-conscious users ask what leaves their machine when a cloud model is in the loop, and the answer is scattered across README, SECURITY.md and ANSWER_PROVIDERS.md. Add one section that answers it, framed as expanding the existing privacy text, not as a new policy. Describe only behaviour that exists today; do not mention flags or features that are not in the code (dry-run, audit log and redaction are separate, later work and #118 stays open).
+1. SECURITY.md: add a "## What leaves your machine" section before "## Threat model". Open with a table with one row per configuration: (a) answer_provider=none, CLI search/ask and no MCP; (b) answer_provider=ollama; (c) answer_provider=openai; (d) MCP stdio or HTTP with a client such as Claude Desktop; (e) sync storage (local drive, S3, MinIO). Columns: what stays local, what may leave, where it goes, whether embeddings leave. State only facts you verify in the code: indexing and embeddings are local and the only network call is the one-time embedding model download; with openai the question and the retrieved snippets, capped by max_context_chunks (DEFAULT_MAX_CONTEXT_CHUNKS) and _CONTEXT_CHAR_LIMIT in src/sahara/search/ask_engine.py, are sent to _OPENAI_API_URL and nothing else; ollama sends the same payload to the configured ollama_url (local by default, but say that a non-loopback URL leaves the machine); over MCP, Sahara itself sends nothing but the connected client's own model may process the returned snippets in the cloud. Then a short "How to turn it all off" list: sahara config set answer_provider none, do not connect an MCP client, leave storage mode at basic. Link to the existing "MCP and prompt injection" section and to docs/ANSWER_PROVIDERS.md.
+2. README.md: in the existing privacy or security paragraph, add one or two sentences and a link to the new SECURITY.md anchor. Do not restructure the README.
+3. docs/ANSWER_PROVIDERS.md: add a short "What is sent" subsection under the OpenAI setup stating the payload (question plus capped snippets, no whole files, no embeddings) and linking to SECURITY.md.
+4. tests/test_egress_docs.py (new): doc-drift guards, no network. Assert the SECURITY.md section exists and appears before "## Threat model"; that its table names each of the five configurations; that SaharaConfig().answer_provider == "none" and the section says so; that the documented context limits match DEFAULT_MAX_CONTEXT_CHUNKS and _CONTEXT_CHAR_LIMIT as numbers; that the section contains no mention of the flags --dry-run or --audit; that README.md and docs/ANSWER_PROVIDERS.md link to the new anchor. At most one write per response.
+
+## Checks
+
+Run every gate above in order and report each command with its real exit status (cmd; echo "exit=$?"), never behind a pipe.
