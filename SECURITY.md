@@ -84,9 +84,6 @@ The passphrase is never written to disk in plaintext, never stored in `~/.sahara
 
 ## What leaves your machine
 
-This section collects the privacy notes above into one place. It describes what
-Sahara sends over the network in each configuration.
-
 | Configuration | What stays local | What may leave | Where it goes | Embeddings leave? |
 |---|---|---|---|---|
 | `answer_provider = "none"` (the default), CLI `sahara search` / `sahara ask`, no MCP client | Source files, extracted chunks, embeddings, paths, the index in `~/.sahara/state.db`, questions and results | Nothing after the one-time embedding model download | Hugging Face, once, to download the embedding model | No |
@@ -116,9 +113,6 @@ can, with `sahara config set answer_provider`. With the saved provider `none`, S
 itself sends nothing over MCP, though the client's own model may process the returned
 snippets in the cloud. With `openai` or `ollama` saved, `sahara_ask` over MCP also sends
 the question and capped snippets described above to that provider.
-
-Versions before the fix for GitHub #145 let an MCP client choose the provider for
-`sahara_ask`.
 
 ### How to turn it all off
 

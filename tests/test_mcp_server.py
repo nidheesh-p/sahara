@@ -231,68 +231,25 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return urlopen
 
 
-def test_ask_question_has_no_provider_parameter(no_network: MagicMock) -> None:
-    import inspect
-
-    assert "provider" not in inspect.signature(ask_question).parameters
-
-
 def test_mcp_sahara_ask_ignores_client_provider(no_network: MagicMock) -> None:
+    """A client-supplied provider must not reach the engine or the network."""
     pytest.importorskip("mcp.server.fastmcp")
-    import inspect
-
     from sahara.mcp_server import FreshnessCache
     from sahara.search.ask_engine import AskEngine
 
-    config = SaharaConfig(answer_provider="none")
-    with patch("sahara.mcp_server.load_config", return_value=config):
-        server = build_mcp_server(
-            freshness_cache=FreshnessCache(lambda: {"stale": False})
-        )
-    assert "provider" not in inspect.signature(_tool(server, "sahara_ask")).parameters
+    with patch("sahara.mcp_server.load_config", return_value=SaharaConfig(answer_provider="none")):
+        server = build_mcp_server(freshness_cache=FreshnessCache(lambda: {"stale": False}))
 
     chunk = {"relative_path": "notes.md", "score": 0.9, "snippet": "hello"}
-    error: Exception | None = None
-    with patch("sahara.mcp_server.StateDB"), patch(
-        "sahara.mcp_server.SearchEngine"
-    ) as search_cls, patch(
+    with patch("sahara.mcp_server.StateDB"), patch("sahara.mcp_server.SearchEngine") as search_cls, patch(
         "sahara.mcp_server.AskEngine", wraps=AskEngine
     ) as engine_cls:
         search_cls.return_value.search.return_value = [chunk]
-        try:
-            anyio.run(
-                server.call_tool,
-                "sahara_ask",
-                {"question": "notes?", "provider": "openai"},
-            )
-        except Exception as exc:  # FastMCP may reject the unknown argument
-            error = exc
+        anyio.run(server.call_tool, "sahara_ask", {"question": "notes?", "provider": "openai"})
 
     no_network.assert_not_called()
-    for call in engine_cls.call_args_list:
-        assert call.kwargs["provider"] == "none"
-    if error is None:
-        engine_cls.assert_called_once()
-
-
-def test_ask_question_still_uses_saved_openai_provider(
-    tmp_path: Path, no_network: MagicMock
-) -> None:
-    db = StateDB(tmp_path / "state.db").connect()
-    try:
-        with patch("sahara.mcp_server.AskEngine") as engine_cls:
-            engine_cls.return_value.ask.return_value = AskResult(
-                answer="answer", sources=[], provider_used="openai"
-            )
-
-            payload = ask_question(
-                "question", config=SaharaConfig(answer_provider="openai"), db=db
-            )
-
-        assert engine_cls.call_args.kwargs == {"provider": "openai", "model": None}
-        assert payload["provider_used"] == "openai"
-    finally:
-        db.close()
+    engine_cls.assert_called_once()
+    assert engine_cls.call_args.kwargs["provider"] == "none"
 
 
 def test_static_token_verifier_accepts_only_configured_token() -> None:

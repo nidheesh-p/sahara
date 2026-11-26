@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from sahara.library import ContentRoot
+from sahara.library import ContentRoot, stat_matches_entry
 from sahara.scan_preview import MAX_ENTRIES, _inside
 from sahara.storage.state_db import StateDB
 from sahara.sync.ignore_rules import IgnoreRules
@@ -135,10 +135,7 @@ def compute_freshness(
                 recorded = entries.get(relative_path)
                 if recorded is None or recorded["status"] == "missing":
                     new += 1
-                elif (
-                    recorded["size_bytes"] != stat.st_size
-                    or recorded["modified_ns"] != stat.st_mtime_ns
-                ):
+                elif not stat_matches_entry(recorded, stat):
                     modified += 1
         except _EntryLimitError:
             lower_bound = True
