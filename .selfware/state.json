@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_at": "2026-11-26T06:22:16.291506Z",
+  "updated_at": "2026-11-26T07:35:46.800031Z",
   "tasks": [
     {
       "id": "egress-data-flow-docs",
@@ -133,6 +133,26 @@
       "updated_at": "2026-11-19T02:49:54.235422Z"
     },
     {
+      "id": "mcp-provider-lock",
+      "status": "landed",
+      "session": "ca8be2a9-f08d-4d3d-92a9-92ca3185dbac",
+      "model": "claude-opus-5-5",
+      "attempt": "r1",
+      "rc": 0,
+      "verdict": "pass",
+      "reason": "stop",
+      "brief": ".selfware/briefs/mcp-provider-lock.txt",
+      "owns": [
+        "src/sahara/mcp_server.py",
+        "SECURITY.md",
+        "CHANGELOG.md",
+        "tests/test_mcp_server.py",
+        "tests/test_egress_docs.py"
+      ],
+      "attempts": 1,
+      "updated_at": "2026-11-26T07:35:46.800031Z"
+    },
+    {
       "id": "retrieval-eval-harness",
       "status": "landed",
       "session": "2b919315-dc31-4cde-b915-a7cf73a5a9f7",
@@ -178,6 +198,6 @@
     }
   ],
   "counts": {
-    "landed": 8
+    "landed": 9
   }
 }
