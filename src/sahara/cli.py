@@ -3650,6 +3650,18 @@ def _confirm_egress(preview: EgressPreview) -> bool:
         return False
 
 
+def _egress_error_category(error: str) -> str:
+    """Map a provider error to a fixed category; the raw message is never logged."""
+    lowered = error.lower()
+    if "api key not set" in lowered:
+        return "no_api_key"
+    if "unreachable" in lowered or "unavailable" in lowered:
+        return "unreachable"
+    if "http" in lowered:
+        return "http_error"
+    return "error"
+
+
 def _record_egress(
     db: StateDB,
     query: str,
@@ -3795,10 +3807,13 @@ def ask_cmd(
                 _info("Not sent. Nothing left the machine.")
                 return
 
-        result = ask_engine.ask(question_str, top_k=top, storage_prefix=storage_prefix_filter)
-        if result.egress is not None and result.egress.provider != "none":
+        result, egress = ask_engine.ask_with_egress(
+            question_str, top_k=top, storage_prefix=storage_prefix_filter
+        )
+        if egress is not None:
             outcome = "failed" if result.error else "sent"
-            _record_egress(db, question_str, result.egress, outcome, result.error)
+            details = _egress_error_category(result.error) if result.error else None
+            _record_egress(db, question_str, egress, outcome, details)
 
         click.echo()
         if result.answer:

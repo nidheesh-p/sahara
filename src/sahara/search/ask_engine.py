@@ -43,8 +43,6 @@ class AskResult:
     model_used: str | None = None
     provider_used: str | None = None
     error: str | None = None
-    # What was handed to the provider; None when nothing was sent.
-    egress: EgressPreview | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +62,10 @@ class EgressPreview:
     est_tokens: int
     truncated: bool
     context: str
+
+
+def _context_entry(chunk: dict) -> str:
+    return f"[{chunk.get('relative_path', '?')}]\n{chunk.get('snippet', '')}"
 
 
 def _is_loopback_host(host: str | None) -> bool:
@@ -119,16 +121,25 @@ class AskEngine:
         top_k: int = 5,
         storage_prefix: str | None = None,
     ) -> AskResult:
+        return self.ask_with_egress(question, top_k, storage_prefix)[0]
+
+    def ask_with_egress(
+        self,
+        question: str,
+        top_k: int = 5,
+        storage_prefix: str | None = None,
+    ) -> tuple[AskResult, EgressPreview | None]:
+        """Like ask(), plus what was handed to the provider (None when nothing was sent)."""
         chunks, context = self._retrieve(question, top_k, storage_prefix)
         if not chunks:
             return AskResult(answer=None, sources=[], degraded=True,
-                             error="No indexed files matched your query.")
+                             error="No indexed files matched your query."), None
 
         if self._provider == "none":
             return AskResult(
                 answer=None,
                 sources=chunks[: self._max_context],
-            )
+            ), None
 
         if self._provider == "openai":
             answer, model_used, provider_used, err = self._call_openai(question, context)
@@ -143,8 +154,7 @@ class AskEngine:
             model_used=model_used,
             provider_used=provider_used,
             error=err,
-            egress=self._egress(chunks, context),
-        )
+        ), self._egress(chunks, context)
 
     def preview(
         self,
@@ -212,7 +222,7 @@ class AskEngine:
         kept: list[dict] = []
         total = 0
         for chunk in chunks[: self._max_context]:
-            entry = f"[{chunk.get('relative_path', '?')}]\n{chunk.get('snippet', '')}"
+            entry = _context_entry(chunk)
             if total + len(entry) > _CONTEXT_CHAR_LIMIT:
                 break
             kept.append(chunk)
@@ -220,10 +230,7 @@ class AskEngine:
         return kept
 
     def _build_context(self, chunks: list[dict]) -> str:
-        parts = [
-            f"[{chunk.get('relative_path', '?')}]\n{chunk.get('snippet', '')}"
-            for chunk in self._context_chunks(chunks)
-        ]
+        parts = [_context_entry(chunk) for chunk in self._context_chunks(chunks)]
         return "\n\n---\n\n".join(parts)
 
     def _call_openai(

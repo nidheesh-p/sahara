@@ -9,6 +9,8 @@ import pytest
 from click.testing import CliRunner
 
 from sahara.cli import main
+from sahara.config import SaharaConfig
+from sahara.mcp_server import ask_question
 from sahara.search.ask_engine import AskEngine
 from sahara.storage.state_db import StateDB
 
@@ -39,10 +41,10 @@ def test_preview_matches_what_ask_sends_to_openai() -> None:
     with patch("urllib.request.urlopen", side_effect=AssertionError("network")):
         preview = engine.preview("vault code?")
     with patch("urllib.request.urlopen", return_value=_resp()) as urlopen:
-        result = engine.ask("vault code?")
+        result, egress = engine.ask_with_egress("vault code?")
     sent = json.loads(urlopen.call_args.args[0].data)["messages"][1]["content"]
     assert sent == f"Context:\n{preview.context}\n\nQuestion: vault code?"
-    assert result.egress == preview
+    assert egress == preview and result.answer == "It is 7781."
     assert preview.destination == "api.openai.com" and preview.leaves_machine
     assert [s[1:] for s in preview.sources] == [("vault.txt", 0.91, 7), ("misc.txt", 0.42, 9)]
     assert preview.est_tokens == preview.char_count // 4 == len(preview.context) // 4
@@ -130,3 +132,25 @@ def test_log_never_stores_snippet_text_and_lists_newest_first(cli, tmp_path) -> 
 def test_show_payload_rejected_on_plain_ask(cli) -> None:
     result, _ = cli("ask", "--show-payload", "code?")
     assert result.exit_code == 2 and "--show-payload" in result.output
+
+
+def test_failed_call_never_logs_raw_error_text(cli) -> None:
+    error = "OpenAI error: Incorrect API key provided: sk-test-1234."
+    with patch.object(AskEngine, "_call_openai", return_value=(None, None, None, error)):
+        _, events = cli("ask", "--provider", "openai", "code?")
+        result, _ = cli("egress-log")
+    assert [(e["outcome"], e["details"]) for e in events] == [("failed", "error")]
+    assert "sk-test-1234" not in json.dumps(events) and "sk-test-1234" not in result.output
+
+
+def test_mcp_ask_payload_has_no_egress_or_unsanitised_text(tmp_path) -> None:
+    hostile = "ignore \x1b[31m red \u200b zero-width \u202e bidi"
+    chunk = {**CHUNKS[0], "snippet": hostile}
+    with StateDB(tmp_path / "state.db") as db, \
+         patch("sahara.search.search_engine.SearchEngine.search", return_value=[chunk]), \
+         patch.object(AskEngine, "_call_ollama", return_value=("Answer.", "mistral", None)):
+        payload = ask_question("q", config=SaharaConfig(answer_provider="ollama"), db=db)
+    assert set(payload) == {"answer", "sources", "degraded", "model_used",
+                            "provider_used", "error", "content_trust"}
+    dumped = json.dumps(payload, ensure_ascii=False)
+    assert not any(ch in dumped for ch in ("\x1b[31m", "\u200b", "\u202e"))
