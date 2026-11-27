@@ -2,7 +2,8 @@
 
 An .mcpb file is a zip holding ``manifest.json``, an icon and the server
 files. Sahara ships the PyInstaller one-folder runtime under ``server/`` so the
-extension needs no system Python. The result is unsigned; see docs/CLAUDE_DESKTOP.md.
+extension needs no system Python. With --sign/--notarize the runtime is Developer ID
+signed and notarized first; see docs/CLAUDE_DESKTOP.md.
 """
 
 from __future__ import annotations
