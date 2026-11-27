@@ -56,6 +56,7 @@ These commands work in basic index-only mode and do not require optional storage
 | `sahara memory list/show/edit/delete/rebuild` | Manage captured-memory lifecycle |
 | `sahara search QUERY [-n N] [-f PATH] [--snippet]` | Search indexed content by meaning |
 | `sahara ask QUESTION [-n N] [-f PATH] [--snippet]` | Retrieve passages and optionally generate an answer with a configured provider |
+| `sahara egress-log [--limit N]` | List recent answer-provider events from the local, metadata-only log (default 20) |
 
 `sahara remember` accepts text as an argument or through standard input. Its options
 include `--title`, `--source manual|web|conversation|ai-chat|mobile`, `--url`,
@@ -77,6 +78,14 @@ Answer-provider overrides:
 | `--model NAME` | Override the selected provider's model |
 | `--ollama-url URL` | Override the Ollama server URL |
 | `--snippet` | Show supporting source snippets even when an answer is generated |
+| `--dry-run` | Show provider, destination, sources and size that would be sent, then stop |
+| `--audit` | Show the same preview and ask `Send this to <destination>? [y/N]` before sending |
+| `--no-confirm` | With `--audit`: skip the prompt, still print and log |
+| `--show-payload` | With `--dry-run` or `--audit`: print the exact context text |
+
+The egress log is local and metadata-only: it keeps the query text, source paths and
+sizes, never snippet text. Redaction and MCP-side previews do not exist yet. See
+[What leaves your machine](../SECURITY.md#what-leaves-your-machine).
 
 ## MCP
 

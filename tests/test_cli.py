@@ -2392,6 +2392,9 @@ def _invoke_with_results(tmp_path: Path, args: list[str], results: list[dict]):
         db_cls.return_value.connect.return_value = db
         engine_cls.return_value.search.return_value = results
         ask_cls.return_value.ask.return_value = AskResult(answer=None, sources=results)
+        ask_cls.return_value.ask_with_egress.return_value = (
+            AskResult(answer=None, sources=results), None
+        )
         return _runner().invoke(main, ["--config", str(config_path), *args])
 
 
