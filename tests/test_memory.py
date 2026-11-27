@@ -1191,6 +1191,7 @@ def test_content_root_removal_batches_large_vector_deletes(
             db.conn.execute(
                 "CREATE TABLE vec_chunks (rowid INTEGER PRIMARY KEY, embedding BLOB)"
             )
+            db._vec_loaded = True  # a plain stand-in table behaves like a loaded vec0
         now = datetime.now(UTC).isoformat()
         db.conn.executemany(
             "INSERT INTO chunks "

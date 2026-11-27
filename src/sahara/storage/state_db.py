@@ -503,6 +503,7 @@ class StateDB:
     def __init__(self, db_path: Path | None = None) -> None:
         self._path = db_path or DB_PATH
         self._conn: sqlite3.Connection | None = None
+        self._vec_loaded = False
 
     @property
     def path(self) -> Path:
@@ -521,7 +522,7 @@ class StateDB:
         init_lock = self._path.with_name(f"{self._path.name}.init.lock")
         try:
             with FileLock(str(init_lock)):
-                _try_load_sqlite_vec(conn)
+                self._vec_loaded = _try_load_sqlite_vec(conn)
                 _apply_pragmas(conn)
                 # Run v2 migration before schema indexes reference new columns.
                 _migrate_v2(conn)
@@ -2094,7 +2095,14 @@ class StateDB:
         return results
 
     def has_vec_table(self) -> bool:
-        """Return True if the vec_chunks virtual table exists."""
+        """Return True if vec_chunks exists and the vec0 module is loaded here.
+
+        A database created by a Python that could load sqlite-vec keeps its
+        vec_chunks table; a Python that cannot load the extension must not
+        touch it (every statement would fail with "no such module: vec0").
+        """
+        if not self._vec_loaded:
+            return False
         row = self.conn.execute(
             "SELECT name FROM sqlite_master WHERE name = 'vec_chunks'"
         ).fetchone()
