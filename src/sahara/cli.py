@@ -3058,13 +3058,8 @@ def index_cmd(
         service = IndexingService(config, db)
         ocr_counters = None
         if config.ocr_enabled:
-            from sahara.ocr import get_backend
-
-            # IndexingService has no OCR hook; configure the extractor it uses.
-            extractor = service._search.extractor
-            extractor.configure_ocr(True, get_backend(config.ocr_backend))
-            ocr_counters = extractor.ocr_counters
-            if extractor.ocr_backend is None:
+            ocr_counters = service.ocr_counters
+            if service.ocr_backend_name is None:
                 _warn(
                     "OCR is enabled but no OCR backend is available. Install "
                     "tesseract (e.g. `brew install tesseract` or "

@@ -13,7 +13,9 @@ import pytest
 from click.testing import CliRunner
 
 from sahara.cli import main
-from sahara.ocr import TesseractBackend, get_backend
+from sahara.config import SaharaConfig
+from sahara.index_watcher import LocalIndexWatcherService
+from sahara.ocr import OCR_BACKEND_NAMES, TesseractBackend, VisionBackend, get_backend
 from sahara.search.search_engine import SearchEngine, TextExtractor
 from sahara.storage.state_db import StateDB
 
@@ -150,9 +152,49 @@ def test_backend_error_on_one_file_leaves_others_indexed(tmp_path: Path) -> None
 
 def test_auto_backend_is_none_when_nothing_available(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("sahara.ocr.shutil.which", lambda _name: None)
+    monkeypatch.setattr("sahara.ocr.sys.platform", "linux")
     assert get_backend("auto") is None
+    assert get_backend("vision") is None
     assert get_backend("tesseract") is None
     assert get_backend("cloud") is None
+
+
+def test_backend_names_list_vision_before_tesseract() -> None:
+    assert OCR_BACKEND_NAMES == ("auto", "vision", "tesseract")
+
+
+def test_vision_unavailable_off_macos(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("sahara.ocr.sys.platform", "linux")
+    assert VisionBackend().available() is False
+
+
+def test_vision_unavailable_when_pyobjc_imports_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fail(name: str) -> object:
+        raise ImportError(name)
+
+    monkeypatch.setattr("sahara.ocr.sys.platform", "darwin")
+    monkeypatch.setattr("sahara.ocr.importlib.import_module", _fail)
+    assert VisionBackend().available() is False
+
+
+class _NamedFake(FakeBackend):
+    def __init__(self, name: str, available: bool) -> None:
+        super().__init__()
+        self.name = name
+        self._available = available
+
+    def available(self) -> bool:
+        return self._available
+
+
+def test_auto_prefers_vision_over_tesseract(monkeypatch: pytest.MonkeyPatch) -> None:
+    vision = _NamedFake("vision", True)
+    tesseract = _NamedFake("tesseract", True)
+    monkeypatch.setattr("sahara.ocr._all_backends", lambda: [vision, tesseract])
+    assert get_backend("auto") is vision
+    assert get_backend("tesseract") is tesseract
+    vision._available = False
+    assert get_backend("auto") is tesseract
 
 
 def _config(tmp_path: Path, ocr: bool) -> tuple[Path, Path]:
@@ -175,6 +217,9 @@ def test_config_rejects_unknown_backend(tmp_path: Path) -> None:
     good = runner.invoke(main, ["--config", str(cfg), "config", "set", "ocr_backend", "tesseract"])
     assert good.exit_code == 0
     assert 'ocr_backend = "tesseract"' in cfg.read_text()
+    vision = runner.invoke(main, ["--config", str(cfg), "config", "set", "ocr_backend", "vision"])
+    assert vision.exit_code == 0, vision.output
+    assert 'ocr_backend = "vision"' in cfg.read_text()
 
 
 @pytest.mark.parametrize("ocr", [False, True])
@@ -230,3 +275,120 @@ def test_real_tesseract_reads_text(tmp_path: Path) -> None:
     backend = get_backend("tesseract")
     assert backend is not None
     assert "HELLO" in backend.recognize(png.read_bytes()).upper()
+
+
+LONG_TEXT = "Quarterly invoice for March"  # over OCR_MIN_PAGE_CHARS
+
+
+def _join_pdfs(path: Path, *sources: Path) -> Path:
+    pypdf = pytest.importorskip("pypdf")
+    writer = pypdf.PdfWriter()
+    for source in sources:
+        writer.append(str(source))
+    writer.write(str(path))
+    return path
+
+
+def _text_pdf_with(path: Path, text: str) -> Path:
+    _text_pdf(path)
+    path.write_bytes(path.read_bytes().replace(b"(Quarterly invoice)", b"(%s)" % text.encode()))
+    # The xref offsets are now stale; round-trip through pypdf to repair them.
+    return _join_pdfs(path.with_suffix(".fixed.pdf"), path)
+
+
+def test_mixed_pdf_ocrs_only_image_page_and_keeps_order(tmp_path: Path) -> None:
+    pdf = _join_pdfs(
+        tmp_path / "mixed.pdf",
+        _image_pdf(tmp_path / "scan.pdf"),
+        _text_pdf_with(tmp_path / "text.pdf", LONG_TEXT),
+    )
+    backend = FakeBackend()
+    extractor = _extractor(backend)
+    text = extractor.extract(pdf)
+    assert text is not None
+    assert backend.calls == 1
+    assert text.index(backend.text) < text.index(LONG_TEXT)
+    assert extractor.ocr_counters.ocr_done == 1
+
+
+def test_text_page_with_image_never_calls_backend(tmp_path: Path) -> None:
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(str(_text_pdf_with(tmp_path / "text.pdf", LONG_TEXT)))
+    image_page = pypdf.PdfReader(str(_image_pdf(tmp_path / "scan.pdf"))).pages[0]
+    writer = pypdf.PdfWriter()
+    page = writer.add_page(reader.pages[0])
+    page.merge_page(image_page)
+    pdf = tmp_path / "text_and_image.pdf"
+    writer.write(str(pdf))
+    backend = FakeBackend()
+    extractor = _extractor(backend)
+    text = extractor.extract(pdf)
+    assert text is not None and LONG_TEXT in text
+    assert backend.calls == 0
+    assert extractor.ocr_counters.ocr_done == 0
+
+
+def test_mixed_pdf_unchanged_when_ocr_disabled_or_unavailable(tmp_path: Path) -> None:
+    pdf = _join_pdfs(
+        tmp_path / "mixed.pdf",
+        _text_pdf_with(tmp_path / "text.pdf", LONG_TEXT),
+        _image_pdf(tmp_path / "scan.pdf"),
+    )
+    baseline = TextExtractor().extract(pdf)
+    unavailable = TextExtractor()
+    unavailable.configure_ocr(True, None)
+    assert unavailable.extract(pdf) == baseline
+    assert baseline is not None and LONG_TEXT in baseline
+
+
+def test_page_cap_counts_only_ocr_pages(tmp_path: Path) -> None:
+    short = _text_pdf(tmp_path / "short.pdf")  # sparse text, no images
+    pdf = _join_pdfs(
+        tmp_path / "capped.pdf", short, short, _image_pdf(tmp_path / "scan.pdf", pages=2)
+    )
+    backend = FakeBackend()
+    extractor = _extractor(backend)
+    extractor.OCR_MAX_PDF_PAGES = 2
+    assert extractor.extract(pdf) is not None
+    assert backend.calls == 2
+    assert extractor.ocr_counters.ocr_skipped == 0
+    assert extractor.ocr_counters.ocr_done == 1
+
+
+def test_watcher_indexes_png_with_ocr(tmp_path: Path) -> None:
+    content = tmp_path / "content"
+    content.mkdir()
+    png = content / "scan.png"
+    png.write_bytes(b"image bytes")
+    config = SaharaConfig(
+        sync_folder=str(content),
+        storage_mode="none",
+        memory_folder=str(tmp_path / "memory"),
+        ocr_enabled=True,
+    )
+    with StateDB(tmp_path / "state.db") as db, \
+         patch("sahara.ocr.get_backend", return_value=FakeBackend()), \
+         patch.object(
+             SearchEngine,
+             "_embed",
+             side_effect=lambda texts: [np.full(384, 0.5, dtype=np.float32) for _ in texts],
+         ):
+        result = LocalIndexWatcherService(config, db).handle_path(png)
+        embedded = db.count_embeddings()
+    assert result.action == "indexed"
+    assert result.relative_path == "scan.png"
+    assert embedded == 1
+
+
+@pytest.mark.skipif(not VisionBackend().available(), reason="macOS Vision not available")
+def test_real_vision_reads_text(tmp_path: Path) -> None:
+    image_mod = pytest.importorskip("PIL.Image")
+    draw_mod = pytest.importorskip("PIL.ImageDraw")
+    font_mod = pytest.importorskip("PIL.ImageFont")
+    image = image_mod.new("RGB", (900, 160), "white")
+    draw = draw_mod.Draw(image)
+    draw.text((20, 40), "QUIET HARBOR 2031", fill="black", font=font_mod.load_default(size=64))
+    png = tmp_path / "phrase.png"
+    image.save(png)
+    text = VisionBackend().recognize(png.read_bytes()).upper()
+    assert "QUIET HARBOR" in text and "2031" in text

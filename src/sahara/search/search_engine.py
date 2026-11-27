@@ -194,7 +194,8 @@ class TextExtractor:
     }
 
     OCR_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
-    OCR_MAX_PDF_PAGES = 50
+    OCR_MAX_PDF_PAGES = 50  # pages actually OCR'd per PDF
+    OCR_MIN_PAGE_CHARS = 20  # a PDF page with fewer non-whitespace characters is OCR'd
     OCR_MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
     def __init__(self) -> None:
@@ -245,13 +246,17 @@ class TextExtractor:
             import pypdf  # type: ignore[import]
             with _quiet_pdf_logs():
                 reader = pypdf.PdfReader(str(file_path))
-                parts = [page.extract_text() for page in reader.pages]
-            text = "\n".join(p for p in parts if p)
-            if self.ocr_enabled and not text.strip():
-                if self.ocr_backend is None:
+                parts: list[str | None] = [page.extract_text() for page in reader.pages]
+            if self.ocr_enabled:
+                sparse = [
+                    index for index, part in enumerate(parts)
+                    if len("".join((part or "").split())) < self.OCR_MIN_PAGE_CHARS
+                ]
+                if sparse and self.ocr_backend is None:
                     self.ocr_counters.ocr_unavailable_files += 1
-                else:
-                    return self._ocr_pdf_pages(file_path, reader.pages)
+                elif sparse:
+                    self._ocr_pdf_pages(file_path, reader.pages, parts, sparse)
+            text = "\n".join(p for p in parts if p)
             return text or None
         except ImportError:
             logger.debug("pypdf not installed; cannot extract PDF text")
@@ -272,35 +277,69 @@ class TextExtractor:
             return None
         return self._finish_ocr(file_path, [self._ocr_bytes(file_path, data)])
 
-    def _ocr_pdf_pages(self, file_path: Path, pages: Any) -> str | None:
-        """OCR the embedded images of an image-only PDF (no page rendering)."""
-        if len(pages) > self.OCR_MAX_PDF_PAGES:
-            logger.debug(
-                "OCR of %s capped at %d pages", file_path.name, self.OCR_MAX_PDF_PAGES
-            )
-            self.ocr_counters.ocr_skipped += 1
-        parts: list[str | None] = []
-        for page in list(pages)[: self.OCR_MAX_PDF_PAGES]:
+    def _ocr_pdf_pages(
+        self, file_path: Path, pages: Any, texts: list[str | None], sparse: list[int]
+    ) -> None:
+        """OCR the embedded images of the *sparse* pages (no page rendering).
+
+        Recognised text is merged into *texts* at each page's own index, so
+        page order is preserved. Pages without images are left alone and do
+        not count towards ``OCR_MAX_PDF_PAGES``.
+        """
+        ocr_pages = 0
+        recognised = False
+        empty_result = False
+        for index in sparse:
             try:
                 with _quiet_pdf_logs():
-                    images = list(page.images)
+                    images = list(pages[index].images)
             except Exception as exc:
                 logger.debug("Cannot list images in %s: %s", file_path.name, exc)
                 self.ocr_counters.ocr_skipped += 1
                 continue
-            for image in images:
-                try:
-                    data = image.data
-                except Exception as exc:
-                    logger.debug("Cannot decode image in %s: %s", file_path.name, exc)
-                    self.ocr_counters.ocr_skipped += 1
-                    continue
-                if len(data) > self.OCR_MAX_IMAGE_BYTES:
-                    logger.debug("OCR skipped image in %s: too large", file_path.name)
-                    self.ocr_counters.ocr_skipped += 1
-                    continue
-                parts.append(self._ocr_bytes(file_path, data))
-        return self._finish_ocr(file_path, parts)
+            if not images:
+                continue
+            if ocr_pages >= self.OCR_MAX_PDF_PAGES:
+                logger.debug(
+                    "OCR of %s capped at %d pages", file_path.name, self.OCR_MAX_PDF_PAGES
+                )
+                self.ocr_counters.ocr_skipped += 1
+                break
+            ocr_pages += 1
+            page_text = self._ocr_page_images(file_path, images)
+            if page_text is None:
+                continue
+            if not page_text:
+                empty_result = True
+                continue
+            existing = (texts[index] or "").strip()
+            texts[index] = f"{existing}\n{page_text}" if existing else page_text
+            recognised = True
+        if recognised:
+            logger.debug("OCR read %d page(s) of %s", ocr_pages, file_path.name)
+            self.ocr_counters.ocr_done += 1
+        elif empty_result:
+            logger.debug("OCR found no text in %s", file_path.name)
+            self.ocr_counters.ocr_skipped += 1
+
+    def _ocr_page_images(self, file_path: Path, images: list[Any]) -> str | None:
+        """OCR one page's images; None when no image reached the backend."""
+        parts: list[str | None] = []
+        for image in images:
+            try:
+                data = image.data
+            except Exception as exc:
+                logger.debug("Cannot decode image in %s: %s", file_path.name, exc)
+                self.ocr_counters.ocr_skipped += 1
+                continue
+            if len(data) > self.OCR_MAX_IMAGE_BYTES:
+                logger.debug("OCR skipped image in %s: too large", file_path.name)
+                self.ocr_counters.ocr_skipped += 1
+                continue
+            parts.append(self._ocr_bytes(file_path, data))
+        if all(p is None for p in parts):
+            return None
+        return "\n".join(p.strip() for p in parts if p and p.strip())
 
     def _ocr_bytes(self, file_path: Path, data: bytes) -> str | None:
         """Run the backend on one image; a backend error is counted, not raised."""

@@ -147,3 +147,55 @@ FP ≤ 0.35 (met, 0.25), holdout confident correct top-1 ≥ 0.80 (met exactly,
   thresholds are tied to the cosine-fallback score scale; re-measure on the
   sqlite-vec backend. In `vector` mode nothing is on the keyword side, so
   only vector ≥ 0.72 earns medium and most correct answers are labelled low.
+
+# Scanned fixtures — OCR with macOS Vision
+
+Measured on 2026-11-27 with `run_eval(corpus, queries, k=5, mode=...)`, same
+model and backends (`vec_backend = false`, `fts_backend = true`), with
+`ocr_backend = "vision"` (picked by `auto`; Apple's on-device framework).
+
+Two generated fixtures (`scripts/make_ocr_fixtures.py`, all content invented
+and marked FICTIONAL) joined the corpus, now 20 files:
+`scan_lab_results_fictional.png` (image only) and
+`scan_loan_letter_fictional.pdf` (page 1 text, page 2 image only). Five
+queries marked `"requires_ocr": true` were added to the tuning set: three for
+the png (`LVD-58213-Q`, `Larkspur Valley Diagnostics`,
+`specimen collected 2031-04-17`) and two for the PDF's scanned page
+(`QX-4417-ZEPHYR`, `first instalment due 2032-02-09`). Vision read both
+fixtures without a character error. No search, ranking or threshold code
+changed.
+
+## Results (k = 5)
+
+| Category    | Queries | Vector R@5 | Hybrid R@5 | Vector MRR@5 | Hybrid MRR@5 | Hybrid confident top-1 |
+|-------------|--------:|-----------:|-----------:|-------------:|-------------:|-----------------------:|
+| exact_token |      15 |      0.800 |      1.000 |        0.767 |        1.000 |                  1.000 |
+| paraphrase  |      14 |      1.000 |      1.000 |        1.000 |        1.000 |                  1.000 |
+| date_number |      12 |      0.917 |      1.000 |        0.715 |        0.819 |                  0.667 |
+| **overall** |      41 |      0.902 |      1.000 |        0.831 |        0.947 |       0.902 (37/41)    |
+
+Not-present FP (score > 0.5) stays 1.000 in both modes; hybrid not-present
+confident FP stays 0.000 (0/8). The original 36 answerable queries are
+unchanged in hybrid: R@5 1.000, MRR@5 0.954, confident top-1 33/36.
+Holdout: R@5 1.000, MRR@5 0.950, confident correct top-1 0.800 (8/10),
+confident FP 0.250 (3/12).
+
+The five requires_ocr queries, hybrid: four rank the scanned file first,
+labelled high; `first instalment due 2032-02-09` ranks it second (low) behind
+the onboarding checklist. Vector mode misses both code queries
+(`LVD-58213-Q`, `QX-4417-ZEPHYR`), as it does for other exact tokens.
+
+## Without an OCR backend
+
+`run_eval` then reports `ocr_backend = null` and `skipped_for_ocr =
+{"corpus_files": 1, "queries": 5}`: the png and the five queries are left
+out; the PDF still indexes from its text page. Hybrid: 36 answerable,
+R@5 1.000, MRR@5 0.954, confident top-1 32/36 (one paraphrase query drops to
+low because the loan letter's text page shifts IDF weights).
+
+## Observations
+
+- Holdout `home loan offer from Fernbrook Bank` now returns the fictional loan
+  letter first, labelled high (it was tax notes, medium). The holdout
+  confident FP rate is unchanged at 3/12 because that query was already a
+  confident FP; it is a shared-vocabulary limit of the labels, not fixed here.

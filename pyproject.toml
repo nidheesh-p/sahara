@@ -58,6 +58,8 @@ search = [
 ocr = [
     "pytesseract>=0.3.10",
     "Pillow>=10.0.0",
+    "pyobjc-framework-Vision>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
 ]
 mcp = [
     # mcp 2.0.0 renamed mcp.server.fastmcp to mcp.server.mcpserver, breaking
