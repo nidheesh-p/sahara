@@ -61,8 +61,8 @@ sahara mcp install-claude \
 
 ## Install as a Desktop Extension (MCPB)
 
-Release builds attach one `.mcpb` file per platform (`macos-arm64`, `windows-x64`)
-with a `.sha256` checksum. The extension bundles the standalone Sahara runtime, so no
+Release builds attach a `.mcpb` file for macOS Apple Silicon (`macos-arm64`) with a
+`.sha256` checksum. Windows is tracked in #151. The extension bundles the standalone Sahara runtime, so no
 terminal, Python or `pipx` is needed.
 
 1. Verify the checksum of the downloaded file against the `.sha256` file.
@@ -71,16 +71,19 @@ terminal, Python or `pipx` is needed.
 4. Ask Claude a question about those documents.
 
 On first launch Sahara creates its configuration, registers the chosen folders and
-builds the index in the background (the first run also downloads a ~70 MB local
-embedding model). `sahara_index_status` reports `background_index.state` as
+builds the index in the background. The first run downloads a ~70 MB local embedding
+model, so it needs an internet connection and the first answers can take a few minutes;
+the model is not bundled and there is no offline install yet. `sahara_index_status` reports `background_index.state` as
 `indexing`, `ready` or `failed`; early searches may return fewer results until it is
 `ready`. The extension exposes the read-only tools only; memory capture is not enabled.
 
 Folders removed from the extension settings stay indexed until removed with
-`sahara folder remove`. The extension is currently unsigned; see the release notes.
+`sahara folder remove`. Configuration and the index live in `~/.sahara`, shared with
+the command-line install. The Sahara runtime inside the extension is Developer ID
+signed and notarized by the release workflow.
 
 Maintainers build it with `python scripts/build_mcpb.py --platform macos-arm64
---bundle dist/native/<bundle>`; the release workflow does this for both platforms.
+--bundle dist/native/<bundle>` (add `--sign --notarize` in CI); the release workflow does this on tags.
 
 ## Manual Configuration
 

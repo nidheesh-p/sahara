@@ -334,11 +334,11 @@ jobs:
           retention-days: 7
 
   claude-desktop-extension:
-    name: Build Claude Desktop extension (MCPB)
-    needs:
-      - macos-apple-silicon
-      - windows-x64
-    runs-on: ubuntu-latest
+    name: Build signed Claude Desktop extension (MCPB)
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: macos-apple-silicon
+    runs-on: macos-14
+    environment: macos-installer
 
     steps:
       - uses: actions/checkout@v4
@@ -346,32 +346,59 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
-      - name: Download verified macOS bundle
+      - name: Download verified native artifact
         uses: actions/download-artifact@v4
         with:
           name: native-macos-arm64
-          path: dist/native-artifacts/macos/
+          path: dist/native-artifacts/
 
-      - name: Download verified Windows bundle
-        uses: actions/download-artifact@v4
-        with:
-          name: native-windows-x64
-          path: dist/native-artifacts/windows/
-
-      - name: Restore bundles
+      - name: Restore bundle
         run: |
           mkdir -p dist/native
-          tar -xzf dist/native-artifacts/macos/*.tar.gz -C dist/native
-          unzip -q dist/native-artifacts/windows/*.zip -d dist/native
+          tar -xzf dist/native-artifacts/*.tar.gz -C dist/native
 
-      - name: Build and verify extensions
+      - name: Import Developer ID certificates
+        env:
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          APPLICATION_CERTIFICATE_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 }}
+          INSTALLER_CERTIFICATE_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_INSTALLER_CERTIFICATE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_SIGNING_KEYCHAIN_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/sahara-signing.keychain-db"
+          app_cert="$RUNNER_TEMP/developer-id-application.p12"
+          installer_cert="$RUNNER_TEMP/developer-id-installer.p12"
+
+          echo "$APPLICATION_CERTIFICATE_BASE64" | base64 --decode > "$app_cert"
+          echo "$INSTALLER_CERTIFICATE_BASE64" | base64 --decode > "$installer_cert"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security import "$app_cert" -P "$CERTIFICATE_PASSWORD" -A -T /usr/bin/codesign -k "$keychain"
+          security import "$installer_cert" -P "$CERTIFICATE_PASSWORD" -A -T /usr/bin/pkgbuild -k "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+
+      - name: Build signed and notarized extension
+        env:
+          MACOS_DEVELOPER_ID_APPLICATION_IDENTITY: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          bundle="dist/native/$(python scripts/build_macos_bundle.py --print-name)"
+          python scripts/build_mcpb.py --platform macos-arm64 --bundle "$bundle" --sign --notarize
+
+      - name: Verify signed runtime
         run: |
           version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
-          python scripts/build_mcpb.py --platform macos-arm64 --bundle "dist/native/sahara-${version}-macos-arm64"
-          python scripts/build_mcpb.py --platform windows-x64 --bundle "dist/native/sahara-${version}-windows-x64"
+          mkdir -p dist/mcpb-check
+          unzip -q "dist/mcpb/sahara-${version}-macos-arm64.mcpb" -d dist/mcpb-check
+          codesign --verify --strict --verbose=2 dist/mcpb-check/server/sahara
 
-      - name: Upload extensions
+      - name: Upload extension
         uses: actions/upload-artifact@v4
         with:
           name: claude-desktop-extension

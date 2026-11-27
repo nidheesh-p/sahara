@@ -6,6 +6,7 @@ import json
 import stat
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -52,13 +53,12 @@ def test_manifest_matches_runtime_contract(platform_tag: str) -> None:
     assert ICON_FILE.is_file()
 
 
-@pytest.mark.parametrize(
-    ("platform_tag", "executable"),
-    [("macos-arm64", "sahara"), ("windows-x64", "sahara.exe")],
-)
-def test_build_and_verify_round_trip(
-    tmp_path: Path, platform_tag: str, executable: str
-) -> None:
+def test_only_macos_arm64_is_supported() -> None:
+    assert sorted(PLATFORMS) == ["macos-arm64"]
+
+
+def test_build_and_verify_round_trip(tmp_path: Path) -> None:
+    platform_tag, executable = "macos-arm64", "sahara"
     bundle = _bundle(tmp_path, executable)
 
     mcpb, checksum = build_mcpb(
@@ -96,14 +96,51 @@ def test_build_rejects_bundle_without_executable(tmp_path: Path) -> None:
         build_mcpb(bundle, platform_tag="macos-arm64", output_root=tmp_path / "out")
 
 
-def test_workflow_builds_and_publishes_extension() -> None:
+def test_signing_is_applied_to_a_copy_and_notarized(tmp_path: Path) -> None:
+    bundle = _bundle(tmp_path, "sahara")
+    with (
+        patch("scripts.build_mcpb.sign_bundle") as sign,
+        patch("scripts.build_mcpb.notarize_bundle") as notarize,
+    ):
+        mcpb, _ = build_mcpb(
+            bundle,
+            platform_tag="macos-arm64",
+            output_root=tmp_path / "out",
+            application_identity="Developer ID Application: Example",
+            notarize=True,
+            apple_id="id",
+            team_id="team",
+            apple_password="pw",
+        )
+
+    assert sign.call_args.args[0] != bundle
+    assert sign.call_args.args[1] == "Developer ID Application: Example"
+    notarize.assert_called_once()
+    verify_mcpb(mcpb, platform_tag="macos-arm64")
+
+
+def test_notarize_requires_credentials(tmp_path: Path) -> None:
+    bundle = _bundle(tmp_path, "sahara")
+
+    with pytest.raises(ValueError, match="notarization requires"):
+        build_mcpb(
+            bundle,
+            platform_tag="macos-arm64",
+            output_root=tmp_path / "out",
+            application_identity="id",
+            notarize=True,
+        )
+
+
+def test_workflow_builds_signed_extension_with_existing_secrets() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     jobs = yaml.safe_load(text)["jobs"]
+    job = jobs["claude-desktop-extension"]
 
-    assert set(jobs["claude-desktop-extension"]["needs"]) == {
-        "macos-apple-silicon",
-        "windows-x64",
-    }
+    assert job["needs"] == "macos-apple-silicon"
+    assert job["if"] == "startsWith(github.ref, 'refs/tags/')"
+    assert job["environment"] == "macos-installer"
     assert "claude-desktop-extension" in jobs["publish-release-assets"]["needs"]
-    assert "scripts/build_mcpb.py --platform macos-arm64" in text
-    assert "scripts/build_mcpb.py --platform windows-x64" in text
+    assert "build_mcpb.py --platform macos-arm64" in text
+    assert "--sign --notarize" in text
+    assert "windows-x64 --bundle" not in text

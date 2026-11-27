@@ -10,7 +10,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import shutil
 import stat
+import subprocess
+import sys
+import tempfile
 import tomllib
 import zipfile
 from dataclasses import dataclass
@@ -18,6 +23,9 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from scripts.build_macos_installer import sign_bundle  # noqa: E402
 
 PROJECT_FILE = ROOT / "pyproject.toml"
 ICON_FILE = ROOT / "packaging" / "mcpb" / "icon.png"
@@ -44,8 +52,9 @@ class McpbPlatform:
 
 PLATFORMS = {
     "macos-arm64": McpbPlatform("macos-arm64", "darwin", "sahara"),
-    "windows-x64": McpbPlatform("windows-x64", "win32", "sahara.exe"),
 }
+# Windows is deferred to #151. To re-add it, register
+# McpbPlatform("windows-x64", "win32", "sahara.exe") above and add a CI job.
 
 
 def project_metadata(project_file: Path = PROJECT_FILE) -> dict[str, Any]:
@@ -124,6 +133,31 @@ def _add_file(archive: zipfile.ZipFile, source: Path, arcname: str) -> None:
             out.write(chunk)
 
 
+def notarize_bundle(bundle: Path, *, apple_id: str, team_id: str, password: str) -> None:
+    """Submit the signed runtime to Apple notarization (a zip of it, ditto-made).
+
+    Bare binaries cannot be stapled; Gatekeeper checks the notarization online.
+    """
+    with tempfile.TemporaryDirectory(prefix="sahara-mcpb-notarize-") as temp:
+        archive = Path(temp) / f"{bundle.name}.zip"
+        env = {**os.environ, "COPYFILE_DISABLE": "1"}
+        subprocess.run(
+            ["ditto", "-c", "-k", "--keepParent", str(bundle), str(archive)],
+            check=True,
+            env=env,
+        )
+        subprocess.run(
+            [
+                "xcrun", "notarytool", "submit", str(archive),
+                "--apple-id", apple_id,
+                "--team-id", team_id,
+                "--password", password,
+                "--wait",
+            ],
+            check=True,
+        )
+
+
 def build_mcpb(
     bundle: Path,
     *,
@@ -131,8 +165,41 @@ def build_mcpb(
     output_root: Path = DEFAULT_OUTPUT_ROOT,
     project_file: Path = PROJECT_FILE,
     icon: Path = ICON_FILE,
+    application_identity: str | None = None,
+    notarize: bool = False,
+    apple_id: str | None = None,
+    team_id: str | None = None,
+    apple_password: str | None = None,
 ) -> tuple[Path, Path]:
-    """Write the .mcpb and its .sha256 file; return both paths."""
+    """Write the .mcpb and its .sha256 file; return both paths.
+
+    With *application_identity* the Mach-O files are Developer ID signed (on a
+    temporary copy) before packaging; *notarize* also submits them to Apple.
+    """
+    if notarize and not (application_identity and apple_id and team_id and apple_password):
+        raise ValueError(
+            "notarization requires a Developer ID Application identity, Apple ID, "
+            "team ID and app-specific password"
+        )
+    if application_identity:
+        with tempfile.TemporaryDirectory(prefix="sahara-mcpb-") as temp:
+            signed = Path(temp) / bundle.name
+            shutil.copytree(bundle, signed, symlinks=True)
+            sign_bundle(signed, application_identity)
+            if notarize:
+                notarize_bundle(
+                    signed,
+                    apple_id=apple_id or "",
+                    team_id=team_id or "",
+                    password=apple_password or "",
+                )
+            return build_mcpb(
+                signed,
+                platform_tag=platform_tag,
+                output_root=output_root,
+                project_file=project_file,
+                icon=icon,
+            )
     platform = PLATFORMS[platform_tag]
     if not (bundle / platform.executable).is_file():
         raise ValueError(f"bundle has no {platform.executable} executable: {bundle}")
@@ -204,6 +271,16 @@ def main() -> None:
     parser.add_argument("--bundle", type=Path, help="Native one-folder bundle directory.")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument(
+        "--sign",
+        action="store_true",
+        help="Developer ID sign the runtime using MACOS_DEVELOPER_ID_APPLICATION_IDENTITY.",
+    )
+    parser.add_argument(
+        "--notarize",
+        action="store_true",
+        help="Also notarize (needs APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD).",
+    )
     args = parser.parse_args()
 
     version = str(project_metadata()["version"])
@@ -213,7 +290,18 @@ def main() -> None:
         if args.bundle is None:
             parser.error("--bundle is required unless --verify-only is set")
         mcpb, _ = build_mcpb(
-            args.bundle, platform_tag=args.platform, output_root=args.output_root
+            args.bundle,
+            platform_tag=args.platform,
+            output_root=args.output_root,
+            application_identity=(
+                os.environ.get("MACOS_DEVELOPER_ID_APPLICATION_IDENTITY")
+                if args.sign or args.notarize
+                else None
+            ),
+            notarize=args.notarize,
+            apple_id=os.environ.get("APPLE_ID"),
+            team_id=os.environ.get("APPLE_TEAM_ID"),
+            apple_password=os.environ.get("APPLE_APP_SPECIFIC_PASSWORD"),
         )
     verify_mcpb(mcpb, platform_tag=args.platform, expected_version=version)
     print(f"Verified {mcpb}")
