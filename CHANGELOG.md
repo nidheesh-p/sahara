@@ -10,6 +10,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ### Added
 
+- Opt-in, local-only OCR for images and scanned PDFs (`ocr_enabled`, off by default;
+  `ocr_backend`, default `auto`), with tesseract as the first backend via the `ocr`
+  extra. Image-only PDFs fall back to OCR of their embedded page images (at most 50
+  pages; images over 20 MB skipped). `sahara index` prints `OCR: N files read, M
+  skipped` when OCR is enabled. Nothing is sent off the machine. (#137)
 - Hybrid retrieval: search now fuses SQLite FTS5 BM25 keyword results with vector
   results using Reciprocal Rank Fusion, so exact identifiers, amounts and dates are
   found reliably. Results gain `rrf_score` and `match` fields; `score` keeps its
