@@ -7,6 +7,7 @@ import hashlib
 import inspect
 import re
 import secrets
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import asdict
@@ -557,6 +558,8 @@ def build_mcp_server(
     max_snippet_chars: int = 500,
     enable_memory_write: bool = False,
     freshness_cache: FreshnessCache | None = None,
+    background_indexer: Any | None = None,
+    config: SaharaConfig | None = None,
 ) -> Any:
     """Create the Sahara FastMCP server.
 
@@ -573,7 +576,8 @@ def build_mcp_server(
             "Install it with: pip install 'sahara-memory[mcp]'"
         ) from exc
 
-    config = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    if config is None:
+        config = load_config(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
     if enable_memory_write and transport != "stdio":
         raise ValueError(
             "MCP memory writes are available only over the local stdio transport"
@@ -694,7 +698,10 @@ def build_mcp_server(
             indexed_file_count, pending_changes (new/modified/missing files
             since the last index), is_lower_bound, watcher_running and stale.
             """
-            return {**index_status(), **cache.get()}
+            status = {**index_status(), **cache.get()}
+            if background_indexer is not None:
+                status["background_index"] = background_indexer.snapshot()
+            return status
 
     if "sahara_recall" in tool_allowlist:
         @server.tool()
@@ -763,8 +770,25 @@ def serve(
     allowed_storage_prefixes: tuple[str, ...] | None = None,
     max_snippet_chars: int = 500,
     enable_memory_write: bool = False,
+    extension_folders: list[Path] | None = None,
 ) -> None:
-    """Run Sahara's MCP server over the requested transport."""
+    """Run Sahara's MCP server over the requested transport.
+
+    With *extension_folders* (Claude Desktop extension flow) the config is
+    created on first run and the index is built in the background.
+    """
+    extra: dict[str, Any] = {}
+    if extension_folders is not None:
+        from sahara.extension import BackgroundIndexer, bootstrap_extension
+
+        config, notes = bootstrap_extension(
+            extension_folders, config_path=Path(config_path) if config_path else None
+        )
+        for note in notes:
+            print(note, file=sys.stderr)
+        indexer = BackgroundIndexer(config)
+        indexer.start()
+        extra = {"config": config, "background_indexer": indexer}
     build_mcp_server(
         config_path=config_path,
         transport=transport,
@@ -775,4 +799,5 @@ def serve(
         allowed_storage_prefixes=allowed_storage_prefixes,
         max_snippet_chars=max_snippet_chars,
         enable_memory_write=enable_memory_write,
+        **extra,
     ).run(transport=transport)

@@ -10,6 +10,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ### Added
 
+- Claude Desktop extension (MCPB): `scripts/build_mcpb.py` packages the native bundle
+  with a manifest, icon and folder picker setting; `sahara mcp serve --extension`
+  creates the config and builds the index in the background on first run; the release
+  workflow attaches `.mcpb` files with checksums. Unsigned and not yet tested in a real
+  Claude Desktop install. (#136)
 - Hybrid retrieval: search now fuses SQLite FTS5 BM25 keyword results with vector
   results using Reciprocal Rank Fusion, so exact identifiers, amounts and dates are
   found reliably. Results gain `rrf_score` and `match` fields; `score` keeps its

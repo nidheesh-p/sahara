@@ -2283,6 +2283,13 @@ def mcp_install_claude(
     is_flag=True,
     help="Expose create-only sahara_remember over local stdio.",
 )
+@click.option(
+    "--extension",
+    is_flag=True,
+    help="Claude Desktop extension mode: create the config from the FOLDERS "
+    "arguments on first run and build the index in the background.",
+)
+@click.argument("folders", nargs=-1)
 @click.pass_context
 def mcp_serve(
     ctx: click.Context,
@@ -2295,9 +2302,17 @@ def mcp_serve(
     allowed_storage_prefixes: tuple[str, ...],
     max_snippet_chars: int,
     enable_memory_write: bool,
+    extension: bool,
+    folders: tuple[str, ...],
 ) -> None:
     """Serve Sahara retrieval tools and optional local memory capture."""
+    from sahara.extension import clean_folder_args
     from sahara.mcp_server import serve
+
+    if folders and not extension:
+        raise click.UsageError("FOLDERS are only accepted with --extension.")
+    if extension and transport != "stdio":
+        raise click.UsageError("--extension requires the stdio transport.")
 
     config_path = ctx.obj.get("config_path")
     mcp_transport = cast(
@@ -2348,6 +2363,7 @@ def mcp_serve(
             allowed_storage_prefixes=allowed_storage_prefixes or None,
             max_snippet_chars=max_snippet_chars,
             enable_memory_write=enable_memory_write,
+            extension_folders=clean_folder_args(folders) if extension else None,
         )
     except (RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
