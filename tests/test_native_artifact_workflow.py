@@ -62,7 +62,11 @@ def test_native_artifacts_workflow_builds_signed_windows_installer_in_protected_
     workflow_text = WORKFLOW.read_text(encoding="utf-8")
 
     assert installer["needs"] == "windows-x64"
-    assert installer["if"] == "startsWith(github.ref, 'refs/tags/')"
+    # Deferred to #151: manual only, never on a tag push.
+    assert installer["if"] == (
+        "github.event_name == 'workflow_dispatch' && "
+        "github.event.inputs.build_windows_installer == 'true'"
+    )
     assert installer["environment"] == "windows-installer"
     assert "choco install innosetup --no-progress -y" in workflow_text
     assert "scripts/build_windows_installer.py --bundle $bundle --sign" in workflow_text
@@ -82,7 +86,6 @@ def test_native_artifacts_workflow_publishes_release_assets() -> None:
         "macos-apple-silicon",
         "macos-installer",
         "windows-x64",
-        "windows-installer",
         "linux-x86-64",
         "claude-desktop-extension",
     ]
@@ -90,8 +93,9 @@ def test_native_artifacts_workflow_publishes_release_assets() -> None:
     assert "gh release view \"$RELEASE_TAG\"" in workflow_text
     assert "gh release upload \"$RELEASE_TAG\" \"${assets[@]}\" --clobber" in workflow_text
     assert "native-macos-arm64-installer" in workflow_text
-    assert "native-windows-x64-installer" in workflow_text
     assert "native-linux-x86_64" in workflow_text
+    assert "windows-installer" not in publisher["needs"]
+    assert "native-windows-x64-installer" not in str(publisher["steps"])
 
 
 def test_native_artifacts_workflow_builds_linux_portable_archive() -> None:

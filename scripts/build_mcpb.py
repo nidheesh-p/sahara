@@ -134,6 +134,31 @@ def _add_file(archive: zipfile.ZipFile, source: Path, arcname: str) -> None:
             out.write(chunk)
 
 
+def resolve_loader_symlinks(bundle: Path) -> list[Path]:
+    """Replace symlinks outside ``.framework`` folders with real files; return them.
+
+    The .mcpb zip stores no symlinks, so each becomes a plain copy of its target.
+    ``_internal/Python`` links to the framework binary, whose signature is bound
+    to the framework's Info.plist, so a copy made after signing fails to load
+    under the hardened runtime. Resolving such links before signing gives each
+    copy its own standalone signature. Links inside a framework stay links while
+    signing, because codesign rejects a framework whose structure was flattened.
+    """
+    resolved = []
+    for path in sorted(bundle.rglob("*")):
+        if not path.is_symlink():
+            continue
+        if any(part.endswith(".framework") for part in path.relative_to(bundle).parts[:-1]):
+            continue
+        target = path.resolve()
+        if not target.is_file():
+            continue
+        path.unlink()
+        shutil.copy2(target, path)
+        resolved.append(path)
+    return resolved
+
+
 def notarize_bundle(bundle: Path, *, apple_id: str, team_id: str, password: str) -> None:
     """Submit the signed runtime to Apple notarization (a zip of it, ditto-made).
 
@@ -186,6 +211,7 @@ def build_mcpb(
         with tempfile.TemporaryDirectory(prefix="sahara-mcpb-") as temp:
             signed = Path(temp) / bundle.name
             shutil.copytree(bundle, signed, symlinks=True)
+            resolve_loader_symlinks(signed)
             sign_bundle(signed, application_identity)
             if notarize:
                 notarize_bundle(

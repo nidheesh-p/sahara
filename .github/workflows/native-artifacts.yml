@@ -8,6 +8,11 @@ on:
         required: false
         default: false
         type: boolean
+      build_windows_installer:
+        description: "Build the signed Windows installer (deferred to #151; needs Windows signing secrets)"
+        required: false
+        default: false
+        type: boolean
   push:
     tags:
       - "v*"
@@ -18,7 +23,7 @@ permissions:
 jobs:
   macos-apple-silicon:
     name: Build macOS Apple Silicon bundle
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +86,7 @@ jobs:
     name: Build signed macOS installer
     if: startsWith(github.ref, 'refs/tags/')
     needs: macos-apple-silicon
-    runs-on: macos-14
+    runs-on: macos-15
     environment: macos-installer
 
     steps:
@@ -276,7 +281,8 @@ jobs:
 
   windows-installer:
     name: Build signed Windows installer
-    if: startsWith(github.ref, 'refs/tags/')
+    # Manual only while Windows is deferred (#151), so it never blocks a macOS release.
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.build_windows_installer == 'true'
     needs: windows-x64
     runs-on: windows-latest
     environment: windows-installer
@@ -335,9 +341,10 @@ jobs:
 
   claude-desktop-extension:
     name: Build signed Claude Desktop extension (MCPB)
-    if: startsWith(github.ref, 'refs/tags/')
+    # Manual runs sign and notarize too, as a dry run; only tags publish.
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     needs: macos-apple-silicon
-    runs-on: macos-14
+    runs-on: macos-15
     environment: macos-installer
 
     steps:
@@ -413,7 +420,6 @@ jobs:
       - macos-apple-silicon
       - macos-installer
       - windows-x64
-      - windows-installer
       - linux-x86-64
       - claude-desktop-extension
     runs-on: ubuntu-latest
@@ -438,12 +444,6 @@ jobs:
         with:
           name: native-windows-x64
           path: dist/release-assets/native-windows-x64/
-
-      - name: Download Windows installer artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: native-windows-x64-installer
-          path: dist/release-assets/native-windows-x64-installer/
 
       - name: Download Linux portable artifact
         uses: actions/download-artifact@v4

@@ -119,6 +119,35 @@ def test_signing_is_applied_to_a_copy_and_notarized(tmp_path: Path) -> None:
     verify_mcpb(mcpb, platform_tag="macos-arm64")
 
 
+def test_loader_symlinks_are_real_files_before_signing(tmp_path: Path) -> None:
+    """A symlinked framework binary copied after signing fails to load (#136)."""
+    bundle = _bundle(tmp_path, "sahara")
+    versions = bundle / "_internal" / "Python.framework" / "Versions"
+    (versions / "3.12").mkdir(parents=True)
+    (versions / "3.12" / "Python").write_bytes(b"framework binary")
+    (versions / "Current").symlink_to("3.12")
+    (bundle / "_internal" / "Python").symlink_to("Python.framework/Versions/3.12/Python")
+    seen: dict[str, bool] = {}
+
+    def fake_sign(signed: Path, _identity: str) -> None:
+        loader = signed / "_internal" / "Python"
+        seen["loader_is_file"] = loader.is_file() and not loader.is_symlink()
+        seen["framework_link_kept"] = (
+            signed / "_internal" / "Python.framework" / "Versions" / "Current"
+        ).is_symlink()
+
+    with patch("scripts.build_mcpb.sign_bundle", side_effect=fake_sign):
+        build_mcpb(
+            bundle,
+            platform_tag="macos-arm64",
+            output_root=tmp_path / "out",
+            application_identity="Developer ID Application: Example",
+        )
+
+    assert seen == {"loader_is_file": True, "framework_link_kept": True}
+    assert (bundle / "_internal" / "Python").is_symlink()  # the source is untouched
+
+
 def test_notarize_requires_credentials(tmp_path: Path) -> None:
     bundle = _bundle(tmp_path, "sahara")
 
@@ -138,7 +167,9 @@ def test_workflow_builds_signed_extension_with_existing_secrets() -> None:
     job = jobs["claude-desktop-extension"]
 
     assert job["needs"] == "macos-apple-silicon"
-    assert job["if"] == "startsWith(github.ref, 'refs/tags/')"
+    assert job["if"] == (
+        "startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'"
+    )
     assert job["environment"] == "macos-installer"
     assert "claude-desktop-extension" in jobs["publish-release-assets"]["needs"]
     assert "build_mcpb.py --platform macos-arm64" in text
