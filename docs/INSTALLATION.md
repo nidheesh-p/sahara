@@ -11,7 +11,7 @@ Macs — an arm64 binary cannot execute on Intel hardware. If you have an Intel 
 use the [pipx path](#recommended-pipx) below instead.
 
 Download the signed and notarized installer:
-[sahara-0.3.0-macos-arm64.pkg](https://github.com/nidheesh-p/sahara/releases/download/v0.3.0/sahara-0.3.0-macos-arm64.pkg).
+[sahara-0.4.0-macos-arm64.pkg](https://github.com/nidheesh-p/sahara/releases/download/v0.4.0/sahara-0.4.0-macos-arm64.pkg).
 The release page also lists a `.sha256` checksum and a manifest file; both are for
 verification only, not needed to install.
 
@@ -20,7 +20,7 @@ installer, or from Terminal:
 
 ```bash
 cd ~/Downloads  # or wherever the .pkg downloaded to
-sudo installer -pkg sahara-0.3.0-macos-arm64.pkg -target /
+sudo installer -pkg sahara-0.4.0-macos-arm64.pkg -target /
 sahara --version
 ```
 

@@ -343,7 +343,7 @@ def test_macos_codesign_candidates_are_macho_files(tmp_path: Path) -> None:
 
 
 def test_builds_and_verifies_macos_installer_metadata(tmp_path: Path) -> None:
-    bundle = tmp_path / "sahara-0.3.0-macos-arm64"
+    bundle = tmp_path / "sahara-0.4.0-macos-arm64"
     bundle.mkdir()
     executable = bundle / "sahara"
     executable.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -371,7 +371,7 @@ def test_builds_and_verifies_macos_installer_metadata(tmp_path: Path) -> None:
 
     assert strip_metadata.call_count == 2
     sign_bundle.assert_called_once()
-    assert artifact.package.name == "sahara-0.3.0-macos-arm64.pkg"
+    assert artifact.package.name == "sahara-0.4.0-macos-arm64.pkg"
     verify_macos_installer(tmp_path / "installers", artifact.package.name)
     manifest = artifact.manifest.read_text(encoding="utf-8")
     assert PACKAGE_ID in manifest
@@ -383,7 +383,7 @@ def test_builds_and_verifies_macos_installer_metadata(tmp_path: Path) -> None:
 
 
 def test_macos_installer_notarization_requires_release_credentials(tmp_path: Path) -> None:
-    bundle = tmp_path / "sahara-0.3.0-macos-arm64"
+    bundle = tmp_path / "sahara-0.4.0-macos-arm64"
     bundle.mkdir()
     (bundle / "sahara").write_text("#!/bin/sh\n", encoding="utf-8")
 

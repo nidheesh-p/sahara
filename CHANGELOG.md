@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-26
+
 ### Added
 
 - Claude Desktop extension (MCPB): `scripts/build_mcpb.py` packages the native bundle
