@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_at": "2026-11-27T02:57:06.489163Z",
+  "updated_at": "2026-11-27T09:15:33.592754Z",
   "tasks": [
     {
       "id": "ask-egress-preview",
@@ -205,6 +205,42 @@
       "updated_at": "2026-11-27T02:57:06.489163Z"
     },
     {
+      "id": "ocr-vision-pages-watcher",
+      "status": "landed",
+      "session": "0a1bc4c0-2bfc-4c6f-b75d-e066a1dd8b56",
+      "model": "claude-opus-5-5",
+      "attempt": "r1",
+      "rc": 0,
+      "verdict": "pass",
+      "reason": "stop",
+      "brief": ".selfware/briefs/ocr-vision-pages-watcher.txt",
+      "needs": [
+        "ocr-plugin-core"
+      ],
+      "owns": [
+        "src/sahara/ocr.py",
+        "src/sahara/search/search_engine.py",
+        "src/sahara/library.py",
+        "src/sahara/cli.py",
+        "src/sahara/config.py",
+        "src/sahara/eval/runner.py",
+        "pyproject.toml",
+        "SECURITY.md",
+        "docs/COMMAND_REFERENCE.md",
+        "CHANGELOG.md",
+        "tests/test_ocr.py",
+        "tests/test_eval_harness.py",
+        "tests/test_egress_docs.py",
+        "tests/eval/corpus/scan_lab_results_fictional.png",
+        "tests/eval/corpus/scan_loan_letter_fictional.pdf",
+        "tests/eval/queries.json",
+        "tests/eval/BASELINE.md",
+        "scripts/make_ocr_fixtures.py"
+      ],
+      "attempts": 1,
+      "updated_at": "2026-11-27T09:15:33.592754Z"
+    },
+    {
       "id": "retrieval-eval-harness",
       "status": "landed",
       "session": "2b919315-dc31-4cde-b915-a7cf73a5a9f7",
@@ -250,6 +286,6 @@
     }
   ],
   "counts": {
-    "landed": 11
+    "landed": 12
   }
 }
