@@ -84,6 +84,7 @@ def test_native_artifacts_workflow_publishes_release_assets() -> None:
         "windows-x64",
         "windows-installer",
         "linux-x86-64",
+        "claude-desktop-extension",
     ]
     assert publisher["permissions"] == {"contents": "write"}
     assert "gh release view \"$RELEASE_TAG\"" in workflow_text
