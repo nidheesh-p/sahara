@@ -96,9 +96,12 @@ The passphrase is never written to disk in plaintext, never stored in `~/.sahara
 The only network call is the one-time download of the embedding model on first use.
 
 **OCR.** OCR of images and scanned PDFs is off by default (`ocr_enabled = false`).
-When enabled it runs locally with tesseract and sends nothing anywhere; there is no
-cloud OCR. Recognised text goes into the same local index as any other extracted
-text, so every statement above about the index applies to it.
+When enabled it either runs on-device through Apple's Vision framework (the `vision`
+backend, macOS only) or runs locally with tesseract and sends nothing anywhere; neither
+backend makes a network call and there is no cloud OCR. This holds wherever indexing
+runs: `sahara index`, the file watcher, the daemon and the Claude Desktop extension.
+Recognised text is never logged. It goes into the same local index as any other
+extracted text, so every statement above about the index applies to it.
 
 **OpenAI.** Sahara sends one chat completions request per question. It carries the
 question, a fixed system instruction, the model name and a context built from the

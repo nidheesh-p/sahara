@@ -14,7 +14,7 @@ from typing import Any
 from filelock import FileLock
 
 from sahara.config import SaharaConfig
-from sahara.search.search_engine import IndexFileResult, SearchEngine
+from sahara.search.search_engine import IndexFileResult, OcrCounters, SearchEngine
 from sahara.storage.state_db import StateDB
 from sahara.sync.ignore_rules import IgnoreRules
 
@@ -413,6 +413,23 @@ class IndexingService:
         self._config = config
         self._db = db
         self._search = SearchEngine(db)
+        if config.ocr_enabled:
+            from sahara.ocr import get_backend
+
+            # Configured here so every indexing path (CLI, watcher, daemon,
+            # extension) honours ocr_enabled the same way.
+            self._search.extractor.configure_ocr(True, get_backend(config.ocr_backend))
+
+    @property
+    def ocr_counters(self) -> OcrCounters:
+        """OCR tallies for files extracted by this service."""
+        return self._search.extractor.ocr_counters
+
+    @property
+    def ocr_backend_name(self) -> str | None:
+        """Name of the active OCR backend; None when OCR is off or unavailable."""
+        backend = self._search.extractor.ocr_backend
+        return backend.name if backend is not None else None
 
     def roots(self) -> list[ContentRoot]:
         return ensure_content_roots(self._config, self._db)

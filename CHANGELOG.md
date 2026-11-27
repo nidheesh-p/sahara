@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+### Added
+
+- OCR (still off by default, still local only): a `vision` backend that uses Apple's
+  on-device Vision framework on macOS; `ocr_backend = "auto"` now prefers `vision`,
+  then `tesseract`. Mixed PDFs are OCR'd page by page, so scanned pages inside a text
+  PDF are read and page order is kept. `ocr_enabled` now also applies to the file
+  watcher, the daemon and the Claude Desktop extension. The eval corpus gains two
+  fictional scanned fixtures and `requires_ocr` queries, skipped when no OCR backend
+  is available (#137).
+
 ## [0.4.1] — 2026-11-27
 
 ### Fixed

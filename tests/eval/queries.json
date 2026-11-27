@@ -64,5 +64,10 @@
   {"id": "hold-none-09", "category": "not_present", "query": "gas boiler replacement quote", "relevant": [], "holdout": true},
   {"id": "hold-none-10", "category": "not_present", "query": "performance review for Jun Abernathy", "relevant": [], "holdout": true},
   {"id": "hold-none-11", "category": "not_present", "query": "sourdough starter feeding schedule", "relevant": [], "holdout": true},
-  {"id": "hold-none-12", "category": "not_present", "query": "electric car charging tariff", "relevant": [], "holdout": true}
+  {"id": "hold-none-12", "category": "not_present", "query": "electric car charging tariff", "relevant": [], "holdout": true},
+  {"id": "ocr-01", "category": "exact_token", "query": "LVD-58213-Q", "relevant": ["scan_lab_results_fictional.png"], "requires_ocr": true},
+  {"id": "ocr-02", "category": "exact_token", "query": "Larkspur Valley Diagnostics", "relevant": ["scan_lab_results_fictional.png"], "requires_ocr": true},
+  {"id": "ocr-03", "category": "date_number", "query": "specimen collected 2031-04-17", "relevant": ["scan_lab_results_fictional.png"], "requires_ocr": true},
+  {"id": "ocr-04", "category": "exact_token", "query": "QX-4417-ZEPHYR", "relevant": ["scan_loan_letter_fictional.pdf"], "requires_ocr": true},
+  {"id": "ocr-05", "category": "date_number", "query": "first instalment due 2032-02-09", "relevant": ["scan_loan_letter_fictional.pdf"], "requires_ocr": true}
 ]

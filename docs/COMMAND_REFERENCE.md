@@ -240,14 +240,23 @@ not in Sahara's TOML file.
 
 | Key | Default | Purpose |
 |---|---|---|
-| `ocr_enabled` | `false` | Read text from `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp` and `.webp` images, and from PDFs with no text layer, during `sahara index` |
-| `ocr_backend` | `auto` | `auto` (first available backend) or `tesseract`; other names are rejected by `sahara config set` |
+| `ocr_enabled` | `false` | Read text from `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp` and `.webp` images, and from scanned pages of PDFs, wherever indexing runs |
+| `ocr_backend` | `auto` | `auto` (`vision` if available, then `tesseract`), `vision` or `tesseract`; other names are rejected by `sahara config set` |
 
-OCR runs locally and sends nothing anywhere. To use it, install the tesseract binary
-(`brew install tesseract` or `apt install tesseract-ocr`) and the `ocr` extra
-(`pip install 'sahara-memory[ocr]'`), then run `sahara config set ocr_enabled true`.
-Scanned PDFs are read from their embedded page images, at most 50 pages per PDF;
-images over 20 MB are skipped.
+OCR runs locally and sends nothing anywhere. `vision` uses Apple's on-device Vision
+framework and is available on macOS only; `tesseract` uses the local tesseract binary.
+Install the `ocr` extra (`pip install 'sahara-memory[ocr]'`; on macOS it includes the
+pyobjc Vision bindings), and for tesseract also the binary (`brew install tesseract` or
+`apt install tesseract-ocr`), then run `sahara config set ocr_enabled true`.
+
+`ocr_enabled` is honoured by `sahara index`, the file watcher, the daemon and the
+Claude Desktop extension (`sahara mcp serve --extension`), not only by `sahara index`.
+
+PDFs are read page by page. A page whose text layer has fewer than 20 non-whitespace
+characters has its embedded images OCR'd, and the result takes that page's place, so a
+mixed PDF (some text pages, some scanned) keeps its page order. Pages with enough text
+are never sent to the backend. At most 50 pages per PDF are OCR'd; images over 20 MB
+are skipped.
 
 With OCR enabled, `sahara index` prints one extra line, `OCR: N files read, M skipped`,
 where skipped counts oversize images, PDFs over the page cap, backend errors and empty

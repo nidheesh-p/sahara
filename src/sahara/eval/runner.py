@@ -15,7 +15,7 @@ from sahara.eval.metrics import (
     recall_at_k,
     reciprocal_rank,
 )
-from sahara.search.search_engine import SearchEngine
+from sahara.search.search_engine import SearchEngine, TextExtractor
 from sahara.storage.state_db import StateDB
 
 __all__ = ["CATEGORIES", "DEFAULT_THRESHOLD", "EvalQuery", "load_queries", "run_eval"]
@@ -35,20 +35,27 @@ class EvalQuery:
     relevant: tuple[str, ...]
     # Held-out queries are never used to tune search; see tests/eval/BASELINE.md.
     holdout: bool = False
+    # Answerable only from OCR'd text; skipped when no OCR backend is available.
+    requires_ocr: bool = False
 
 
 def load_queries(queries_path: Path) -> list[EvalQuery]:
     """Load and validate the golden query file.
 
-    An optional ``"holdout": true`` marks a query kept out of tuning.
+    An optional ``"holdout": true`` marks a query kept out of tuning, and an
+    optional ``"requires_ocr": true`` a query answerable only from OCR'd text.
     """
     queries = []
     for raw in json.loads(queries_path.read_text(encoding="utf-8")):
         holdout = raw.get("holdout", False)
         if not isinstance(holdout, bool):
             raise ValueError(f"{raw['id']}: holdout must be true or false")
+        requires_ocr = raw.get("requires_ocr", False)
+        if not isinstance(requires_ocr, bool):
+            raise ValueError(f"{raw['id']}: requires_ocr must be true or false")
         query = EvalQuery(
-            raw["id"], raw["category"], raw["query"], tuple(raw["relevant"]), holdout
+            raw["id"], raw["category"], raw["query"], tuple(raw["relevant"]), holdout,
+            requires_ocr,
         )
         if query.category not in CATEGORIES:
             raise ValueError(f"{query.id}: unknown category {query.category!r}")
@@ -58,9 +65,11 @@ def load_queries(queries_path: Path) -> list[EvalQuery]:
     return queries
 
 
-def _index_corpus(engine: SearchEngine, corpus_dir: Path) -> list[str]:
+def _index_corpus(engine: SearchEngine, corpus_dir: Path, skip_images: bool) -> list[str]:
     indexed = []
     for path in sorted(p for p in corpus_dir.iterdir() if p.is_file()):
+        if skip_images and path.suffix.lower() in TextExtractor.OCR_IMAGE_EXTENSIONS:
+            continue
         result = engine.index_file_with_result(path, _STORAGE_PREFIX, path.name, force=True)
         if not result.indexed:
             raise RuntimeError(f"corpus file {path.name} was not indexed: {result.reason}")
@@ -92,13 +101,23 @@ def run_eval(
     share of not_present queries whose top result is labelled "high" or
     "medium"; ``confident_top1_rate`` the share of answerable queries whose top
     result is relevant and labelled so.
+
+    OCR runs with the ``auto`` backend when one is available. Without one,
+    corpus images and ``requires_ocr`` queries are skipped; ``ocr_backend``
+    (name or None) and ``skipped_for_ocr`` counts report what happened.
     """
-    queries = load_queries(queries_path)
+    from sahara.ocr import get_backend
+
+    all_queries = load_queries(queries_path)
+    backend = get_backend("auto")
+    queries = [q for q in all_queries if backend is not None or not q.requires_ocr]
     with tempfile.TemporaryDirectory(prefix="sahara-eval-") as tmp:
         db = StateDB(Path(tmp) / "state.db").connect()
         try:
             engine = SearchEngine(db)
-            indexed = _index_corpus(engine, corpus_dir)
+            engine.extractor.configure_ocr(backend is not None, backend)
+            corpus_total = sum(1 for p in corpus_dir.iterdir() if p.is_file())
+            indexed = _index_corpus(engine, corpus_dir, skip_images=backend is None)
             vec_backend = db.has_vec_table()
             fts_backend = db.has_fts_table()
             rows = []
@@ -112,6 +131,7 @@ def run_eval(
                     "id": q.id,
                     "category": q.category,
                     "holdout": q.holdout,
+                    "requires_ocr": q.requires_ocr,
                     "ranked": ranked,
                     "scores": [r["score"] for r in results],
                     "confidence": confidence,
@@ -136,6 +156,11 @@ def run_eval(
         "fts_backend": fts_backend,
         "corpus_files": len(indexed),
         "num_queries": len(rows),
+        "ocr_backend": backend.name if backend is not None else None,
+        "skipped_for_ocr": {
+            "corpus_files": corpus_total - len(indexed),
+            "queries": len(all_queries) - len(queries),
+        },
         **tuning,
         "holdout": _summarise([r for r in rows if r["holdout"]], threshold),
         "queries": rows,
