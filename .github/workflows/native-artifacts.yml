@@ -460,12 +460,14 @@ jobs:
       - name: Upload native assets to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          # This job has no checkout, so gh cannot infer the repository.
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
 
           for attempt in {1..30}; do
-            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            if gh release view "$RELEASE_TAG" >/dev/null; then
               break
             fi
             if [[ "$attempt" == "30" ]]; then
