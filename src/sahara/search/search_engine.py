@@ -26,9 +26,12 @@ from sahara.search.hybrid import (
 )
 
 if TYPE_CHECKING:
+    from sahara.ocr import OcrBackend
     from sahara.storage.state_db import StateDB
 
-__all__ = ["IndexFileResult", "SEARCH_MODES", "SearchEngine", "TextExtractor"]
+__all__ = [
+    "IndexFileResult", "OcrCounters", "SEARCH_MODES", "SearchEngine", "TextExtractor",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +93,15 @@ class IndexFileResult:
 
     indexed: bool
     reason: str
+
+
+@dataclass
+class OcrCounters:
+    """Per-extractor OCR tallies, read by the indexer for its summary line."""
+
+    ocr_done: int = 0
+    ocr_skipped: int = 0  # too large, page cap, backend error, empty result
+    ocr_unavailable_files: int = 0  # needed OCR but no backend was available
 
 
 @contextmanager
@@ -181,10 +193,39 @@ class TextExtractor:
         ".gz", ".tar", ".7z", ".dmg", ".exe", ".bin",
     }
 
+    OCR_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+    OCR_MAX_PDF_PAGES = 50
+    OCR_MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
+    def __init__(self) -> None:
+        self.ocr_enabled = False
+        self.ocr_backend: OcrBackend | None = None
+        self.ocr_counters = OcrCounters()
+
+    def configure_ocr(self, enabled: bool, backend: OcrBackend | None) -> None:
+        """Turn OCR on or off. With *backend* None, OCR stays inactive."""
+        self.ocr_enabled = enabled
+        self.ocr_backend = backend if enabled else None
+
+    def accepts_ocr_image(self, suffix: str) -> bool:
+        """True when an image with *suffix* will be read by OCR.
+
+        Counts the file as ``ocr_unavailable_files`` when OCR is enabled but
+        no backend is available.
+        """
+        if not self.ocr_enabled or suffix not in self.OCR_IMAGE_EXTENSIONS:
+            return False
+        if self.ocr_backend is None:
+            self.ocr_counters.ocr_unavailable_files += 1
+            return False
+        return True
+
     def extract(self, file_path: Path) -> str | None:
         suffix = file_path.suffix.lower()
         if suffix == ".pdf":
             return self._extract_pdf(file_path)
+        if suffix in self.BINARY_EXTENSIONS and self.accepts_ocr_image(suffix):
+            return self._ocr_image_file(file_path)
         if suffix in (".docx", ".doc"):
             return self._extract_docx(file_path)
         if suffix == ".epub":
@@ -206,6 +247,11 @@ class TextExtractor:
                 reader = pypdf.PdfReader(str(file_path))
                 parts = [page.extract_text() for page in reader.pages]
             text = "\n".join(p for p in parts if p)
+            if self.ocr_enabled and not text.strip():
+                if self.ocr_backend is None:
+                    self.ocr_counters.ocr_unavailable_files += 1
+                else:
+                    return self._ocr_pdf_pages(file_path, reader.pages)
             return text or None
         except ImportError:
             logger.debug("pypdf not installed; cannot extract PDF text")
@@ -213,6 +259,72 @@ class TextExtractor:
         except Exception as exc:
             logger.debug("PDF extraction failed for %s: %s", file_path, exc)
             return None
+
+    def _ocr_image_file(self, file_path: Path) -> str | None:
+        try:
+            if file_path.stat().st_size > self.OCR_MAX_IMAGE_BYTES:
+                logger.debug("OCR skipped %s: image too large", file_path.name)
+                self.ocr_counters.ocr_skipped += 1
+                return None
+            data = file_path.read_bytes()
+        except OSError as exc:
+            logger.debug("Cannot read %s: %s", file_path, exc)
+            return None
+        return self._finish_ocr(file_path, [self._ocr_bytes(file_path, data)])
+
+    def _ocr_pdf_pages(self, file_path: Path, pages: Any) -> str | None:
+        """OCR the embedded images of an image-only PDF (no page rendering)."""
+        if len(pages) > self.OCR_MAX_PDF_PAGES:
+            logger.debug(
+                "OCR of %s capped at %d pages", file_path.name, self.OCR_MAX_PDF_PAGES
+            )
+            self.ocr_counters.ocr_skipped += 1
+        parts: list[str | None] = []
+        for page in list(pages)[: self.OCR_MAX_PDF_PAGES]:
+            try:
+                with _quiet_pdf_logs():
+                    images = list(page.images)
+            except Exception as exc:
+                logger.debug("Cannot list images in %s: %s", file_path.name, exc)
+                self.ocr_counters.ocr_skipped += 1
+                continue
+            for image in images:
+                try:
+                    data = image.data
+                except Exception as exc:
+                    logger.debug("Cannot decode image in %s: %s", file_path.name, exc)
+                    self.ocr_counters.ocr_skipped += 1
+                    continue
+                if len(data) > self.OCR_MAX_IMAGE_BYTES:
+                    logger.debug("OCR skipped image in %s: too large", file_path.name)
+                    self.ocr_counters.ocr_skipped += 1
+                    continue
+                parts.append(self._ocr_bytes(file_path, data))
+        return self._finish_ocr(file_path, parts)
+
+    def _ocr_bytes(self, file_path: Path, data: bytes) -> str | None:
+        """Run the backend on one image; a backend error is counted, not raised."""
+        assert self.ocr_backend is not None
+        try:
+            return self.ocr_backend.recognize(data)
+        except Exception as exc:
+            logger.debug(
+                "OCR backend %s failed on %s: %s",
+                self.ocr_backend.name, file_path.name, type(exc).__name__,
+            )
+            self.ocr_counters.ocr_skipped += 1
+            return None
+
+    def _finish_ocr(self, file_path: Path, parts: list[str | None]) -> str | None:
+        text = "\n".join(p.strip() for p in parts if p and p.strip())
+        if not text:
+            if any(p is not None for p in parts) or not parts:
+                logger.debug("OCR found no text in %s", file_path.name)
+                self.ocr_counters.ocr_skipped += 1
+            return None
+        logger.debug("OCR read %s (%d characters)", file_path.name, len(text))
+        self.ocr_counters.ocr_done += 1
+        return text
 
     def _extract_docx(self, file_path: Path) -> str | None:
         try:
@@ -358,6 +470,11 @@ class SearchEngine:
         self._extractor = TextExtractor()
         self._model: Any = None
 
+    @property
+    def extractor(self) -> TextExtractor:
+        """The extractor used for indexing (OCR settings and counters live here)."""
+        return self._extractor
+
     def _get_model(self) -> Any:
         if self._model is None:
             self._model = load_embedding_model()
@@ -393,7 +510,10 @@ class SearchEngine:
     ) -> IndexFileResult:
         """Index file_path and return whether it was indexed plus a reason."""
         suffix = file_path.suffix.lower()
-        if suffix in TextExtractor.BINARY_EXTENSIONS:
+        if (
+            suffix in TextExtractor.BINARY_EXTENSIONS
+            and not self._extractor.accepts_ocr_image(suffix)
+        ):
             return IndexFileResult(indexed=False, reason="unsupported")
 
         text = self._extractor.extract(file_path)

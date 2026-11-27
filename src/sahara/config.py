@@ -130,6 +130,10 @@ class SaharaConfig:
     # Empty uses the platform-independent default: ~/Sahara Memory
     memory_folder: str = ""
 
+    # OCR for images and scanned PDFs (local only; off by default)
+    ocr_enabled: bool = False
+    ocr_backend: str = "auto"  # auto | tesseract
+
     # Exclude patterns (appended to DEFAULT_EXCLUDES)
     exclude_patterns: list[str] = field(default_factory=list)
 

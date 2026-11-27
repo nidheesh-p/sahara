@@ -236,6 +236,25 @@ The default file is `~/.sahara/config.toml`. Use the global
 API keys and bearer tokens should remain in environment variables or a secret manager,
 not in Sahara's TOML file.
 
+### OCR (images and scanned PDFs)
+
+| Key | Default | Purpose |
+|---|---|---|
+| `ocr_enabled` | `false` | Read text from `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp` and `.webp` images, and from PDFs with no text layer, during `sahara index` |
+| `ocr_backend` | `auto` | `auto` (first available backend) or `tesseract`; other names are rejected by `sahara config set` |
+
+OCR runs locally and sends nothing anywhere. To use it, install the tesseract binary
+(`brew install tesseract` or `apt install tesseract-ocr`) and the `ocr` extra
+(`pip install 'sahara-memory[ocr]'`), then run `sahara config set ocr_enabled true`.
+Scanned PDFs are read from their embedded page images, at most 50 pages per PDF;
+images over 20 MB are skipped.
+
+With OCR enabled, `sahara index` prints one extra line, `OCR: N files read, M skipped`,
+where skipped counts oversize images, PDFs over the page cap, backend errors and empty
+results. If no backend is available it prints a warning with install steps and indexes
+everything else as usual. See
+[What leaves your machine](../SECURITY.md#what-leaves-your-machine).
+
 ## Legacy Folder Commands
 
 These commands predate the index-first `sahara folder ...` interface. They remain
