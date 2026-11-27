@@ -443,3 +443,22 @@ class TestTransaction:
             pass
         # Row should have been rolled back
         assert in_memory_db.get_file("rollback_test.txt") is None
+
+
+def test_vec_table_ignored_when_extension_cannot_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A vec_chunks table made elsewhere must not be used without vec0 (index crash)."""
+    import sahara.storage.state_db as state_db_module
+
+    path = tmp_path / "state.db"
+    with StateDB(path) as db:
+        db.conn.execute("CREATE TABLE IF NOT EXISTS vec_chunks (rowid_ INTEGER)")
+        db.conn.commit()
+    monkeypatch.setattr(state_db_module, "_try_load_sqlite_vec", lambda conn: False)
+    with StateDB(path) as db:
+        assert db.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'vec_chunks'"
+        ).fetchone()
+        assert db.has_vec_table() is False
+        db.delete_search_index_for_file("p", "gone.txt")  # must not raise
