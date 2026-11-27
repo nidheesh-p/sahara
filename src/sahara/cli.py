@@ -1445,6 +1445,12 @@ def config_set(ctx: click.Context, key: str, value: str) -> None:
         _abort("answer_provider must be 'none', 'ollama', or 'openai'.")
     if key == "answer_provider":
         value = value.lower()
+    if key == "ocr_backend":
+        from sahara.ocr import OCR_BACKEND_NAMES
+
+        value = value.lower()
+        if value not in OCR_BACKEND_NAMES:
+            _abort(f"ocr_backend must be one of: {', '.join(OCR_BACKEND_NAMES)}.")
     if key == "memory_folder":
         from sahara.memory.format import validate_memory_root_marker
         from sahara.storage.state_db import StateDB
@@ -3050,6 +3056,21 @@ def index_cmd(
     db = StateDB().connect()
     try:
         service = IndexingService(config, db)
+        ocr_counters = None
+        if config.ocr_enabled:
+            from sahara.ocr import get_backend
+
+            # IndexingService has no OCR hook; configure the extractor it uses.
+            extractor = service._search.extractor
+            extractor.configure_ocr(True, get_backend(config.ocr_backend))
+            ocr_counters = extractor.ocr_counters
+            if extractor.ocr_backend is None:
+                _warn(
+                    "OCR is enabled but no OCR backend is available. Install "
+                    "tesseract (e.g. `brew install tesseract` or "
+                    "`apt install tesseract-ocr`) and the `ocr` extra "
+                    "(`pip install 'sahara-memory[ocr]'`)."
+                )
         root_path = Path(folder) if folder else None
         if db.count_embeddings() == 0 and not assume_model_ready:
             _info(
@@ -3073,6 +3094,11 @@ def index_cmd(
             f"{result.failed} failed."
         )
         _report_skip_reasons(result)
+        if ocr_counters is not None:
+            _info(
+                f"OCR: {ocr_counters.ocr_done} files read, "
+                f"{ocr_counters.ocr_skipped} skipped"
+            )
         _info(f"Total in index: {db.count_embeddings()} file(s).")
     finally:
         db.close()

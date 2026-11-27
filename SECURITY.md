@@ -95,6 +95,11 @@ The passphrase is never written to disk in plaintext, never stored in `~/.sahara
 **Indexing and embeddings.** Text extraction, chunking and embedding run locally.
 The only network call is the one-time download of the embedding model on first use.
 
+**OCR.** OCR of images and scanned PDFs is off by default (`ocr_enabled = false`).
+When enabled it runs locally with tesseract and sends nothing anywhere; there is no
+cloud OCR. Recognised text goes into the same local index as any other extracted
+text, so every statement above about the index applies to it.
+
 **OpenAI.** Sahara sends one chat completions request per question. It carries the
 question, a fixed system instruction, the model name and a context built from the
 top retrieved snippets, each prefixed with its relative path. The context holds at most

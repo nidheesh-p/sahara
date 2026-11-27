@@ -67,3 +67,10 @@ def test_documented_ask_egress_flags_and_log_command_exist() -> None:
         assert flag in ask_opts
     assert "egress-log" in main.commands and "`sahara egress-log`" in section
     assert "redaction or never-send path rules, and previews or confirmation for MCP" in section
+
+
+def test_ocr_is_off_by_default_and_documented_as_local() -> None:
+    section = _section()
+    assert SaharaConfig().ocr_enabled is False
+    assert "off by default (`ocr_enabled = false`)" in section
+    assert "runs locally with tesseract and sends nothing anywhere" in section
