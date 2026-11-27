@@ -8,6 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Sahara 
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-11-27
+
+### Fixed
+
+- `sahara --version` reported 0.3.0 in the 0.4.0 package and native bundles; it now
+  reports the real version, and a test keeps it equal to `pyproject.toml`.
+- The release workflow attaches the native installers, the Claude Desktop extension and
+  their checksums to the GitHub Release automatically (for 0.4.0 they were attached by
+  hand).
+
 ## [0.4.0] — 2026-11-26
 
 ### Added
