@@ -136,8 +136,12 @@ caches by default.
 
 ## Package Managers
 
-After a stable GitHub release has published signed native installer assets, maintainers
-can publish package-manager entries from those same artifacts:
+Homebrew and WinGet are **not available yet**: no tap or manifest has been published
+(tracked in [#53](https://github.com/nidheesh-p/sahara/issues/53)), so the commands
+below will not work today. Use the macOS installer above or pipx instead. After a
+stable GitHub release has published signed native installer assets, maintainers can
+publish package-manager entries from those same artifacts, and these commands will
+then apply:
 
 ```bash
 brew tap nidheesh-p/sahara
