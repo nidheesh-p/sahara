@@ -138,7 +138,9 @@ def test_workflow_builds_signed_extension_with_existing_secrets() -> None:
     job = jobs["claude-desktop-extension"]
 
     assert job["needs"] == "macos-apple-silicon"
-    assert job["if"] == "startsWith(github.ref, 'refs/tags/')"
+    assert job["if"] == (
+        "startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'"
+    )
     assert job["environment"] == "macos-installer"
     assert "claude-desktop-extension" in jobs["publish-release-assets"]["needs"]
     assert "build_mcpb.py --platform macos-arm64" in text
