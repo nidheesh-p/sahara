@@ -69,6 +69,17 @@ def test_pyproject_version():
     assert 'version = "0.4.0"' in content
 
 
+def test_package_version_matches_pyproject():
+    # `sahara --version` reads sahara.__version__; v0.4.0 shipped reporting 0.3.0.
+    import tomllib
+
+    from sahara import __version__
+
+    toml_path = Path(__file__).parent.parent / "pyproject.toml"
+    with toml_path.open("rb") as handle:
+        assert __version__ == tomllib.load(handle)["project"]["version"]
+
+
 def test_pyproject_distribution_name():
     toml_path = Path(__file__).parent.parent / "pyproject.toml"
     content = toml_path.read_text()

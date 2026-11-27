@@ -95,6 +95,8 @@ def test_native_artifacts_workflow_publishes_release_assets() -> None:
     assert "native-macos-arm64-installer" in workflow_text
     assert "native-linux-x86_64" in workflow_text
     assert "windows-installer" not in publisher["needs"]
+    upload = next(step for step in publisher["steps"] if step.get("name", "").startswith("Upload"))
+    assert upload["env"]["GH_REPO"] == "${{ github.repository }}"
     assert "native-windows-x64-installer" not in str(publisher["steps"])
 
 
