@@ -14,7 +14,7 @@ External drives, MinIO, and AWS storage are optional extensions, not prerequisit
 **Local-first:** indexing and semantic search run on your computer. No account, API
 key, storage bucket, or additional drive is required for the core search experience.
 
-**Latest release:** [v0.3.0](https://github.com/nidheesh-p/sahara/releases/tag/v0.3.0)
+**Latest release:** [v0.4.0](https://github.com/nidheesh-p/sahara/releases/tag/v0.4.0)
 adds a signed, notarized native macOS installer, guided first-run onboarding, and
 opt-in MCP memory capture. A Windows (x64) installer and a Linux x86_64 portable
 archive build successfully but aren't signed/published yet ([#106](https://github.com/nidheesh-p/sahara/issues/106),
@@ -49,7 +49,7 @@ A signed, notarized installer is available for **macOS on Apple Silicon** (M1/M2
 Intel Mac, use [CLI via pipx](#cli-via-pipx) below instead.
 
 1. Download the installer:
-   [sahara-0.3.0-macos-arm64.pkg](https://github.com/nidheesh-p/sahara/releases/download/v0.3.0/sahara-0.3.0-macos-arm64.pkg)
+   [sahara-0.4.0-macos-arm64.pkg](https://github.com/nidheesh-p/sahara/releases/download/v0.4.0/sahara-0.4.0-macos-arm64.pkg)
    (the release page also lists a `.sha256` checksum and a manifest file — you can
    ignore both, they're for verification, not installation).
 2. Open **Terminal** and go to the folder you downloaded it to (usually Downloads):
@@ -58,7 +58,7 @@ Intel Mac, use [CLI via pipx](#cli-via-pipx) below instead.
    ```
 3. Install it:
    ```bash
-   sudo installer -pkg sahara-0.3.0-macos-arm64.pkg -target /
+   sudo installer -pkg sahara-0.4.0-macos-arm64.pkg -target /
    ```
    This asks for your Mac login password (for `sudo`), not a separate Sahara password.
 4. Confirm it installed:

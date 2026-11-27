@@ -66,7 +66,7 @@ def test_pyproject_version():
     # We test the source directly since the package may not be reinstalled yet.
     toml_path = Path(__file__).parent.parent / "pyproject.toml"
     content = toml_path.read_text()
-    assert 'version = "0.3.0"' in content
+    assert 'version = "0.4.0"' in content
 
 
 def test_pyproject_distribution_name():
